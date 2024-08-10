@@ -6,6 +6,16 @@
 [![Fiscal Contributors](https://opencollective.com/meshtastic/tiers/badge.svg?label=Fiscal%20Contributors&color=deeppink)](https://opencollective.com/meshtastic/)
 [![Vercel](https://img.shields.io/static/v1?label=Powered%20by&message=Vercel&style=flat&logo=vercel&color=000000)](https://vercel.com?utm_source=meshtastic&utm_campaign=oss)
 
+## Fork features
+
+This commit introduces a feature that enhances security by preventing the sending of private messages between nodes when the MQTT uplink is enabled. The motivation behind this change is to ensure that sensitive information is not inadvertently transmitted over potentially insecure channels. Public messages broadcast to address 0xffffffff, along with telemetry data, remain unrestricted to maintain the core functionality of the network.
+
+This feature is configurable via the command
+
+meshtastic --set mqtt.secure_messages [true|false]
+
+providing users with flexibility and control over their network's security.
+
 ## Overview
 
 This repository contains the device firmware for the Meshtastic project.
