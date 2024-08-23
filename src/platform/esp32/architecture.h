@@ -42,6 +42,9 @@
 #ifndef DEFAULT_VREF
 #define DEFAULT_VREF 1100
 #endif
+#ifndef HAS_CUSTOM_CRYPTO_ENGINE
+#define HAS_CUSTOM_CRYPTO_ENGINE 1
+#endif
 
 #if defined(HAS_AXP192) || defined(HAS_AXP2101)
 #define HAS_PMU
@@ -149,6 +152,8 @@
 #define HW_VENDOR meshtastic_HardwareModel_WIPHONE
 #elif defined(RADIOMASTER_900_BANDIT_NANO)
 #define HW_VENDOR meshtastic_HardwareModel_RADIOMASTER_900_BANDIT_NANO
+#elif defined(RADIOMASTER_900_BANDIT)
+#define HW_VENDOR meshtastic_HardwareModel_RADIOMASTER_900_BANDIT
 #elif defined(HELTEC_CAPSULE_SENSOR_V3)
 #define HW_VENDOR meshtastic_HardwareModel_HELTEC_CAPSULE_SENSOR_V3
 #elif defined(HELTEC_VISION_MASTER_T190)
