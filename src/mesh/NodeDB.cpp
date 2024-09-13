@@ -121,13 +121,14 @@ NodeDB::NodeDB()
     owner.hw_model = HW_VENDOR;
     // Ensure user (nodeinfo) role is set to whatever we're configured to
     owner.role = config.device.role;
+    // Ensure macaddr is set to our macaddr as it will be copied in our info below
+    memcpy(owner.macaddr, ourMacAddr, sizeof(owner.macaddr));
 
     // Include our owner in the node db under our nodenum
     meshtastic_NodeInfoLite *info = getOrCreateMeshNode(getNodeNum());
     if (!config.has_security) {
         config.has_security = true;
         config.security.serial_enabled = config.device.serial_enabled;
-        config.security.bluetooth_logging_enabled = config.bluetooth.device_logging_enabled;
         config.security.is_managed = config.device.is_managed;
     }
 #if !(MESHTASTIC_EXCLUDE_PKI)
@@ -140,14 +141,24 @@ NodeDB::NodeDB()
         crypto->setDHPrivateKey(config.security.private_key.bytes);
     } else {
 #if !(MESHTASTIC_EXCLUDE_PKI_KEYGEN)
-        LOG_INFO("Generating new PKI keys\n");
-        crypto->generateKeyPair(config.security.public_key.bytes, config.security.private_key.bytes);
-        config.security.public_key.size = 32;
-        config.security.private_key.size = 32;
-
-        printBytes("New Pubkey", config.security.public_key.bytes, 32);
-        owner.public_key.size = 32;
-        memcpy(owner.public_key.bytes, config.security.public_key.bytes, 32);
+        bool keygenSuccess = false;
+        if (config.security.private_key.size == 32) {
+            LOG_INFO("Calculating PKI Public Key\n");
+            if (crypto->regeneratePublicKey(config.security.public_key.bytes, config.security.private_key.bytes)) {
+                keygenSuccess = true;
+            }
+        } else {
+            LOG_INFO("Generating new PKI keys\n");
+            crypto->generateKeyPair(config.security.public_key.bytes, config.security.private_key.bytes);
+            keygenSuccess = true;
+        }
+        if (keygenSuccess) {
+            config.security.public_key.size = 32;
+            config.security.private_key.size = 32;
+            printBytes("New Pubkey", config.security.public_key.bytes, 32);
+            owner.public_key.size = 32;
+            memcpy(owner.public_key.bytes, config.security.public_key.bytes, 32);
+        }
 #else
         LOG_INFO("No PKI keys set, and generation disabled!\n");
 #endif
@@ -234,7 +245,7 @@ bool NodeDB::factoryReset(bool eraseBleBonds)
 #endif
     // second, install default state (this will deal with the duplicate mac address issue)
     installDefaultDeviceState();
-    installDefaultConfig();
+    installDefaultConfig(!eraseBleBonds); // Also preserve the private key if we're not erasing BLE bonds
     installDefaultModuleConfig();
     installDefaultChannels();
     // third, write everything to disk
@@ -257,8 +268,13 @@ bool NodeDB::factoryReset(bool eraseBleBonds)
     return true;
 }
 
-void NodeDB::installDefaultConfig()
+void NodeDB::installDefaultConfig(bool preserveKey = false)
 {
+    uint8_t private_key_temp[32];
+    bool shouldPreserveKey = preserveKey && config.has_security && config.security.private_key.size > 0;
+    if (shouldPreserveKey) {
+        memcpy(private_key_temp, config.security.private_key.bytes, config.security.private_key.size);
+    }
     LOG_INFO("Installing default LocalConfig\n");
     memset(&config, 0, sizeof(meshtastic_LocalConfig));
     config.version = DEVICESTATE_CUR_VER;
@@ -276,6 +292,7 @@ void NodeDB::installDefaultConfig()
     config.lora.tx_enabled =
         true; // FIXME: maybe false in the future, and setting region to enable it. (unset region forces it off)
     config.lora.override_duty_cycle = false;
+    config.lora.config_ok_to_mqtt = false;
 #ifdef CONFIG_LORA_REGION_USERPREFS
     config.lora.region = CONFIG_LORA_REGION_USERPREFS;
 #else
@@ -293,13 +310,19 @@ void NodeDB::installDefaultConfig()
     config.lora.ignore_mqtt = false;
 #endif
 #ifdef ADMIN_KEY_USERPREFS
-    memcpy(config.security.admin_key.bytes, admin_key_userprefs, 32);
-    config.security.admin_key.size = 32;
+    memcpy(config.security.admin_key[0].bytes, admin_key_userprefs, 32);
+    config.security.admin_key[0].size = 32;
 #else
-    config.security.admin_key.size = 0;
+    config.security.admin_key[0].size = 0;
 #endif
+    if (shouldPreserveKey) {
+        config.security.private_key.size = 32;
+        memcpy(config.security.private_key.bytes, private_key_temp, config.security.private_key.size);
+        printBytes("Restored key", config.security.private_key.bytes, config.security.private_key.size);
+    } else {
+        config.security.private_key.size = 0;
+    }
     config.security.public_key.size = 0;
-    config.security.private_key.size = 0;
 #ifdef PIN_GPS_EN
     config.position.gps_en_gpio = PIN_GPS_EN;
 #endif
@@ -308,7 +331,7 @@ void NodeDB::installDefaultConfig()
 #else
     config.device.disable_triple_click = true;
 #endif
-#if !HAS_GPS || defined(T_DECK)
+#if !HAS_GPS || defined(T_DECK) || defined(TLORA_T3S3_EPAPER)
     config.position.gps_mode = meshtastic_Config_PositionConfig_GpsMode_NOT_PRESENT;
 #elif !defined(GPS_RX_PIN)
     if (config.position.rx_gpio == 0)
@@ -353,6 +376,9 @@ void NodeDB::installDefaultConfig()
 #ifdef DISPLAY_FLIP_SCREEN
     config.display.flip_screen = true;
 #endif
+#ifdef RAK4630
+    config.display.wake_on_tap_or_motion = true;
+#endif
 #ifdef T_WATCH_S3
     config.display.screen_on_secs = 30;
     config.display.wake_on_tap_or_motion = true;
@@ -396,6 +422,13 @@ void NodeDB::installDefaultModuleConfig()
     moduleConfig.has_store_forward = true;
     moduleConfig.has_telemetry = true;
     moduleConfig.has_external_notification = true;
+#if defined(PIN_BUZZER)
+    moduleConfig.external_notification.enabled = true;
+    moduleConfig.external_notification.output_buzzer = PIN_BUZZER;
+    moduleConfig.external_notification.use_pwm = true;
+    moduleConfig.external_notification.alert_message_buzzer = true;
+    moduleConfig.external_notification.nag_timeout = 60;
+#endif
 #if defined(RAK4630) || defined(RAK11310)
     // Default to RAK led pin 2 (blue)
     moduleConfig.external_notification.enabled = true;
@@ -405,6 +438,7 @@ void NodeDB::installDefaultModuleConfig()
     moduleConfig.external_notification.output_ms = 1000;
     moduleConfig.external_notification.nag_timeout = 60;
 #endif
+
 #ifdef HAS_I2S
     // Don't worry about the other settings for T-Watch, we'll also use the DRV2056 behavior for notifications
     moduleConfig.external_notification.enabled = true;
@@ -622,9 +656,11 @@ void NodeDB::pickNewNodeNum()
 
     meshtastic_NodeInfoLite *found;
     while ((nodeNum == NODENUM_BROADCAST || nodeNum < NUM_RESERVED) ||
-           ((found = getMeshNode(nodeNum)) && memcmp(found->user.macaddr, owner.macaddr, sizeof(owner.macaddr)) != 0)) {
+           ((found = getMeshNode(nodeNum)) && memcmp(found->user.macaddr, ourMacAddr, sizeof(ourMacAddr)) != 0)) {
         NodeNum candidate = random(NUM_RESERVED, LONG_MAX); // try a new random choice
-        LOG_WARN("NOTE! Our desired nodenum 0x%x is invalid or in use, so trying for 0x%x\n", nodeNum, candidate);
+        LOG_WARN("NOTE! Our desired nodenum 0x%x is invalid or in use, by MAC ending in 0x%02x%02x vs our 0x%02x%02x, so "
+                 "trying for 0x%x\n",
+                 nodeNum, found->user.macaddr[4], found->user.macaddr[5], ourMacAddr[4], ourMacAddr[5], candidate);
         nodeNum = candidate;
     }
     LOG_DEBUG("Using nodenum 0x%x \n", nodeNum);
@@ -690,7 +726,7 @@ void NodeDB::loadFromDisk()
     //} else {
     if (devicestate.version < DEVICESTATE_MIN_VER) {
         LOG_WARN("Devicestate %d is old, discarding\n", devicestate.version);
-        factoryReset();
+        installDefaultDeviceState();
     } else {
         LOG_INFO("Loaded saved devicestate version %d, with nodecount: %d\n", devicestate.version,
                  devicestate.node_db_lite.size());
@@ -706,7 +742,7 @@ void NodeDB::loadFromDisk()
     } else {
         if (config.version < DEVICESTATE_MIN_VER) {
             LOG_WARN("config %d is old, discarding\n", config.version);
-            installDefaultConfig();
+            installDefaultConfig(true);
         } else {
             LOG_INFO("Loaded saved config version %d\n", config.version);
         }
@@ -1019,7 +1055,7 @@ bool NodeDB::updateUser(uint32_t nodeId, meshtastic_User &p, uint8_t channelInde
     if (p.public_key.size > 0) {
         printBytes("Incoming Pubkey: ", p.public_key.bytes, 32);
         if (info->user.public_key.size > 0) { // if we have a key for this user already, don't overwrite with a new one
-            LOG_INFO("Public Key set for node, not updateing!\n");
+            LOG_INFO("Public Key set for node, not updating!\n");
             // we copy the key into the incoming packet, to prevent overwrite
             memcpy(p.public_key.bytes, info->user.public_key.bytes, 32);
         } else {
@@ -1029,9 +1065,10 @@ bool NodeDB::updateUser(uint32_t nodeId, meshtastic_User &p, uint8_t channelInde
 #endif
 
     // Both of info->user and p start as filled with zero so I think this is okay
-    bool changed = memcmp(&info->user, &p, sizeof(info->user)) || (info->channel != channelIndex);
+    auto lite = TypeConversions::ConvertToUserLite(p);
+    bool changed = memcmp(&info->user, &lite, sizeof(info->user)) || (info->channel != channelIndex);
 
-    info->user = TypeConversions::ConvertToUserLite(p);
+    info->user = lite;
     if (info->user.public_key.size == 32) {
         printBytes("Saved Pubkey: ", info->user.public_key.bytes, 32);
     }

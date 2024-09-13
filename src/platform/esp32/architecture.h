@@ -122,6 +122,8 @@
 #define HW_VENDOR meshtastic_HardwareModel_HELTEC_WIRELESS_PAPER
 #elif defined(TLORA_T3S3_V1)
 #define HW_VENDOR meshtastic_HardwareModel_TLORA_T3_S3
+#elif defined(TLORA_T3S3_EPAPER)
+#define HW_VENDOR meshtastic_HardwareModel_TLORA_T3_S3
 #elif defined(CDEBYTE_EORA_S3)
 #define HW_VENDOR meshtastic_HardwareModel_CDEBYTE_EORA_S3
 #elif defined(BETAFPV_2400_TX)
@@ -164,6 +166,8 @@
 #define HW_VENDOR meshtastic_HardwareModel_HELTEC_VISION_MASTER_E290
 #elif defined(HELTEC_MESH_NODE_T114)
 #define HW_VENDOR meshtastic_HardwareModel_HELTEC_MESH_NODE_T114
+#elif defined(SENSECAP_INDICATOR)
+#define HW_VENDOR meshtastic_HardwareModel_SENSECAP_INDICATOR
 #endif
 
 // -----------------------------------------------------------------------------

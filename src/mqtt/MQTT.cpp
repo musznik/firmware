@@ -167,9 +167,9 @@ void MQTT::onReceive(char *topic, byte *payload, size_t length)
                         strcmp(e.channel_id, "PKI") == 0) {
                         meshtastic_NodeInfoLite *tx = nodeDB->getMeshNode(getFrom(p));
                         meshtastic_NodeInfoLite *rx = nodeDB->getMeshNode(p->to);
-                        // Only accept PKI messages if we have both the sender and receiver in our nodeDB, as then it's likely
-                        // they discovered each other via a channel we have downlink enabled for
-                        if (tx && tx->has_user && rx && rx->has_user)
+                        // Only accept PKI messages to us, or if we have both the sender and receiver in our nodeDB, as then it's
+                        // likely they discovered each other via a channel we have downlink enabled for
+                        if (p->to == nodeDB->getNodeNum() || (tx && tx->has_user && rx && rx->has_user))
                             router->enqueueReceivedMessage(p);
                     } else if (router && perhapsDecode(p)) // ignore messages if we don't have the channel key
                         router->enqueueReceivedMessage(p);
@@ -514,20 +514,30 @@ void MQTT::onSend(const meshtastic_MeshPacket &mp, const meshtastic_MeshPacket &
         return; // no channels have an uplink enabled
     auto &ch = channels.getByIndex(chIndex);
 
-    if (mp_decoded.which_payload_variant != meshtastic_MeshPacket_decoded_tag) {
-        LOG_CRIT("MQTT::onSend(): mp_decoded isn't actually decoded\n");
-        return;
-    }
+    if (!mp.pki_encrypted) {
+        if (mp_decoded.which_payload_variant != meshtastic_MeshPacket_decoded_tag) {
+            LOG_CRIT("MQTT::onSend(): mp_decoded isn't actually decoded\n");
+            return;
+        }
 
-    if (strcmp(moduleConfig.mqtt.address, default_mqtt_address) == 0 &&
-        (mp_decoded.decoded.portnum == meshtastic_PortNum_RANGE_TEST_APP ||
-         mp_decoded.decoded.portnum == meshtastic_PortNum_DETECTION_SENSOR_APP)) {
-        LOG_DEBUG("MQTT onSend - Ignoring range test or detection sensor message on public mqtt\n");
-        return;
-    }
+        // check for the lowest bit of the data bitfield set false, and the use of one of the default keys.
+        if (mp_decoded.from != nodeDB->getNodeNum() && mp_decoded.decoded.has_bitfield &&
+            !(mp_decoded.decoded.bitfield & BITFIELD_OK_TO_MQTT_MASK) &&
+            (ch.settings.psk.size < 2 || (ch.settings.psk.size == 16 && memcmp(ch.settings.psk.bytes, defaultpsk, 16)) ||
+             (ch.settings.psk.size == 32 && memcmp(ch.settings.psk.bytes, eventpsk, 32)))) {
+            LOG_INFO("MQTT onSend - Not forwarding packet due to DontMqttMeBro flag\n");
+            return;
+        }
 
-    if (ch.settings.uplink_enabled || mp.pki_encrypted) {
-        const char *channelId = channels.getGlobalId(chIndex); // FIXME, for now we just use the human name for the channel
+        if (strcmp(moduleConfig.mqtt.address, default_mqtt_address) == 0 &&
+            (mp_decoded.decoded.portnum == meshtastic_PortNum_RANGE_TEST_APP ||
+             mp_decoded.decoded.portnum == meshtastic_PortNum_DETECTION_SENSOR_APP)) {
+            LOG_DEBUG("MQTT onSend - Ignoring range test or detection sensor message on public mqtt\n");
+            return;
+        }
+    }
+    if (mp.pki_encrypted || ch.settings.uplink_enabled) {
+        const char *channelId = mp.pki_encrypted ? "PKI" : channels.getGlobalId(chIndex);
 
         meshtastic_ServiceEnvelope *env = mqttPool.allocZeroed();
         env->channel_id = (char *)channelId;
@@ -537,7 +547,8 @@ void MQTT::onSend(const meshtastic_MeshPacket &mp, const meshtastic_MeshPacket &
         if (moduleConfig.mqtt.encryption_enabled) {
             env->packet = (meshtastic_MeshPacket *)&mp;
             LOG_DEBUG("encrypted message\n");
-        } else {
+        } else if (mp_decoded.which_payload_variant ==
+                   meshtastic_MeshPacket_decoded_tag) { // Don't upload a still-encrypted PKI packet
             env->packet = (meshtastic_MeshPacket *)&mp_decoded;
             LOG_DEBUG("portnum %i message\n", env->packet->decoded.portnum);
         }
@@ -546,12 +557,7 @@ void MQTT::onSend(const meshtastic_MeshPacket &mp, const meshtastic_MeshPacket &
             // FIXME - this size calculation is super sloppy, but it will go away once we dynamically alloc meshpackets
             static uint8_t bytes[meshtastic_MeshPacket_size + 64];
             size_t numBytes = pb_encode_to_bytes(bytes, sizeof(bytes), &meshtastic_ServiceEnvelope_msg, env);
-            std::string topic;
-            if (mp.pki_encrypted) {
-                topic = cryptTopic + "PKI/" + owner.id;
-            } else {
-                topic = cryptTopic + channelId + "/" + owner.id;
-            }
+            std::string topic = cryptTopic + channelId + "/" + owner.id;
             LOG_DEBUG("MQTT Publish %s, %u bytes\n", topic.c_str(), numBytes);
 
             publish(topic.c_str(), bytes, numBytes, false);

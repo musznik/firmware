@@ -109,7 +109,7 @@ PacketId generatePacketId()
 
     rollingPacketId++;
 
-    rollingPacketId &= UINT32_MAX >> 22;                                   // Mask out the top 22 bits
+    rollingPacketId &= ID_COUNTER_MASK;                                    // Mask out the top 22 bits
     PacketId id = rollingPacketId | random(UINT32_MAX & 0x7fffffff) << 10; // top 22 bits
     LOG_DEBUG("Partially randomized packet id %u\n", id);
     return id;
@@ -165,6 +165,9 @@ meshtastic_QueueStatus Router::getQueueStatus()
 
 ErrorCode Router::sendLocal(meshtastic_MeshPacket *p, RxSource src)
 {
+    if (p->to == 0) {
+        LOG_ERROR("Packet received with to: of 0!\n");
+    }
     // No need to deliver externally if the destination is the local node
     if (p->to == nodeDB->getNodeNum()) {
         printPacket("Enqueued local", p);
@@ -251,6 +254,8 @@ ErrorCode Router::send(meshtastic_MeshPacket *p)
           p->which_payload_variant == meshtastic_MeshPacket_decoded_tag)) {
         return meshtastic_Routing_Error_BAD_REQUEST;
     }
+
+    fixPriority(p); // Before encryption, fix the priority if it's unset
 
     // If the packet is not yet encrypted, do so now
     if (p->which_payload_variant == meshtastic_MeshPacket_decoded_tag) {
@@ -382,6 +387,8 @@ bool perhapsDecode(meshtastic_MeshPacket *p)
         // parsing was successful
         p->which_payload_variant = meshtastic_MeshPacket_decoded_tag; // change type to decoded
         p->channel = chIndex;                                         // change to store the index instead of the hash
+        if (p->decoded.has_bitfield)
+            p->decoded.want_response |= p->decoded.bitfield & BITFIELD_WANT_RESPONSE_MASK;
 
         /* Not actually ever used.
         // Decompress if needed. jm
@@ -428,6 +435,12 @@ meshtastic_Routing_Error perhapsEncode(meshtastic_MeshPacket *p)
 
     // If the packet is not yet encrypted, do so now
     if (p->which_payload_variant == meshtastic_MeshPacket_decoded_tag) {
+        if (p->from == nodeDB->getNodeNum()) {
+            p->decoded.has_bitfield = true;
+            p->decoded.bitfield |= (config.lora.config_ok_to_mqtt << BITFIELD_OK_TO_MQTT_SHIFT);
+            p->decoded.bitfield |= (p->decoded.want_response << BITFIELD_WANT_RESPONSE_SHIFT);
+        }
+
         size_t numbytes = pb_encode_to_bytes(bytes, sizeof(bytes), &meshtastic_Data_msg, &p->decoded);
 
         /* Not actually used, so save the cycles
