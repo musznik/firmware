@@ -77,8 +77,9 @@ bool AdminModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, meshta
         LOG_DEBUG("Allowing admin response message\n");
     } else if (mp.from == 0) {
         if (config.security.is_managed) {
-            LOG_INFO("Ignoring local admin payload because is_managed.\n");
-            return handled;
+            //mucha
+            // LOG_INFO("Ignoring local admin payload because is_managed.\n");
+            // return handled;
         }
     } else if (strcasecmp(ch->settings.name, Channels::adminChannel) == 0) {
         if (!config.security.admin_channel_enabled) {
