@@ -232,7 +232,7 @@ void Channels::onConfigChanged()
 meshtastic_Channel &Channels::getByIndex(ChannelIndex chIndex)
 {
     // remove this assert cause malformed packets can make our firmware reboot here.
-    if (chIndex < channelFile.channels_count) { // This should be equal to MAX_NUM_CHANNELS
+    if (chIndex <= channelFile.channels_count) { // This should be equal to MAX_NUM_CHANNELS
         meshtastic_Channel *ch = channelFile.channels + chIndex;
         return *ch;
     } else {
