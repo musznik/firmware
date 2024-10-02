@@ -512,8 +512,8 @@ meshtastic_Routing_Error perhapsEncode(meshtastic_MeshPacket *p)
                 return meshtastic_Routing_Error_TOO_LARGE;
             if (p->pki_encrypted && !memfll(p->public_key.bytes, 0, 32) &&
                 memcmp(p->public_key.bytes, node->user.public_key.bytes, 32) != 0) {
-                LOG_WARN("Client public key for client differs from requested! Requested 0x%02x, but stored key begins 0x%02x\n",
-                         *p->public_key.bytes, *node->user.public_key.bytes);
+                LOG_WARN("Client public key differs from requested: 0x%02x, stored key begins 0x%02x\n", *p->public_key.bytes,
+                         *node->user.public_key.bytes);
                 return meshtastic_Routing_Error_PKI_FAILED;
             }
             crypto->encryptCurve25519(p->to, getFrom(p), p->id, numbytes, bytes, ScratchEncrypted);
@@ -599,7 +599,7 @@ void Router::handleReceived(meshtastic_MeshPacket *p, RxSource src)
             skipHandle = true;
         }
 
-#if EVENT_MODE
+#if USERPREFS_EVENT_MODE
         if (p->which_payload_variant == meshtastic_MeshPacket_decoded_tag &&
             (p->decoded.portnum == meshtastic_PortNum_ATAK_FORWARDER || p->decoded.portnum == meshtastic_PortNum_ATAK_PLUGIN ||
              p->decoded.portnum == meshtastic_PortNum_PAXCOUNTER_APP || p->decoded.portnum == meshtastic_PortNum_IP_TUNNEL_APP ||
