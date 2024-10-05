@@ -150,7 +150,7 @@ void MQTT::onReceive(char *topic, byte *payload, size_t length)
                 // Generate an implicit ACK towards ourselves (handled and processed only locally!) for this message.
                 // We do this because packets are not rebroadcasted back into MQTT anymore and we assume that at least one node
                 // receives it when we get our own packet back. Then we'll stop our retransmissions.
-                if (e.packet && getFrom(e.packet) == nodeDB->getNodeNum())
+                if (e.packet && isFromUs(e.packet))
                     routingModule->sendAckNak(meshtastic_Routing_Error_NONE, getFrom(e.packet), e.packet->id, ch.index);
                 else
                     LOG_INFO("Ignoring downlink message we originally sent.\n");
@@ -162,7 +162,7 @@ void MQTT::onReceive(char *topic, byte *payload, size_t length)
                     meshtastic_MeshPacket *p = packetPool.allocCopy(*e.packet);
                     p->via_mqtt = true; // Mark that the packet was received via MQTT
 
-                    if (p->from == 0 || p->from == nodeDB->getNodeNum()) {
+                    if (isFromUs(p)) {
                         LOG_INFO("Ignoring downlink message we originally sent.\n");
                         packetPool.release(p);
                         return;
@@ -188,7 +188,7 @@ void MQTT::onReceive(char *topic, byte *payload, size_t length)
                         const meshtastic_NodeInfoLite *rx = nodeDB->getMeshNode(p->to);
                         // Only accept PKI messages to us, or if we have both the sender and receiver in our nodeDB, as then it's
                         // likely they discovered each other via a channel we have downlink enabled for
-                        if (p->to == nodeDB->getNodeNum() || (tx && tx->has_user && rx && rx->has_user))
+                        if (isToUs(p) || (tx && tx->has_user && rx && rx->has_user))
                             router->enqueueReceivedMessage(p);
                     } else if (router && perhapsDecode(p)) // ignore messages if we don't have the channel key
                         router->enqueueReceivedMessage(p);
