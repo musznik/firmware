@@ -317,8 +317,7 @@ void NodeDB::installDefaultConfig(bool preserveKey = false)
 #ifdef USERPREFS_USE_ADMIN_KEY
     memcpy(config.security.admin_key[0].bytes, USERPREFS_ADMIN_KEY, 32);
     config.security.admin_key[0].size = 32;
-#else
-    config.security.admin_key[0].size = 0;
+    config.security.admin_key_count = 1;
 #endif
     if (shouldPreserveKey) {
         config.security.private_key.size = 32;
@@ -535,6 +534,7 @@ void NodeDB::installRoleDefaults(meshtastic_Config_DeviceConfig_Role role)
         moduleConfig.telemetry.device_update_interval = UINT32_MAX;
         moduleConfig.telemetry.environment_update_interval = UINT32_MAX;
         moduleConfig.telemetry.air_quality_interval = UINT32_MAX;
+        moduleConfig.telemetry.health_update_interval = UINT32_MAX;
     }
 }
 
@@ -545,6 +545,7 @@ void NodeDB::initModuleConfigIntervals()
     moduleConfig.telemetry.environment_update_interval = 0;
     moduleConfig.telemetry.air_quality_interval = 0;
     moduleConfig.telemetry.power_update_interval = 0;
+    moduleConfig.telemetry.health_update_interval = 0;
     moduleConfig.neighbor_info.update_interval = 0;
     moduleConfig.paxcounter.paxcounter_update_interval = 0;
 }
@@ -627,6 +628,8 @@ void NodeDB::installDefaultDeviceState()
     // devicestate.node_db_lite_count = 0;
     devicestate.version = DEVICESTATE_CUR_VER;
     devicestate.receive_queue_count = 0; // Not yet implemented FIXME
+    devicestate.has_rx_waypoint = false;
+    devicestate.has_rx_text_message = false;
 
     generatePacketId(); // FIXME - ugly way to init current_packet_id;
 
