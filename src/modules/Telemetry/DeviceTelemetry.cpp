@@ -28,6 +28,7 @@ int32_t DeviceTelemetryModule::runOnce()
         config.device.role != meshtastic_Config_DeviceConfig_Role_REPEATER &&
         config.device.role != meshtastic_Config_DeviceConfig_Role_CLIENT_HIDDEN) {
         sendTelemetry();
+        sendLocalStatsToPhone();
         lastSentToMesh = uptimeLastMs;
     } else if (service->isToPhoneQueueEmpty()) {
         // Just send to phone when it's not our time to send to mesh yet
@@ -149,6 +150,7 @@ void DeviceTelemetryModule::sendLocalStatsToPhone()
     p->priority = meshtastic_MeshPacket_Priority_BACKGROUND;
 
     service->sendToPhone(p);
+    service->sendToMesh(p, RX_SRC_LOCAL, true);
 }
 
 bool DeviceTelemetryModule::sendTelemetry(NodeNum dest, bool phoneOnly)
