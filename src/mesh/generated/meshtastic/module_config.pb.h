@@ -146,7 +146,7 @@ typedef struct _meshtastic_ModuleConfig_MQTTConfig {
     /* Settings for reporting information about our node to a map via MQTT */
     bool has_map_report_settings;
     meshtastic_ModuleConfig_MapReportSettings map_report_settings;
-    /* Do not send private messages via MQTT */
+    /* Do not forward private messages via MQTT */
     bool secure_messages;
 } meshtastic_ModuleConfig_MQTTConfig;
 
@@ -895,7 +895,7 @@ extern const pb_msgdesc_t meshtastic_RemoteHardwarePin_msg;
 #define meshtastic_ModuleConfig_SerialConfig_size 28
 #define meshtastic_ModuleConfig_StoreForwardConfig_size 24
 #define meshtastic_ModuleConfig_TelemetryConfig_size 46
-#define meshtastic_ModuleConfig_size             257
+#define meshtastic_ModuleConfig_size             259
 #define meshtastic_RemoteHardwarePin_size        21
 
 #ifdef __cplusplus
