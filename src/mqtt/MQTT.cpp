@@ -586,16 +586,11 @@ void MQTT::onSend(const meshtastic_MeshPacket &mp_encrypted, const meshtastic_Me
 
 #if !defined(ARCH_NRF52) ||                                                                                                      \
     defined(NRF52_USE_JSON) // JSON is not supported on nRF52, see issue #2804 ### Fixed by using ArduinoJson ###
-            if (moduleConfig.mqtt.json_enabled) {
+           if (moduleConfig.mqtt.json_enabled) {
                 // handle json topic
                 auto jsonString = MeshPacketSerializer::JsonSerialize((meshtastic_MeshPacket *)&mp_decoded);
                 if (jsonString.length() != 0) {
-                    std::string topicJson;
-                    if (mp.pki_encrypted) {
-                        topicJson = jsonTopic + "PKI/" + owner.id;
-                    } else {
-                        topicJson = jsonTopic + channelId + "/" + owner.id;
-                    }
+                    std::string topicJson = jsonTopic + channelId + "/" + owner.id;
                     LOG_INFO("JSON publish message to %s, %u bytes: %s\n", topicJson.c_str(), jsonString.length(),
                              jsonString.c_str());
                     publish(topicJson.c_str(), jsonString.c_str(), false);
