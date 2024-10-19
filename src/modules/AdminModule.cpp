@@ -75,6 +75,12 @@ bool AdminModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, meshta
     // and only allowing responses from that remote.
     if (messageIsResponse(r)) {
         LOG_DEBUG("Allowing admin response message");
+    } else if (mp.from == 0) {
+        // allow mixed-managed mode
+        // if (config.security.is_managed) {
+        //     LOG_INFO("Ignoring local admin payload because is_managed.");
+        //     return handled;
+        // }
     } else if (strcasecmp(ch->settings.name, Channels::adminChannel) == 0) {
         if (!config.security.admin_channel_enabled) {
             LOG_INFO("Ignoring admin channel, as legacy admin is disabled.");
