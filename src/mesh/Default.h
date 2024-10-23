@@ -6,6 +6,7 @@
 #define THIRTY_SECONDS_MS 30 * 1000
 #define FIVE_SECONDS_MS 5 * 1000
 #define FIFTEEN_SECONDS_MS 15 * 1000
+#define TEN_SECONDS_MS 10 * 1000
 
 #define min_default_telemetry_interval_secs 15 * 60
 #define default_gps_update_interval IF_ROUTER(ONE_DAY, 2 * 60)
