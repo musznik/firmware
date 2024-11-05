@@ -186,9 +186,14 @@ ErrorCode RadioLibInterface::send(meshtastic_MeshPacket *p)
 
 #endif
 
+    if (p->to == NODENUM_BROADCAST_NO_LORA) {
+        LOG_DEBUG("Drop no-LoRa pkt");
+        return ERRNO_SHOULD_RELEASE;
+    }
+
     // Sometimes when testing it is useful to be able to never turn on the xmitter
 #ifndef LORA_DISABLE_SENDING
-    printPacket("enqueuing for send", p);
+    printPacket("enqueue for send", p);
 
     LOG_DEBUG("txGood=%d,txRelay=%d,rxGood=%d,rxBad=%d", txGood, txRelay, rxGood, rxBad);
     ErrorCode res = txQueue.enqueue(p) ? ERRNO_OK : ERRNO_UNKNOWN;
@@ -224,7 +229,7 @@ bool RadioLibInterface::canSleep()
 {
     bool res = txQueue.empty();
     if (!res) { // only print debug messages if we are vetoing sleep
-        LOG_DEBUG("radio wait to sleep, txEmpty=%d", res);
+        LOG_DEBUG("Radio wait to sleep, txEmpty=%d", res);
     }
     return res;
 }
@@ -276,10 +281,8 @@ void RadioLibInterface::onNotify(uint32_t notification)
                     // Send any outgoing packets we have ready
                     meshtastic_MeshPacket *txp = txQueue.dequeue();
                     assert(txp);
-                    bool isLoraTx = txp->to != NODENUM_BROADCAST_NO_LORA;
-                    startSend(txp);
-
-                    if (isLoraTx) {
+                    bool sent = startSend(txp);
+                    if (sent) {
                         // Packet has been sent, count it toward our TX airtime utilization.
                         uint32_t xmitMsec = getPacketTime(txp);
                         airTime->logAirtime(TX_LOG, xmitMsec);
@@ -392,7 +395,7 @@ void RadioLibInterface::handleReceiveInterrupt()
     }
 #endif
     if (state != RADIOLIB_ERR_NONE) {
-        LOG_ERROR("ignoring received packet due to error=%d", state);
+        LOG_ERROR("Ignore received packet due to error=%d", state);
         rxBad++;
 
         airTime->logAirtime(RX_ALL_LOG, xmitMsec);
@@ -403,14 +406,14 @@ void RadioLibInterface::handleReceiveInterrupt()
 
         // check for short packets
         if (payloadLen < 0) {
-            LOG_WARN("ignoring received packet too short");
+            LOG_WARN("Ignore received packet too short");
             rxBad++;
             airTime->logAirtime(RX_ALL_LOG, xmitMsec);
         } else {
             rxGood++;
             // altered packet with "from == 0" can do Remote Node Administration without permission
             if (radioBuffer.header.from == 0) {
-                LOG_WARN("ignoring received packet without sender");
+                LOG_WARN("Ignore received packet without sender");
                 return;
             }
 
@@ -465,15 +468,13 @@ void RadioLibInterface::setStandby()
 }
 
 /** start an immediate transmit */
-void RadioLibInterface::startSend(meshtastic_MeshPacket *txp)
+bool RadioLibInterface::startSend(meshtastic_MeshPacket *txp)
 {
-    printPacket("Starting low level send", txp);
-    if (txp->to == NODENUM_BROADCAST_NO_LORA) {
-        LOG_DEBUG("Drop Tx packet because dest is broadcast no-lora");
-        packetPool.release(txp);
-    } else if (disabled || !config.lora.tx_enabled) {
+    printPacket("Start low level send", txp);
+    if (disabled || !config.lora.tx_enabled) {
         LOG_WARN("Drop Tx packet because LoRa Tx disabled");
         packetPool.release(txp);
+        return false;
     } else {
         configHardwareForSend(); // must be after setStandby
 
@@ -493,5 +494,7 @@ void RadioLibInterface::startSend(meshtastic_MeshPacket *txp)
         // Must be done AFTER, starting transmit, because startTransmit clears (possibly stale) interrupt pending register
         // bits
         enableInterrupt(isrTxLevel0);
+
+        return res == RADIOLIB_ERR_NONE;
     }
 }

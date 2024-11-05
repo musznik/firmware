@@ -77,7 +77,7 @@ meshtastic_MeshPacket *DeviceTelemetryModule::allocReply()
         }
         // Check for a request for device metrics
         if (decoded->which_variant == meshtastic_Telemetry_device_metrics_tag) {
-            LOG_INFO("Device telemetry replying to request");
+            LOG_INFO("Device telemetry reply to request");
 
             meshtastic_Telemetry telemetry = getDeviceTelemetry();
             return allocDataProtobuf(telemetry);
@@ -155,7 +155,7 @@ void DeviceTelemetryModule::sendLocalStatsToPhone()
 bool DeviceTelemetryModule::sendTelemetry(NodeNum dest, bool phoneOnly)
 {
     meshtastic_Telemetry telemetry = getDeviceTelemetry();
-    LOG_INFO("(Sending): air_util_tx=%f, channel_utilization=%f, battery_level=%i, voltage=%f, uptime=%i",
+    LOG_INFO("Send: air_util_tx=%f, channel_utilization=%f, battery_level=%i, voltage=%f, uptime=%i",
              telemetry.variant.device_metrics.air_util_tx, telemetry.variant.device_metrics.channel_utilization,
              telemetry.variant.device_metrics.battery_level, telemetry.variant.device_metrics.voltage,
              telemetry.variant.device_metrics.uptime_seconds);
@@ -167,10 +167,10 @@ bool DeviceTelemetryModule::sendTelemetry(NodeNum dest, bool phoneOnly)
 
     nodeDB->updateTelemetry(nodeDB->getNodeNum(), telemetry, RX_SRC_LOCAL);
     if (phoneOnly) {
-        LOG_INFO("Sending packet to phone");
+        LOG_INFO("Send packet to phone");
         service->sendToPhone(p);
     } else {
-        LOG_INFO("Sending packet to mesh");
+        LOG_INFO("Send packet to mesh");
         service->sendToMesh(p, RX_SRC_LOCAL, true);
     }
     return true;

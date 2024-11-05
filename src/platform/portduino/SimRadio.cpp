@@ -182,18 +182,18 @@ void SimRadio::onNotify(uint32_t notification)
 /** start an immediate transmit */
 void SimRadio::startSend(meshtastic_MeshPacket *txp)
 {
-    printPacket("Starting low level send", txp);
+    printPacket("Start low level send", txp);
     size_t numbytes = beginSending(txp);
     meshtastic_MeshPacket *p = packetPool.allocCopy(*txp);
     perhapsDecode(p);
     meshtastic_Compressed c = meshtastic_Compressed_init_default;
     c.portnum = p->decoded.portnum;
-    // LOG_DEBUG("Sending back to simulator with portNum %d", p->decoded.portnum);
+    // LOG_DEBUG("Send back to simulator with portNum %d", p->decoded.portnum);
     if (p->decoded.payload.size <= sizeof(c.data.bytes)) {
         memcpy(&c.data.bytes, p->decoded.payload.bytes, p->decoded.payload.size);
         c.data.size = p->decoded.payload.size;
     } else {
-        LOG_WARN("Payload size larger than compressed message allows! Sending empty payload");
+        LOG_WARN("Payload size larger than compressed message allows! Send empty payload");
     }
     p->decoded.payload.size =
         pb_encode_to_bytes(p->decoded.payload.bytes, sizeof(p->decoded.payload.bytes), &meshtastic_Compressed_msg, &c);

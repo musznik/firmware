@@ -71,7 +71,7 @@ int32_t Router::runOnce()
         perhapsHandleReceived(mp);
     }
 
-    // LOG_DEBUG("sleeping forever!");
+    // LOG_DEBUG("Sleep forever!");
     return INT32_MAX; // Wait a long time - until we get woken for the message queue
 }
 
@@ -143,7 +143,7 @@ void Router::sendAckNak(meshtastic_Routing_Error err, NodeNum to, PacketId idFro
 
 void Router::abortSendAndNak(meshtastic_Routing_Error err, meshtastic_MeshPacket *p)
 {
-    LOG_ERROR("Error=%d, returning NAK and dropping packet", err);
+    LOG_ERROR("Error=%d, return NAK and drop packet", err);
     sendAckNak(err, getFrom(p), p->id, p->channel);
     packetPool.release(p);
 }
@@ -342,7 +342,7 @@ bool perhapsDecode(meshtastic_MeshPacket *p)
     if (p->channel == 0 && isToUs(p) && p->to > 0 && !isBroadcast(p->to) && nodeDB->getMeshNode(p->from) != nullptr &&
         nodeDB->getMeshNode(p->from)->user.public_key.size > 0 && nodeDB->getMeshNode(p->to)->user.public_key.size > 0 &&
         rawSize > MESHTASTIC_PKC_OVERHEAD) {
-        LOG_DEBUG("Attempting PKI decryption");
+        LOG_DEBUG("Attempt PKI decryption");
 
         if (crypto->decryptCurve25519(p->from, nodeDB->getMeshNode(p->from)->user.public_key, p->id, rawSize, ScratchEncrypted,
                                       bytes)) {
@@ -477,7 +477,7 @@ meshtastic_Routing_Error perhapsEncode(meshtastic_MeshPacket *p)
 
                 // Otherwise we use the compressor
             } else {
-                LOG_DEBUG("Using compressed message");
+                LOG_DEBUG("Use compressed message");
                 // Copy the compressed data into the meshpacket
 
                 p->decoded.payload.size = compressed_len;
@@ -510,7 +510,7 @@ meshtastic_Routing_Error perhapsEncode(meshtastic_MeshPacket *p)
             // Some portnums either make no sense to send with PKC
             p->decoded.portnum != meshtastic_PortNum_TRACEROUTE_APP && p->decoded.portnum != meshtastic_PortNum_NODEINFO_APP &&
             p->decoded.portnum != meshtastic_PortNum_ROUTING_APP && p->decoded.portnum != meshtastic_PortNum_POSITION_APP) {
-            LOG_DEBUG("Using PKI!");
+            LOG_DEBUG("Use PKI!");
             if (numbytes + MESHTASTIC_HEADER_LENGTH + MESHTASTIC_PKC_OVERHEAD > MAX_LORA_PAYLOAD_LEN)
                 return meshtastic_Routing_Error_TOO_LARGE;
             if (p->pki_encrypted && !memfll(p->public_key.bytes, 0, 32) &&
@@ -597,7 +597,7 @@ void Router::handleReceived(meshtastic_MeshPacket *p, RxSource src)
         if (p->which_payload_variant == meshtastic_MeshPacket_decoded_tag &&
             p->decoded.portnum == meshtastic_PortNum_NEIGHBORINFO_APP &&
             (!moduleConfig.has_neighbor_info || !moduleConfig.neighbor_info.enabled)) {
-            LOG_DEBUG("Neighbor info module is disabled, ignoring neighbor packet");
+            LOG_DEBUG("Neighbor info module is disabled, ignore neighbor packet");
             cancelSending(p->from, p->id);
             skipHandle = true;
         }
@@ -612,7 +612,7 @@ void Router::handleReceived(meshtastic_MeshPacket *p, RxSource src)
                       meshtastic_PortNum_PAXCOUNTER_APP, meshtastic_PortNum_IP_TUNNEL_APP, meshtastic_PortNum_AUDIO_APP,
                       meshtastic_PortNum_PRIVATE_APP, meshtastic_PortNum_DETECTION_SENSOR_APP, meshtastic_PortNum_RANGE_TEST_APP,
                       meshtastic_PortNum_REMOTE_HARDWARE_APP)) {
-            LOG_DEBUG("Ignoring packet on blacklisted portnum for CORE_PORTNUMS_ONLY");
+            LOG_DEBUG("Ignore packet on blacklisted portnum for CORE_PORTNUMS_ONLY");
             cancelSending(p->from, p->id);
             skipHandle = true;
         }
@@ -653,13 +653,13 @@ void Router::perhapsHandleReceived(meshtastic_MeshPacket *p)
 #endif
     // assert(radioConfig.has_preferences);
     if (is_in_repeated(config.lora.ignore_incoming, p->from)) {
-        LOG_DEBUG("Ignoring msg, 0x%x is in our ignore list", p->from);
+        LOG_DEBUG("Ignore msg, 0x%x is in our ignore list", p->from);
         packetPool.release(p);
         return;
     }
 
     if (p->from == NODENUM_BROADCAST) {
-        LOG_DEBUG("Ignoring msg from broadcast address");
+        LOG_DEBUG("Ignore msg from broadcast address");
         packetPool.release(p);
         return;
     }
