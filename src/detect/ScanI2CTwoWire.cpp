@@ -341,6 +341,7 @@ void ScanI2CTwoWire::scanPort(I2CPort port, uint8_t *address, uint8_t asize)
                 // We need to check for STK8BAXX first, since register 0x07 is new data flag for the z-axis and can produce some
                 // weird result. and register 0x00 doesn't seems to be colliding with MCP9808 and LIS3DH chips.
                 {
+#ifdef HAS_STK8XXX
                     // Check register 0x00 for 0x8700 response to ID STK8BA53 chip.
                     registerValue = getRegisterValue(ScanI2CTwoWire::RegisterLocation(addr, 0x00), 2);
                     if (registerValue == 0x8700) {
@@ -348,6 +349,7 @@ void ScanI2CTwoWire::scanPort(I2CPort port, uint8_t *address, uint8_t asize)
                         LOG_INFO("STK8BAXX accelerometer found");
                         break;
                     }
+#endif
 
                     // Check register 0x07 for 0x0400 response to ID MCP9808 chip.
                     registerValue = getRegisterValue(ScanI2CTwoWire::RegisterLocation(addr, 0x07), 2);
@@ -473,6 +475,16 @@ void ScanI2CTwoWire::scanPort(I2CPort port, uint8_t *address, uint8_t asize)
                 } else {
                     type = MPU6050;
                     LOG_INFO("MPU6050 accelerometer found");
+                    break;
+                }
+                break;
+
+            case CGRADSENS_ADDR:
+                // Register 0x00 of the RadSens sensor contains is product identifier 0x7D
+                registerValue = getRegisterValue(ScanI2CTwoWire::RegisterLocation(addr, 0x00), 1);
+                if (registerValue == 0x7D) {
+                    type = CGRADSENS;
+                    LOG_INFO("ClimateGuard RadSens Geiger-Muller Sensor found");
                     break;
                 }
                 break;
