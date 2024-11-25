@@ -23,10 +23,10 @@
 #define min_node_info_broadcast_secs 60 * 60 // No regular broadcasts of more than once an hour
 #define min_neighbor_info_broadcast_secs 1 * 60 * 60
 
-#define default_mqtt_address "mqtt.meshtastic.org"
-#define default_mqtt_username "meshdev"
-#define default_mqtt_password "large4cats"
-#define default_mqtt_root "msh"
+#define default_mqtt_address "loranet.pl"
+#define default_mqtt_username ""
+#define default_mqtt_password ""
+#define default_mqtt_root "msh/pl"
 #define default_secure_messages true
 
 #define IF_ROUTER(routerVal, normalVal)                                                                                          \
