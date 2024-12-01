@@ -542,7 +542,7 @@ void NodeDB::initConfigIntervals()
 
     config.display.screen_on_secs = default_screen_on_secs;
 
-#if defined(T_WATCH_S3) || defined(T_DECK) || defined(RAK14014) || defined(SENSECAP_INDICATOR)
+#if defined(T_WATCH_S3) || defined(T_DECK) || defined(RAK14014)
     config.power.is_power_saving = true;
     config.display.screen_on_secs = 30;
     config.power.wait_bluetooth_secs = 30;
@@ -1350,7 +1350,7 @@ meshtastic_NodeInfoLite *NodeDB::getOrCreateMeshNode(NodeNum n)
 
     if (!lite) {
         if (isFull()) {
-            LOG_INFO("Node database full with %i nodes and %i bytes free. Erasing oldest entry", numMeshNodes,
+            LOG_INFO("Node database full with %i nodes and %u bytes free. Erasing oldest entry", numMeshNodes,
                      memGet.getFreeHeap());
             // look for oldest node and erase it
             uint32_t oldest = UINT32_MAX;
@@ -1386,7 +1386,7 @@ meshtastic_NodeInfoLite *NodeDB::getOrCreateMeshNode(NodeNum n)
         // everything is missing except the nodenum
         memset(lite, 0, sizeof(*lite));
         lite->num = n;
-        LOG_INFO("Adding node to database with %i nodes and %i bytes free!", numMeshNodes, memGet.getFreeHeap());
+        LOG_INFO("Adding node to database with %i nodes and %u bytes free!", numMeshNodes, memGet.getFreeHeap());
     }
 
     return lite;
