@@ -162,7 +162,16 @@ void DeviceTelemetryModule::sendLocalStatsToPhone()
     p->decoded.want_response = false;
     p->priority = meshtastic_MeshPacket_Priority_BACKGROUND;
 
-    // service->sendToPhone(p);
+    service->sendToPhone(p);
+}
+
+void DeviceTelemetryModule::sendLocalStatsToMesh()
+{
+    meshtastic_MeshPacket *p = allocDataProtobuf(getLocalStatsTelemetry());
+    p->to = NODENUM_BROADCAST;
+    p->decoded.want_response = false;
+    p->priority = meshtastic_MeshPacket_Priority_BACKGROUND;
+
     service->sendToMesh(p, RX_SRC_LOCAL, true);
 }
 
@@ -186,6 +195,8 @@ bool DeviceTelemetryModule::sendTelemetry(NodeNum dest, bool phoneOnly)
     } else {
         LOG_INFO("Send packet to mesh");
         service->sendToMesh(p, RX_SRC_LOCAL, true);
+        sendLocalStatsToMesh();
     }
+ 
     return true;
 }

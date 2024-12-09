@@ -9,10 +9,10 @@
 #define FIFTEEN_SECONDS_MS 15 * 1000
 #define TEN_SECONDS_MS 10 * 1000
 
-#define min_default_telemetry_interval_secs 5 * 60
+#define min_default_telemetry_interval_secs 3 * 60
 #define default_gps_update_interval IF_ROUTER(ONE_DAY, 2 * 60)
-#define default_telemetry_broadcast_interval_secs IF_ROUTER(ONE_DAY / 2, 60 * 60)
-#define default_broadcast_interval_secs IF_ROUTER(ONE_DAY / 2, 15 * 60)
+#define default_telemetry_broadcast_interval_secs IF_ROUTER(30 * 60, 30 * 60)
+#define default_broadcast_interval_secs IF_ROUTER(60 * 60, 15 * 60)
 #define default_wait_bluetooth_secs IF_ROUTER(1, 60)
 #define default_sds_secs IF_ROUTER(ONE_DAY, UINT32_MAX) // Default to forever super deep sleep
 #define default_ls_secs IF_ROUTER(ONE_DAY, 5 * 60)
@@ -21,7 +21,7 @@
 #define default_node_info_broadcast_secs 1 * 60 * 60
 #define default_neighbor_info_broadcast_secs 2 * 60 * 60
 #define min_node_info_broadcast_secs 30 * 60 // No regular broadcasts of more than once an hour
-#define min_neighbor_info_broadcast_secs 1 * 30 * 60
+#define min_neighbor_info_broadcast_secs 1 * 60 * 60
 
 #define default_mqtt_address "loranet.pl"
 #define default_mqtt_username ""
