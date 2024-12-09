@@ -4,6 +4,8 @@
 #include "PowerFSM.h"
 #include "buzz.h"
 #include "configuration.h"
+#include "main.h"
+#define NUM_ONLINE_SECS (60 * 60 * 2) // 2 hrs to consider someone offline
 TextMessageModule *textMessageModule;
 
 ProcessMessage TextMessageModule::handleReceived(const meshtastic_MeshPacket &mp)
@@ -17,10 +19,61 @@ ProcessMessage TextMessageModule::handleReceived(const meshtastic_MeshPacket &mp
     devicestate.rx_text_message = mp;
     devicestate.has_rx_text_message = true;
 
+    std::string receivedMessage(reinterpret_cast<const char*>(p.payload.bytes), p.payload.size);
+
+    if (receivedMessage == "nodes" || receivedMessage == "nodes all") {
+        std::string nodeListMessage = receivedMessage == "nodes" ? "all:\n" : "online:\n";
+        int numNodes = nodeDB->getNumMeshNodes();
+        bool allNodes = (receivedMessage == "nodes all");
+
+        for (int i = 0; i < numNodes; ++i) {
+            meshtastic_NodeInfoLite *node = nodeDB->getMeshNodeByIndex(i);
+            
+            // Skip self
+            if (node->num == nodeDB->getNodeNum())
+                continue;
+
+            if (!allNodes && sinceLastSeen(node) >= NUM_ONLINE_SECS)
+                continue;
+
+            nodeListMessage += node->user.short_name;
+            nodeListMessage += ": ";
+            nodeListMessage += node->user.long_name;
+            nodeListMessage += "\n";
+        }
+
+        TextMessageModule::sendTextMessage(nodeListMessage, mp); 
+    } 
+    
     powerFSM.trigger(EVENT_RECEIVED_MSG);
     notifyObservers(&mp);
 
     return ProcessMessage::CONTINUE; // Let others look at this message also if they want
+}
+ 
+
+void TextMessageModule::sendTextMessage(const std::string &message, const meshtastic_MeshPacket mp)
+{
+    const size_t maxPayloadSize = 210;  
+    size_t messageLength = message.size();
+    size_t startIndex = 0;
+
+    while (startIndex < messageLength) {
+        size_t segmentLength = std::min(maxPayloadSize, messageLength - startIndex);
+        std::string segment = message.substr(startIndex, segmentLength);
+
+        meshtastic_MeshPacket *p = router->allocForSending();
+        p->decoded.portnum = mp.decoded.portnum;
+        p->want_ack = false;
+        p->decoded.payload.size = segment.size();
+        memcpy(p->decoded.payload.bytes, segment.c_str(), segment.size());
+        p->to = mp.from;
+
+        LOG_INFO("Send message id=%d, dest=%x, msg=%.*s", p->id, p->to, p->decoded.payload.size, p->decoded.payload.bytes);
+        service->sendToMesh(p);
+
+        startIndex += segmentLength;
+    }
 }
 
 bool TextMessageModule::wantPacket(const meshtastic_MeshPacket *p)
