@@ -12,6 +12,7 @@ class TextMessageModule : public SinglePortModule, public Observable<const mesht
      * name is for debugging output
      */
     TextMessageModule() : SinglePortModule("text", meshtastic_PortNum_TEXT_MESSAGE_APP) {}
+    
 
   protected:
     /** Called to handle a particular incoming message
@@ -22,6 +23,7 @@ class TextMessageModule : public SinglePortModule, public Observable<const mesht
     virtual ProcessMessage handleReceived(const meshtastic_MeshPacket &mp) override;
     virtual bool wantPacket(const meshtastic_MeshPacket *p) override;
     virtual void sendTextMessage(const std::string &message, const meshtastic_MeshPacket mp);
+    std::string formatFloatToOneDecimal(float value);
 };
 
 extern TextMessageModule *textMessageModule;

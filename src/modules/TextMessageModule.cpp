@@ -5,6 +5,8 @@
 #include "buzz.h"
 #include "configuration.h"
 #include "main.h"
+#include <cmath>
+#include <sstream>
 #define NUM_ONLINE_SECS (60 * 60 * 2) // 2 hrs to consider someone offline
 TextMessageModule *textMessageModule;
 
@@ -22,9 +24,12 @@ ProcessMessage TextMessageModule::handleReceived(const meshtastic_MeshPacket &mp
     std::string receivedMessage(reinterpret_cast<const char*>(p.payload.bytes), p.payload.size);
 
     if (receivedMessage == "nodes" || receivedMessage == "nodes all") {
-        std::string nodeListMessage = receivedMessage == "nodes" ? "all:\n" : "online:\n";
+        std::string nodeListMessage = receivedMessage == "nodes" ? "online:\n" : "all:\n";
         int numNodes = nodeDB->getNumMeshNodes();
         bool allNodes = (receivedMessage == "nodes all");
+
+        float channelUtilization = 0.0;
+        float airUtilTx = 0.0;
 
         for (int i = 0; i < numNodes; ++i) {
             meshtastic_NodeInfoLite *node = nodeDB->getMeshNodeByIndex(i);
@@ -36,9 +41,17 @@ ProcessMessage TextMessageModule::handleReceived(const meshtastic_MeshPacket &mp
             if (!allNodes && sinceLastSeen(node) >= NUM_ONLINE_SECS)
                 continue;
 
-            nodeListMessage += node->user.short_name;
-            nodeListMessage += ": ";
+            channelUtilization = std::round(node->device_metrics.channel_utilization * 10.0) / 10.0;
+            airUtilTx = std::round(node->device_metrics.air_util_tx * 10.0) / 10.0;
+
             nodeListMessage += node->user.long_name;
+            nodeListMessage += " ";
+
+            if(channelUtilization>0 && airUtilTx>0){
+                nodeListMessage += formatFloatToOneDecimal(channelUtilization) + "%|";
+                nodeListMessage += formatFloatToOneDecimal(airUtilTx) + "%";
+            }
+
             nodeListMessage += "\n";
         }
 
@@ -50,8 +63,9 @@ ProcessMessage TextMessageModule::handleReceived(const meshtastic_MeshPacket &mp
 
     return ProcessMessage::CONTINUE; // Let others look at this message also if they want
 }
- 
 
+
+ 
 void TextMessageModule::sendTextMessage(const std::string &message, const meshtastic_MeshPacket mp)
 {
     const size_t maxPayloadSize = 210;  
@@ -79,4 +93,11 @@ void TextMessageModule::sendTextMessage(const std::string &message, const meshta
 bool TextMessageModule::wantPacket(const meshtastic_MeshPacket *p)
 {
     return MeshService::isTextPayload(p);
+}
+
+std::string TextMessageModule::formatFloatToOneDecimal(float value) {
+    std::ostringstream oss;
+    oss.precision(1);
+    oss << std::fixed << value;
+    return oss.str();
 }
