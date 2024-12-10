@@ -9,9 +9,11 @@
 ## Fork features
 
 - Protect private messages on public MQTT: This commit introduces a feature that enhances security by preventing the sending of private messages between nodes when the MQTT uplink is enabled. The motivation behind this change is to ensure that sensitive information is not inadvertently transmitted over potentially insecure channels. Public messages broadcast to address 0xffffffff, along with telemetry data, remain unrestricted to maintain the core functionality of the network. This feature is configurable via the command **meshtastic --set mqtt.secure_messages [true|false]** providing users with flexibility and control over their network's security. Default: True
-- Default hop limit changed from 3 to 7
+- Default hop limit changed from 3 to 5
 - Allow to administrate node with "Managed Mode" via Wifi or BT
 - Less air limits
+- Support for private text message "nodes" (only online) or "nodes all" and return list of nodes
+- Local stats over mesh (additional telemetry)
 
 ## Overview
 
