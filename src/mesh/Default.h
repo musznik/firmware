@@ -9,7 +9,7 @@
 #define FIFTEEN_SECONDS_MS 15 * 1000
 #define TEN_SECONDS_MS 10 * 1000
 
-#define min_default_telemetry_interval_secs 3 * 60
+#define min_default_telemetry_interval_secs 5 * 60
 #define default_gps_update_interval IF_ROUTER(ONE_DAY, 2 * 60)
 #define default_telemetry_broadcast_interval_secs IF_ROUTER(30 * 60, 30 * 60)
 #define default_broadcast_interval_secs IF_ROUTER(60 * 60, 15 * 60)
