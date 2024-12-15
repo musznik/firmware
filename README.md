@@ -1,4 +1,4 @@
-# Meshtastic Firmware
+# Alternative Meshtastic Firmware+
 
 ![GitHub release downloads](https://img.shields.io/github/downloads/meshtastic/firmware/total)
 [![CI](https://img.shields.io/github/actions/workflow/status/meshtastic/firmware/main_matrix.yml?branch=master&label=actions&logo=github&color=yellow)](https://github.com/meshtastic/firmware/actions/workflows/ci.yml)
