@@ -141,6 +141,9 @@ class MeshService
     /// Send a packet to the phone
     void sendToPhone(meshtastic_MeshPacket *p);
 
+    /// Send a packet to the phone sniff
+    void sendToPhoneRaw(meshtastic_MeshPacket *p);
+
     /// Send an MQTT message to the phone for client proxying
     void sendMqttMessageToClientProxy(meshtastic_MqttClientProxyMessage *m);
 

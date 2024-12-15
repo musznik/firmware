@@ -10,6 +10,7 @@
 #include "main.h"
 #include "mesh-pb-constants.h"
 #include "meshUtils.h"
+#include "MeshService.h"
 #include "modules/RoutingModule.h"
 #if !MESHTASTIC_EXCLUDE_MQTT
 #include "mqtt/MQTT.h"
@@ -35,6 +36,8 @@
 static MemoryDynamic<meshtastic_MeshPacket> staticPool;
 
 Allocator<meshtastic_MeshPacket> &packetPool = staticPool;
+typename std::vector<meshtastic_MeshPacket>::iterator begin();
+typename std::vector<meshtastic_MeshPacket>::iterator end();
 
 static uint8_t bytes[MAX_LORA_PAYLOAD_LEN + 1] __attribute__((__aligned__));
 static uint8_t ScratchEncrypted[MAX_LORA_PAYLOAD_LEN + 1] __attribute__((__aligned__));
@@ -309,7 +312,15 @@ bool Router::cancelSending(NodeNum from, PacketId id)
  */
 void Router::sniffReceived(const meshtastic_MeshPacket *p, const meshtastic_Routing *c)
 {
-    // FIXME, update nodedb here for any packet that passes through us
+    if ((!isBroadcast(p->to) || !isToUs(p))) {
+       if (seenPackets.find(p->id) == seenPackets.end()) {
+            service->sendToPhoneRaw(packetPool.allocCopy(*p));
+        }
+    }
+}
+ 
+bool Router::isDuplicate(const meshtastic_MeshPacket* p) const {
+    return seenPackets.find(p->id) != seenPackets.end();
 }
 
 bool perhapsDecode(meshtastic_MeshPacket *p)

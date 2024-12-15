@@ -21,15 +21,15 @@ bool RoutingModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, mesh
             (nodeDB->getMeshNode(mp.to) == NULL || !nodeDB->getMeshNode(mp.to)->has_user))
             return false;
     }
-
-    printPacket("Routing sniffing", &mp);
-    router->sniffReceived(&mp, r);
-
+ 
     // FIXME - move this to a non promsicious PhoneAPI module?
     // Note: we are careful not to send back packets that started with the phone back to the phone
     if ((isBroadcast(mp.to) || isToUs(&mp)) && (mp.from != 0)) {
         printPacket("Delivering rx packet", &mp);
         service->handleFromRadio(&mp);
+    }else{
+        printPacket("Routing sniffing", &mp);
+        router->sniffReceived(&mp, r);
     }
 
     return false; // Let others look at this message also if they want
