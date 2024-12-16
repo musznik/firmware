@@ -313,14 +313,8 @@ bool Router::cancelSending(NodeNum from, PacketId id)
 void Router::sniffReceived(const meshtastic_MeshPacket *p, const meshtastic_Routing *c)
 {
     if ((!isBroadcast(p->to) || !isToUs(p))) {
-       if (seenPackets.find(p->id) == seenPackets.end()) {
             service->sendToPhoneRaw(packetPool.allocCopy(*p));
-        }
     }
-}
- 
-bool Router::isDuplicate(const meshtastic_MeshPacket* p) const {
-    return seenPackets.find(p->id) != seenPackets.end();
 }
 
 bool perhapsDecode(meshtastic_MeshPacket *p)

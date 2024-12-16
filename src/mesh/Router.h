@@ -7,20 +7,11 @@
 #include "PointerQueue.h"
 #include "RadioInterface.h"
 #include "concurrency/OSThread.h"
-#include <unordered_set>
+
 /**
  * A mesh aware router that supports multiple interfaces.
  */
 
-// Hash function for std::unordered_set
-struct hash_pair {
-    template <class T1, class T2>
-    std::size_t operator()(const std::pair<T1, T2>& pair) const {
-        auto hash1 = std::hash<T1>()(pair.first);
-        auto hash2 = std::hash<T2>()(pair.second);
-        return hash1 ^ hash2; // XOR obu hashy
-    }
-};
 class Router : protected concurrency::OSThread
 {
   private:
@@ -37,9 +28,7 @@ class Router : protected concurrency::OSThread
      *
      */
     Router();
-
-
-
+ 
     /**
      * Currently we only allow one interface, that may change in the future
      */
@@ -118,16 +107,11 @@ class Router : protected concurrency::OSThread
      */
     virtual void sniffReceived(const meshtastic_MeshPacket *p, const meshtastic_Routing *c);
     
-    /* duplicate id packet check for packetPool */
-    bool isDuplicate(const meshtastic_MeshPacket *p) const;
-
     /**
      * Send an ack or a nak packet back towards whoever sent idFrom
      */
     void sendAckNak(meshtastic_Routing_Error err, NodeNum to, PacketId idFrom, ChannelIndex chIndex, uint8_t hopLimit = 0);
 
-    std::unordered_set<uint32_t> seenPackets;
- 
   private:
     /**
      * Called from loop()
