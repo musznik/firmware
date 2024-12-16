@@ -86,9 +86,9 @@ void getMacAddr(uint8_t *dmac)
     if (optionMac != nullptr && strlen(optionMac) > 0) {
         if (strlen(optionMac) >= 12) {
             MAC_from_string(optionMac, dmac);
-            std::cout << optionMac << std::endl;
         } else {
-            uint32_t hwId = sscanf(optionMac, "%u", &hwId);
+            uint32_t hwId;
+            sscanf(optionMac, "%u", &hwId);
             dmac[0] = 0x80;
             dmac[1] = 0;
             dmac[2] = hwId >> 24;
@@ -98,7 +98,6 @@ void getMacAddr(uint8_t *dmac)
         }
     } else if (settingsStrings[mac_address].length() > 11) {
         MAC_from_string(settingsStrings[mac_address], dmac);
-        std::cout << settingsStrings[mac_address] << std::endl;
         exit;
     } else {
 
@@ -203,14 +202,14 @@ void portduinoSetup()
         }
     }
 
-    uint8_t dmac[6];
+    uint8_t dmac[6] = {0};
     getMacAddr(dmac);
     if (dmac[0] == 0 && dmac[1] == 0 && dmac[2] == 0 && dmac[3] == 0 && dmac[4] == 0 && dmac[5] == 0) {
         std::cout << "*** Blank MAC Address not allowed!" << std::endl;
         std::cout << "Please set a MAC Address in config.yaml using either MACAddress or MACAddressSource." << std::endl;
         exit(EXIT_FAILURE);
     }
-    printBytes("MAC Address: ", dmac, 6);
+    std::cout << "MAC Address: " << std::hex << +dmac[0] << +dmac[1] << +dmac[2] << +dmac[3] << +dmac[4] << +dmac[5] << std::endl;
     // Rather important to set this, if not running simulated.
     randomSeed(time(NULL));
 
@@ -367,7 +366,10 @@ bool loadConfig(const char *configPath)
                 settingsMap[use_sx1268] = true;
             }
             settingsMap[dio2_as_rf_switch] = yamlConfig["Lora"]["DIO2_AS_RF_SWITCH"].as<bool>(false);
-            settingsMap[dio3_tcxo_voltage] = yamlConfig["Lora"]["DIO3_TCXO_VOLTAGE"].as<bool>(false);
+            settingsMap[dio3_tcxo_voltage] = yamlConfig["Lora"]["DIO3_TCXO_VOLTAGE"].as<float>(0) * 1000;
+            if (settingsMap[dio3_tcxo_voltage] == 0 && yamlConfig["Lora"]["DIO3_TCXO_VOLTAGE"].as<bool>(false)) {
+                settingsMap[dio3_tcxo_voltage] = 1800; // default millivolts for "true"
+            }
             settingsMap[cs] = yamlConfig["Lora"]["CS"].as<int>(RADIOLIB_NC);
             settingsMap[irq] = yamlConfig["Lora"]["IRQ"].as<int>(RADIOLIB_NC);
             settingsMap[busy] = yamlConfig["Lora"]["Busy"].as<int>(RADIOLIB_NC);
