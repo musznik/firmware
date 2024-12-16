@@ -312,9 +312,7 @@ bool Router::cancelSending(NodeNum from, PacketId id)
  */
 void Router::sniffReceived(const meshtastic_MeshPacket *p, const meshtastic_Routing *c)
 {
-    if ((!isBroadcast(p->to) || !isToUs(p))) {
-            service->sendToPhoneRaw(packetPool.allocCopy(*p));
-    }
+    service->sendToPhoneRaw(packetPool.allocCopy(*p));
 }
 
 bool perhapsDecode(meshtastic_MeshPacket *p)
