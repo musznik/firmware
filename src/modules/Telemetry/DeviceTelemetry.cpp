@@ -39,6 +39,17 @@ int32_t DeviceTelemetryModule::runOnce()
             lastSentStatsToPhone = uptimeLastMs;
         }
     }
+
+    // send local telemetry 2 min after normal telemetry
+    if (((statsHaveBeenSent == true) && ((uptimeLastMs - lastSentToMesh) >= 120000)) &&
+        airTime->isTxAllowedChannelUtil(!isImpoliteRole) && airTime->isTxAllowedAirUtil() &&
+        config.device.role != meshtastic_Config_DeviceConfig_Role_REPEATER &&
+        config.device.role != meshtastic_Config_DeviceConfig_Role_CLIENT_HIDDEN) 
+    {
+        sendLocalStatsToMesh();
+        statsHaveBeenSent = false;
+    }
+
     return sendToPhoneIntervalMs;
 }
 
@@ -195,7 +206,7 @@ bool DeviceTelemetryModule::sendTelemetry(NodeNum dest, bool phoneOnly)
     } else {
         LOG_INFO("Send packet to mesh");
         service->sendToMesh(p, RX_SRC_LOCAL, true);
-        sendLocalStatsToMesh();
+        statsHaveBeenSent = true;
     }
  
     return true;
