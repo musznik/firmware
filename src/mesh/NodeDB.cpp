@@ -685,7 +685,7 @@ void NodeDB::installDefaultModuleConfig()
     moduleConfig.mqtt.secure_messages = true;
 
     moduleConfig.has_neighbor_info = true;
-    moduleConfig.neighbor_info.enabled = false;
+    moduleConfig.neighbor_info.enabled = true;
 
     moduleConfig.has_detection_sensor = true;
     moduleConfig.detection_sensor.enabled = false;
