@@ -202,6 +202,7 @@ bool DeviceTelemetryModule::sendTelemetry(NodeNum dest, bool phoneOnly)
     nodeDB->updateTelemetry(nodeDB->getNodeNum(), telemetry, RX_SRC_LOCAL);
     if (phoneOnly) {
         LOG_INFO("Send packet to phone");
+        p->priority = meshtastic_MeshPacket_PriorityPhone_BACKGROUND;
         service->sendToPhone(p);
     } else {
         LOG_INFO("Send packet to mesh");

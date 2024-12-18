@@ -407,6 +407,8 @@ typedef enum _meshtastic_MeshPacket_Priority {
     /* Background position updates are sent with very low priority -
  if the link is super congested they might not go out at all */
     meshtastic_MeshPacket_Priority_BACKGROUND = 10,
+    /* workaround to detect toPhone packet */
+    meshtastic_MeshPacket_PriorityPhone_BACKGROUND = 22,
     /* This priority is used for most messages that don't have a priority set */
     meshtastic_MeshPacket_Priority_DEFAULT = 64,
     /* If priority is unset but the message is marked as want_ack,
