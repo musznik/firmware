@@ -15,6 +15,7 @@
 - Support for private text message "nodes" (only online) or "nodes all" and return list of nodes
 - Local stats over mesh (additional telemetry)
 - Sniffer mode, transfers to the connected device (TCP or BT) packets that are not public and do not belong to us without decrypting them. This allows for a better understanding of network operation.
+- Neighbor Info enabled again on primary channel (LongFast, MediumFast, etc.), enabled by default.
 
 ## Overview
 
