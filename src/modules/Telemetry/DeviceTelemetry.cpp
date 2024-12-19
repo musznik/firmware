@@ -182,7 +182,7 @@ void DeviceTelemetryModule::sendLocalStatsToMesh()
     p->decoded.want_response = false;
     p->priority = meshtastic_MeshPacket_Priority_BACKGROUND;
 
-    service->sendToMesh(p, RX_SRC_LOCAL, false);
+    service->sendToMesh(p, RX_SRC_LOCAL, true);
 }
 
 bool DeviceTelemetryModule::sendTelemetry(NodeNum dest, bool phoneOnly)
