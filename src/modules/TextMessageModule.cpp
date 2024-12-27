@@ -45,6 +45,8 @@ ProcessMessage TextMessageModule::handleReceived(const meshtastic_MeshPacket &mp
             channelUtilization = std::round(node->device_metrics.channel_utilization * 10.0) / 10.0;
             airUtilTx = std::round(node->device_metrics.air_util_tx * 10.0) / 10.0;
 
+
+
             nodeListMessage += node->user.long_name;
             nodeListMessage += " ";
 
@@ -53,10 +55,23 @@ ProcessMessage TextMessageModule::handleReceived(const meshtastic_MeshPacket &mp
                 nodeListMessage += formatFloatToOneDecimal(airUtilTx) + "%";
             }
 
-            nodeListMessage += "\n";
+                        // Add last contact time
+            int lastSeenSeconds = sinceLastSeen(node);
+            int hours = lastSeenSeconds / 3600;
+            int minutes = (lastSeenSeconds % 3600) / 60;
+            int seconds = lastSeenSeconds % 60;
+
+            nodeListMessage += " ";
+            nodeListMessage += std::to_string(hours) + "h ";
+            nodeListMessage += std::to_string(minutes) + "m ";
+            nodeListMessage += std::to_string(seconds) + "s ago";
+
+            nodeListMessage += "\n\n";
         }
 
         TextMessageModule::sendTextMessage(nodeListMessage, mp); 
+        powerFSM.trigger(EVENT_RECEIVED_MSG);
+        return ProcessMessage::STOP;
     } 
     
     powerFSM.trigger(EVENT_RECEIVED_MSG);
