@@ -600,13 +600,14 @@ void Router::handleReceived(meshtastic_MeshPacket *p, RxSource src)
             printPacket("handleReceived(REMOTE)", p);
 
         // Neighbor info module is disabled, ignore expensive neighbor info packets
-        if (p->which_payload_variant == meshtastic_MeshPacket_decoded_tag &&
-            p->decoded.portnum == meshtastic_PortNum_NEIGHBORINFO_APP &&
-            (!moduleConfig.has_neighbor_info || !moduleConfig.neighbor_info.enabled)) {
-            LOG_DEBUG("Neighbor info module is disabled, ignore neighbor packet");
-            cancelSending(p->from, p->id);
-            skipHandle = true;
-        }
+        // always process neighbor info packets
+        // if (p->which_payload_variant == meshtastic_MeshPacket_decoded_tag &&
+        //     p->decoded.portnum == meshtastic_PortNum_NEIGHBORINFO_APP &&
+        //     (!moduleConfig.has_neighbor_info || !moduleConfig.neighbor_info.enabled)) {
+        //     LOG_DEBUG("Neighbor info module is disabled, ignore neighbor packet");
+        //     cancelSending(p->from, p->id);
+        //     skipHandle = true;
+        // }
 
         bool shouldIgnoreNonstandardPorts =
             config.device.rebroadcast_mode == meshtastic_Config_DeviceConfig_RebroadcastMode_CORE_PORTNUMS_ONLY;
