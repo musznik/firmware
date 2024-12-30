@@ -632,6 +632,8 @@ void AdminModule::handleSetConfig(const meshtastic_Config &c)
 
 void AdminModule::handleSetModuleConfig(const meshtastic_ModuleConfig &c)
 {
+    bool do_reboot=true;
+    
     if (!hasOpenEditTransaction)
         disableBluetooth();
     switch (c.which_payload_variant) {
@@ -705,7 +707,7 @@ void AdminModule::handleSetModuleConfig(const meshtastic_ModuleConfig &c)
         moduleConfig.paxcounter = c.payload_variant.paxcounter;
         break;
     }
-    saveChanges(SEGMENT_MODULECONFIG);
+    saveChanges(SEGMENT_MODULECONFIG,do_reboot);
 }
 
 void AdminModule::handleSetChannel(const meshtastic_Channel &cc)
