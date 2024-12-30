@@ -44,9 +44,7 @@ ProcessMessage TextMessageModule::handleReceived(const meshtastic_MeshPacket &mp
 
             channelUtilization = std::round(node->device_metrics.channel_utilization * 10.0) / 10.0;
             airUtilTx = std::round(node->device_metrics.air_util_tx * 10.0) / 10.0;
-
-
-
+ 
             nodeListMessage += node->user.long_name;
             nodeListMessage += " ";
 
@@ -84,7 +82,7 @@ ProcessMessage TextMessageModule::handleReceived(const meshtastic_MeshPacket &mp
  
 void TextMessageModule::sendTextMessage(const std::string &message, const meshtastic_MeshPacket mp)
 {
-    const size_t maxPayloadSize = 210;  
+    const size_t maxPayloadSize = 227;  
     size_t messageLength = message.size();
     size_t startIndex = 0;
 
