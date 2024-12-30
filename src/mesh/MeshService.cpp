@@ -306,10 +306,7 @@ void MeshService::sendToPhone(meshtastic_MeshPacket *p)
     fromNum++;
 }
 
-void MeshService::sendToPhoneRaw(meshtastic_MeshPacket *p)
-{
-    toPhoneQueue.enqueue(p, 0);
-}
+
 
 void MeshService::sendMqttMessageToClientProxy(meshtastic_MqttClientProxyMessage *m)
 {
