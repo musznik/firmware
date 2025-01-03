@@ -311,6 +311,7 @@ bool Router::cancelSending(NodeNum from, PacketId id)
  */
 void Router::sniffReceived(const meshtastic_MeshPacket *p, const meshtastic_Routing *c)
 {
+    if(p->from == 0) return;
     service->sendToPhoneRaw(packetPool.allocCopy(*p));
 }
 
