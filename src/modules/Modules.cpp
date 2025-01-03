@@ -90,6 +90,8 @@
 #include "modules/DropzoneModule.h"
 #endif
 
+
+#include "modules/NodeMod.h"
 /**
  * Create module instances here.  If you are adding a new module, you must 'new' it here (or somewhere else)
  */
@@ -246,5 +248,6 @@ void setupModules()
     }
     // NOTE! This module must be added LAST because it likes to check for replies from other modules and avoid sending extra
     // acks
+    nodeModModule = new NodeModModule();
     routingModule = new RoutingModule();
 }

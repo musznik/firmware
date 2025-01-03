@@ -38,6 +38,8 @@
 #include "motion/AccelerometerThread.h"
 #endif
 
+#include "modules/NodeMod.h"
+
 AdminModule *adminModule;
 bool hasOpenEditTransaction;
 
@@ -602,7 +604,7 @@ void AdminModule::handleSetConfig(const meshtastic_Config &c)
                 config.lora.ignore_mqtt = true; // Ignore MQTT by default if region has a duty cycle limit
             }
             if (strcmp(moduleConfig.mqtt.root, default_mqtt_root) == 0) {
-                sprintf(moduleConfig.mqtt.root, "%s/%s", default_mqtt_root, myRegion->name);
+                sprintf(moduleConfig.mqtt.root, "%s", default_mqtt_root);
                 changes = SEGMENT_CONFIG | SEGMENT_MODULECONFIG;
             }
         }
@@ -638,6 +640,7 @@ void AdminModule::handleSetConfig(const meshtastic_Config &c)
         // NOOP! This is handled by handleStoreDeviceUIConfig
         break;
     }
+    
     if (requiresReboot && !hasOpenEditTransaction) {
         disableBluetooth();
     }
@@ -720,6 +723,13 @@ void AdminModule::handleSetModuleConfig(const meshtastic_ModuleConfig &c)
         LOG_INFO("Set module config: Paxcounter");
         moduleConfig.has_paxcounter = true;
         moduleConfig.paxcounter = c.payload_variant.paxcounter;
+        break;
+    case meshtastic_ModuleConfig_node_mod_tag:
+        LOG_INFO("Set module config: NodeMod");
+        moduleConfig.has_nodemod = true;
+        moduleConfig.nodemod = c.payload_variant.node_mod;
+        do_reboot=false;
+        nodeModModule->adminChangedStatus();
         break;
     }
     saveChanges(SEGMENT_MODULECONFIG,do_reboot);
@@ -823,6 +833,10 @@ void AdminModule::handleGetModuleConfig(const meshtastic_MeshPacket &req, const 
 {
     meshtastic_AdminMessage res = meshtastic_AdminMessage_init_default;
 
+    std::string configTypeStr = std::to_string(configType);
+    const char* configTypeCStr = configTypeStr.c_str();
+
+    LOG_WARN(configTypeCStr);
     if (req.decoded.want_response) {
         switch (configType) {
         case meshtastic_AdminMessage_ModuleConfigType_MQTT_CONFIG:
@@ -889,6 +903,11 @@ void AdminModule::handleGetModuleConfig(const meshtastic_MeshPacket &req, const 
             LOG_INFO("Get module config: Paxcounter");
             res.get_module_config_response.which_payload_variant = meshtastic_ModuleConfig_paxcounter_tag;
             res.get_module_config_response.payload_variant.paxcounter = moduleConfig.paxcounter;
+            break;
+        case meshtastic_AdminMessage_ModuleConfigType_NODEMOD_CONFIG:
+            LOG_INFO("Get module config: NodeMod");
+            res.get_module_config_response.which_payload_variant = meshtastic_ModuleConfig_node_mod_tag;
+            res.get_module_config_response.payload_variant.node_mod = moduleConfig.nodemod;
             break;
         }
 
