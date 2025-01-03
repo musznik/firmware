@@ -50,7 +50,7 @@ meshtastic_MeshPacket* NodeModModule::preparePacket(){
 
 void NodeModModule::sendToPhone()
 {
-    if (lastSentStatsToPhone == 0 || (uptimeLastMs - lastSentStatsToPhone) >= (360*1000)) {
+    if (lastSentStatsToPhone == 0 || uptimeLastMs - lastSentStatsToPhone >= 360*1000) {
         meshtastic_MeshPacket* packet = preparePacket();
         service->sendToPhone(packet);    
         lastSentStatsToPhone = uptimeLastMs;
@@ -59,7 +59,7 @@ void NodeModModule::sendToPhone()
  
 void NodeModModule::sendToMesh()
 {
-    if (((lastSentToMesh == 0) ||((uptimeLastMs - lastSentToMesh) >= (1800 * 1000))) && airTime->isTxAllowedAirUtil()) 
+    if (lastSentToMesh == 0 || (uptimeLastMs - lastSentToMesh >= (1800 * 1000) && airTime->isTxAllowedAirUtil()))
     {
         if (strlen(moduleConfig.nodemod.text_status) == 0) {
             return;
