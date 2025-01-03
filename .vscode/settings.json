@@ -62,6 +62,7 @@
     "cinttypes": "cpp",
     "chrono": "cpp",
     "codecvt": "cpp",
-    "ratio": "cpp"
+    "ratio": "cpp",
+    "csignal": "cpp"
   }
 }
