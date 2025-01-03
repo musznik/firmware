@@ -34,7 +34,8 @@ meshtastic_MeshPacket *NodeModModule::allocReply()
 }
 
 void NodeModModule::adminChangedStatus(){
-      sendToMesh();
+    refreshUptime();
+    sendToMesh();
 }
 
 meshtastic_MeshPacket* NodeModModule::preparePacket(){
@@ -60,6 +61,10 @@ void NodeModModule::sendToMesh()
 {
     if (((lastSentToMesh == 0) ||((uptimeLastMs - lastSentToMesh) >= (1800 * 1000))) && airTime->isTxAllowedAirUtil()) 
     {
+        if (strlen(moduleConfig.nodemod.text_status) == 0) {
+            return;
+        }
+
         meshtastic_MeshPacket* packet = preparePacket();
         service->sendToMesh(packet, RX_SRC_LOCAL, true);
         lastSentToMesh = uptimeLastMs;
