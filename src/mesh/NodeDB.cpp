@@ -694,7 +694,8 @@ void NodeDB::installDefaultModuleConfig()
     strncpy(moduleConfig.mqtt.password, default_mqtt_password, sizeof(moduleConfig.mqtt.password));
     strncpy(moduleConfig.mqtt.root, default_mqtt_root, sizeof(moduleConfig.mqtt.root));
     moduleConfig.mqtt.encryption_enabled = true;
-    moduleConfig.mqtt.secure_messages = true;
+    moduleConfig.nodemodadmin.do_not_send_prv_over_mqtt = true;
+    moduleConfig.nodemodadmin.sniffer_enabled = default_sniffer_enabled;
 
     moduleConfig.has_neighbor_info = true;
     moduleConfig.neighbor_info.enabled = true;

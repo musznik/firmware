@@ -27,7 +27,8 @@
 #define default_mqtt_username ""
 #define default_mqtt_password ""
 #define default_mqtt_root "msh/pl"
-#define default_secure_messages true
+#define default_do_not_send_prvate_messages_over_mqtt true
+#define default_sniffer_enabled false
 
 #define IF_ROUTER(routerVal, normalVal)                                                                                          \
     ((config.device.role == meshtastic_Config_DeviceConfig_Role_ROUTER) ? (routerVal) : (normalVal))

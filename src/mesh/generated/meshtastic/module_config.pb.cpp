@@ -54,6 +54,9 @@ PB_BIND(meshtastic_ModuleConfig_AmbientLightingConfig, meshtastic_ModuleConfig_A
 PB_BIND(meshtastic_ModuleConfig_NodeModConfig, meshtastic_ModuleConfig_NodeModConfig, AUTO)
 
 
+PB_BIND(meshtastic_ModuleConfig_NodeModAdminConfig, meshtastic_ModuleConfig_NodeModAdminConfig, AUTO)
+
+
 PB_BIND(meshtastic_RemoteHardwarePin, meshtastic_RemoteHardwarePin, AUTO)
 
 

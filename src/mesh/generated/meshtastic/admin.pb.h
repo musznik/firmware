@@ -68,7 +68,8 @@ typedef enum _meshtastic_AdminMessage_ModuleConfigType {
     meshtastic_AdminMessage_ModuleConfigType_DETECTIONSENSOR_CONFIG = 11,
     /* TODO: REPLACE */
     meshtastic_AdminMessage_ModuleConfigType_PAXCOUNTER_CONFIG = 12,
-    meshtastic_AdminMessage_ModuleConfigType_NODEMOD_CONFIG = 19
+    meshtastic_AdminMessage_ModuleConfigType_NODEMOD_CONFIG = 19,
+    meshtastic_AdminMessage_ModuleConfigType_NODEMOD_ADMIN_CONFIG = 20
 } meshtastic_AdminMessage_ModuleConfigType;
 
 /* Struct definitions */
@@ -224,8 +225,8 @@ extern "C" {
 #define _meshtastic_AdminMessage_ConfigType_ARRAYSIZE ((meshtastic_AdminMessage_ConfigType)(meshtastic_AdminMessage_ConfigType_DEVICEUI_CONFIG+1))
 
 #define _meshtastic_AdminMessage_ModuleConfigType_MIN meshtastic_AdminMessage_ModuleConfigType_MQTT_CONFIG
-#define _meshtastic_AdminMessage_ModuleConfigType_MAX meshtastic_AdminMessage_ModuleConfigType_NODEMOD_CONFIG
-#define _meshtastic_AdminMessage_ModuleConfigType_ARRAYSIZE ((meshtastic_AdminMessage_ModuleConfigType)(meshtastic_AdminMessage_ModuleConfigType_NODEMOD_CONFIG+1))
+#define _meshtastic_AdminMessage_ModuleConfigType_MAX meshtastic_AdminMessage_ModuleConfigType_NODEMOD_ADMIN_CONFIG
+#define _meshtastic_AdminMessage_ModuleConfigType_ARRAYSIZE ((meshtastic_AdminMessage_ModuleConfigType)(meshtastic_AdminMessage_ModuleConfigType_NODEMOD_ADMIN_CONFIG+1))
 
 #define meshtastic_AdminMessage_payload_variant_get_config_request_ENUMTYPE meshtastic_AdminMessage_ConfigType
 #define meshtastic_AdminMessage_payload_variant_get_module_config_request_ENUMTYPE meshtastic_AdminMessage_ModuleConfigType

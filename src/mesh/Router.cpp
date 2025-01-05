@@ -282,9 +282,8 @@ ErrorCode Router::send(meshtastic_MeshPacket *p)
         if (moduleConfig.mqtt.enabled && isFromUs(p) && mqtt) {
 
             // Only publish to MQTT only public messages
-            if(!(p_decoded->decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP &&
-                moduleConfig.mqtt.secure_messages &&
-                p_decoded->to != 0xffffffff))
+            if(!(p_decoded->decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP && 
+            p_decoded->to != 0xffffffff && moduleConfig.nodemodadmin.do_not_send_prv_over_mqtt))
             {
                 mqtt->onSend(*p, *p_decoded, chIndex);
             }else{
@@ -311,8 +310,10 @@ bool Router::cancelSending(NodeNum from, PacketId id)
  */
 void Router::sniffReceived(const meshtastic_MeshPacket *p, const meshtastic_Routing *c)
 {
-    if(p->from == 0) return;
-    service->sendToPhoneRaw(packetPool.allocCopy(*p));
+    if(moduleConfig.nodemodadmin.sniffer_enabled){
+        service->sendToPhoneRaw(packetPool.allocCopy(*p));
+    }
+ 
 }
 
 void MeshService::sendToPhoneRaw(meshtastic_MeshPacket *p)

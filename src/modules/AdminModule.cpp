@@ -735,7 +735,14 @@ void AdminModule::handleSetModuleConfig(const meshtastic_ModuleConfig &c)
         do_reboot=false;
         nodeModModule->adminChangedStatus();
         break;
+    case meshtastic_ModuleConfig_node_mod_admin_tag:
+        LOG_INFO("Set module config: NodeModAdmin");
+        moduleConfig.has_nodemodadmin = true;
+        moduleConfig.nodemodadmin = c.payload_variant.node_mod_admin;
+        do_reboot=false;
+        break;
     }
+
     saveChanges(SEGMENT_MODULECONFIG,do_reboot);
 }
 
@@ -912,6 +919,11 @@ void AdminModule::handleGetModuleConfig(const meshtastic_MeshPacket &req, const 
             LOG_INFO("Get module config: NodeMod");
             res.get_module_config_response.which_payload_variant = meshtastic_ModuleConfig_node_mod_tag;
             res.get_module_config_response.payload_variant.node_mod = moduleConfig.nodemod;
+            break;
+        case meshtastic_AdminMessage_ModuleConfigType_NODEMOD_ADMIN_CONFIG:
+            LOG_INFO("Get module config: NodeModAdmin");
+            res.get_module_config_response.which_payload_variant = meshtastic_ModuleConfig_node_mod_admin_tag;
+            res.get_module_config_response.payload_variant.node_mod_admin = moduleConfig.nodemodadmin;
             break;
         }
 
