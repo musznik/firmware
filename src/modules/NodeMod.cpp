@@ -19,13 +19,13 @@ int32_t NodeModModule::runOnce()
 {
     refreshUptime();
     sendToPhone();
-    sendToMesh();
+    sendToMesh(false);
     return 120 * 1000;
 }
 
 bool NodeModModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, meshtastic_NodeMod *t)
 {
-    return true; // Let others look at this message also if they want
+    return false; // Let others look at this message also if they want
 }
 
 meshtastic_MeshPacket *NodeModModule::allocReply()
@@ -35,7 +35,8 @@ meshtastic_MeshPacket *NodeModModule::allocReply()
 
 void NodeModModule::adminChangedStatus(){
     refreshUptime();
-    sendToMesh();
+    sendToPhone();
+    sendToMesh(true);
 }
 
 meshtastic_MeshPacket* NodeModModule::preparePacket(){
@@ -50,22 +51,26 @@ meshtastic_MeshPacket* NodeModModule::preparePacket(){
 
 void NodeModModule::sendToPhone()
 {
-    if (lastSentStatsToPhone == 0 || uptimeLastMs - lastSentStatsToPhone >= 360*1000) {
+    if ((lastSentStatsToPhone == 0) || (uptimeLastMs - lastSentStatsToPhone >= 360*1000)) {
         meshtastic_MeshPacket* packet = preparePacket();
         service->sendToPhone(packet);    
         lastSentStatsToPhone = uptimeLastMs;
     }
 }
  
-void NodeModModule::sendToMesh()
+void NodeModModule::sendToMesh(bool statusChanged)
 {
-    if (lastSentToMesh == 0 || (uptimeLastMs - lastSentToMesh >= (1800 * 1000) && airTime->isTxAllowedAirUtil()))
+    bool allowedByDefault = ((lastSentToMesh == 0) || ((uptimeLastMs - lastSentToMesh) >= (1800 * 1000) && airTime->isTxAllowedAirUtil() && airTime->isTxAllowedChannelUtil(false)));
+    bool allowedDueToStatusChange = (statusChanged == true && (uptimeLastMs - lastSentToMesh) >= (600 * 1000) && airTime->isTxAllowedAirUtil() && airTime->isTxAllowedChannelUtil(false));
+
+    if (allowedByDefault || allowedDueToStatusChange)
     {
         if (strlen(moduleConfig.nodemod.text_status) == 0) {
             return;
         }
 
         meshtastic_MeshPacket* packet = preparePacket();
+        packet->priority = meshtastic_MeshPacket_Priority_BACKGROUND;
         service->sendToMesh(packet, RX_SRC_LOCAL, true);
         lastSentToMesh = uptimeLastMs;
     }
