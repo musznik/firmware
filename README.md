@@ -15,7 +15,7 @@
 - Support for private text message "nodes" (only online) or "nodes all" and return list of nodes.
 - Allow to change node position over mesh.
 - Local stats over mesh (additional telemetry).
-- Sniffer mode, transfers to the connected device (TCP or BT) packets that are not public and do not belong to us without decrypting them. This allows for a better understanding of network operation.
+- Sniffer mode, transfers to the connected device (TCP or BT) packets that are not public and do not belong to us without decrypting them. This allows for a better understanding of network operation. Default OFF. Use APK+ to enable it.
 - Router mode always passes everything, not just CORE_PORTS (NodeInfo, Text, Position, Telemetry, Routing) by default.
 - Neighbor Info enabled again on primary channel (LongFast, MediumFast, etc.), enabled by default.
 - Node status custom text transmitted over mesh (as new protobuf, port: 278), requires custom APK like "Meshtastic Android APK+ (loranet version)" for operations.
