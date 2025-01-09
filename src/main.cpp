@@ -151,6 +151,13 @@ ScanI2C::DeviceAddress accelerometer_found = ScanI2C::ADDRESS_NONE;
 // The I2C address of the RGB LED (if found)
 ScanI2C::FoundDevice rgb_found = ScanI2C::FoundDevice(ScanI2C::DeviceType::NONE, ScanI2C::ADDRESS_NONE);
 
+uint64_t busyHistory[60] = {0};     // Każdy element: "ile µs busy w danej sekundzie"
+int      currentIndex    = 0;       // Wskaźnik na aktualną próbkę
+uint64_t lastBusyUs      = 0;       // Ostatni stan "total busy" (do obliczenia przyrostu)
+uint32_t lastCheckMs     = 0;       // Kiedy ostatnio próbkowaliśmy (ms)
+bool     initialized     = false;   // Czy zainicjowaliśmy pętlę próbkowania
+uint32_t CpuHwUsagePercent = 0;
+
 #ifdef T_WATCH_S3
 Adafruit_DRV2605 drv;
 #endif
@@ -244,6 +251,8 @@ void printInfo()
 #ifndef PIO_UNIT_TESTING
 void setup()
 {
+
+
 #if defined(T_DECK)
     // GPIO10 manages all peripheral power supplies
     // Turn on peripheral power immediately after MUC starts.
@@ -1248,9 +1257,72 @@ void scannerToSensorsMap(const std::unique_ptr<ScanI2CTwoWire> &i2cScanner, Scan
 }
 #endif
 
+
+void startBusy()
+{
+    // Zwiększamy licznik
+    if (++g_busyCounter == 1) {
+        // Jeśli właśnie weszliśmy z 0 -> 1, zapamiętujemy czas startu
+        g_lastBusyStartUs = micros();
+        g_isBusy = true;
+    }
+}
+
+/**
+ * @brief Wywołaj po zakończeniu fragmentu kodu, który był "zajmujący CPU".
+ */
+void endBusy()
+{
+    if (g_busyCounter <= 0) {
+        // Na wszelki wypadek, gdyby ktoś więcej razy endBusy() wywołał
+        g_busyCounter = 0;
+        return;
+    }
+
+    // Zmniejszamy licznik
+    if (--g_busyCounter == 0) {
+        // CPU faktycznie przestało być zajęte
+        uint64_t now = micros();
+        g_totalBusyTimeUs += (now - g_lastBusyStartUs);
+        g_isBusy = false;
+    }
+}
+
+/**
+ * @brief Odczyt łącznego czasu [us], w którym CPU był w stanie "busy" od startu.
+ *        Jeśli w chwili wywołania wciąż jesteśmy w busy, dolicza bieżący fragment.
+ */
+uint64_t getTotalBusyTimeUs()
+{
+    if (g_isBusy) {
+        uint64_t now = micros();
+        return g_totalBusyTimeUs + (now - g_lastBusyStartUs);
+    } else {
+        return g_totalBusyTimeUs;
+    }
+}
+
+void updateCpuUsageStats()
+{
+    uint64_t currentBusy = getTotalBusyTimeUs();
+    uint64_t deltaUs     = currentBusy - lastBusyUs;
+    lastBusyUs           = currentBusy;
+
+    busyHistory[currentIndex] = deltaUs;
+    currentIndex = (currentIndex + 1) % 60;
+
+    uint64_t sumBusyUs = 0;
+    for (int i = 0; i < 60; i++) {
+        sumBusyUs += busyHistory[i];
+    }
+
+    CpuHwUsagePercent = ( (float)sumBusyUs / (60.0f * 1000000.0f) ) * 100.0f;
+}
+
 #ifndef PIO_UNIT_TESTING
 void loop()
 {
+    startBusy();
     runASAP = false;
 
 #ifdef ARCH_ESP32
@@ -1272,10 +1344,26 @@ void loop()
     service->loop();
 
     long delayMsec = mainController.runOrDelay();
+    endBusy();
 
     // We want to sleep as long as possible here - because it saves power
     if (!runASAP && loopCanSleep()) {
         mainDelay.delay(delayMsec);
+    }
+
+     // -- Pomiar co 1 sekundę --
+    uint32_t nowMs = millis();
+    // Inicjalizujemy (żeby lastCheckMs miało sens)
+    if (!initialized) {
+        initialized = true;
+        lastCheckMs = nowMs;
+        lastBusyUs  = getTotalBusyTimeUs();  // stan początkowy
+    }
+
+    // Jeśli minęła >= 1 sekunda, to dokonaj próbkowania
+    if (nowMs - lastCheckMs >= 1000) {
+        lastCheckMs = nowMs;
+        updateCpuUsageStats();
     }
 }
 #endif

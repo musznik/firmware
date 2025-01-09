@@ -71,6 +71,14 @@ extern uint32_t shutdownAtMsec;
 
 extern uint32_t serialSinceMsec;
 
+static volatile int      g_busyCounter       = 0;
+static volatile uint64_t g_totalBusyTimeUs   = 0;
+static volatile uint64_t g_lastBusyStartUs   = 0;
+static volatile bool     g_isBusy            = false;
+extern uint32_t CpuHwUsagePercent;
+extern void startBusy();
+extern void endBusy();
+
 // If a thread does something that might need for it to be rescheduled ASAP it can set this flag
 // This will suppress the current delay and instead try to run ASAP.
 extern bool runASAP;

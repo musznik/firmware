@@ -231,6 +231,7 @@ currently active.
 */
 void RadioLibInterface::onNotify(uint32_t notification)
 {
+    startBusy();
     switch (notification) {
     case ISR_TX:
         handleTransmitInterrupt();
@@ -281,6 +282,7 @@ void RadioLibInterface::onNotify(uint32_t notification)
     default:
         assert(0); // We expected to receive a valid notification from the ISR
     }
+    endBusy();
 }
 
 void RadioLibInterface::setTransmitDelay()

@@ -635,3 +635,4 @@ size_t RadioInterface::beginSending(meshtastic_MeshPacket *p)
     sendingPacket = p;
     return p->encrypted.size + sizeof(PacketHeader);
 }
+ 
