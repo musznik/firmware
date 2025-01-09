@@ -61,7 +61,7 @@ void NodeModModule::sendToPhone()
 void NodeModModule::sendToMesh(bool statusChanged)
 {
     bool allowedByDefault = ((lastSentToMesh == 0) || ((uptimeLastMs - lastSentToMesh) >= (1800 * 1000) && airTime->isTxAllowedAirUtil() && airTime->isTxAllowedChannelUtil(false)));
-    bool allowedDueToStatusChange = (statusChanged == true && (uptimeLastMs - lastSentToMesh) >= (600 * 1000) && airTime->isTxAllowedAirUtil() && airTime->isTxAllowedChannelUtil(false));
+    bool allowedDueToStatusChange = (statusChanged == true && (uptimeLastMs - lastSentToMesh) >= (300 * 1000) && airTime->isTxAllowedAirUtil() && airTime->isTxAllowedChannelUtil(false));
 
     if (allowedByDefault || allowedDueToStatusChange)
     {
