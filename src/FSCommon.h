@@ -58,6 +58,8 @@ std::vector<meshtastic_FileInfo> getFiles(const char *dirname, uint8_t levels);
 void listDir(const char *dirname, uint8_t levels, bool del = false);
 void rmDir(const char *dirname);
 void setupSDCard();
+size_t calculateNRF5xUsedBytes();
+size_t getNRF5xTotalBytes();
 
 extern bool lfs_assert_failed; // Note: we use this global on all platforms, though it can only be set true on nrf52 (in our
                                // modified lfs_util.h)

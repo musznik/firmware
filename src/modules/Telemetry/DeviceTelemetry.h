@@ -4,7 +4,7 @@
 #include "ProtobufModule.h"
 #include <OLEDDisplay.h>
 #include <OLEDDisplayUi.h>
-
+#include "FSCommon.h"
 class DeviceTelemetryModule : private concurrency::OSThread, public ProtobufModule<meshtastic_Telemetry>
 {
     CallbackObserver<DeviceTelemetryModule, const meshtastic::Status *> nodeStatusObserver =
@@ -21,6 +21,7 @@ class DeviceTelemetryModule : private concurrency::OSThread, public ProtobufModu
         setIntervalFromNow(45 * 1000); // Wait until NodeInfo is sent
     }
     virtual bool wantUIFrame() { return false; }
+
 
   protected:
     /** Called to handle a particular incoming message
@@ -43,14 +44,19 @@ class DeviceTelemetryModule : private concurrency::OSThread, public ProtobufModu
   private:
     meshtastic_Telemetry getDeviceTelemetry();
     meshtastic_Telemetry getLocalStatsTelemetry();
+    meshtastic_Telemetry getLocalStatsExtendedTelemetry();
+
 
     void sendLocalStatsToPhone();
     void sendLocalStatsToMesh();
+    void sendLocalStatsExtendedToMesh();
     uint32_t sendToPhoneIntervalMs = SECONDS_IN_MINUTE * 1000;           // Send to phone every minute
     uint32_t sendStatsToPhoneIntervalMs = 1 * SECONDS_IN_MINUTE * 5000; // Send stats to phone every 5 minutes
     uint32_t lastSentStatsToPhone = 0;
     uint32_t lastSentToMesh = 0;
     bool statsHaveBeenSent = false;
+    bool localStatsHaveBeenSent = false;
+
 
     void refreshUptime()
     {

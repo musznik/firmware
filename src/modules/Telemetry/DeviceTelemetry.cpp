@@ -12,6 +12,7 @@
 #include <OLEDDisplay.h>
 #include <OLEDDisplayUi.h>
 #include <meshUtils.h>
+#include "FSCommon.h"
 
 #define MAGIC_USB_BATTERY_LEVEL 101
 
@@ -46,7 +47,17 @@ int32_t DeviceTelemetryModule::runOnce()
         config.device.role != meshtastic_Config_DeviceConfig_Role_CLIENT_HIDDEN) 
     {
         sendLocalStatsToMesh();
+        localStatsHaveBeenSent=true;
+    }
+
+    if (((localStatsHaveBeenSent == true) && ((uptimeLastMs - lastSentToMesh) >= 240000)) &&
+        airTime->isTxAllowedChannelUtil(!isImpoliteRole) && airTime->isTxAllowedAirUtil() &&
+        config.device.role != meshtastic_Config_DeviceConfig_Role_REPEATER &&
+        config.device.role != meshtastic_Config_DeviceConfig_Role_CLIENT_HIDDEN) 
+    {
+        sendLocalStatsExtendedToMesh();
         statsHaveBeenSent = false;
+        localStatsHaveBeenSent = false;
     }
 
     return sendToPhoneIntervalMs;
@@ -165,23 +176,69 @@ meshtastic_Telemetry DeviceTelemetryModule::getLocalStatsTelemetry()
     return telemetry;
 }
 
+meshtastic_Telemetry DeviceTelemetryModule::getLocalStatsExtendedTelemetry()
+{
+    meshtastic_Telemetry telemetry = meshtastic_Telemetry_init_zero;
+    telemetry.which_variant = meshtastic_Telemetry_local_stats_extended_tag;
+    telemetry.variant.local_stats = meshtastic_LocalStatsExtended_init_zero;
+    telemetry.time = getTime();
+
+    #if defined(ARCH_ESP32)
+        telemetry.variant.local_stats_extended.memory_free_cheap = memGet.getFreeHeap();
+        telemetry.variant.local_stats_extended.memory_total = memGet.getHeapSize();
+        telemetry.variant.local_stats_extended.flash_used_bytes = FSCom.usedBytes();
+        telemetry.variant.local_stats_extended.flash_total_bytes = FSCom.totalBytes(); 
+    #endif
+
+    #if defined(ARCH_NRF52)
+        telemetry.variant.local_stats_extended.memory_free_cheap = memGet.getFreeHeap();
+        telemetry.variant.local_stats_extended.memory_total = memGet.getHeapSize();
+        telemetry.variant.local_stats_extended.flash_used_bytes = calculateNRF5xUsedBytes();
+        telemetry.variant.local_stats_extended.flash_total_bytes =  getNRF5xTotalBytes(); 
+    #endif
+
+    telemetry.variant.local_stats_extended.cpu_usage_percent = CpuHwUsagePercent;
+
+    LOG_INFO("local stats extended: memory_free=%i, total_memory=%i, cpu=%i, flash_used=%i, flash_total=%i",
+            telemetry.variant.local_stats_extended.memory_free_cheap, telemetry.variant.local_stats_extended.memory_total, CpuHwUsagePercent,
+            telemetry.variant.local_stats_extended.flash_used_bytes, telemetry.variant.local_stats_extended.flash_total_bytes);
+   
+    return telemetry;
+}
+
 void DeviceTelemetryModule::sendLocalStatsToPhone()
 {
     meshtastic_MeshPacket *p = allocDataProtobuf(getLocalStatsTelemetry());
     p->to = NODENUM_BROADCAST;
     p->decoded.want_response = false;
     p->priority = static_cast<meshtastic_MeshPacket_Priority>(22);
-
     service->sendToPhone(p);
+
+    meshtastic_MeshPacket *p2 = allocDataProtobuf(getLocalStatsExtendedTelemetry());
+    p2->to = NODENUM_BROADCAST;
+    p2->decoded.want_response = false;
+    p2->priority = static_cast<meshtastic_MeshPacket_Priority>(22);
+    service->sendToPhone(p2);
 }
 
 void DeviceTelemetryModule::sendLocalStatsToMesh()
 {
+    LOG_INFO("Sending local stats to mesh");
     meshtastic_MeshPacket *p = allocDataProtobuf(getLocalStatsTelemetry());
     p->to = NODENUM_BROADCAST;
     p->decoded.want_response = false;
     p->priority = meshtastic_MeshPacket_Priority_BACKGROUND;
+    service->sendToMesh(p, RX_SRC_LOCAL, true);
+    
+}
 
+void DeviceTelemetryModule::sendLocalStatsExtendedToMesh()
+{
+    LOG_INFO("Sending local stats extended to mesh");
+    meshtastic_MeshPacket *p = allocDataProtobuf(getLocalStatsExtendedTelemetry());
+    p->to = NODENUM_BROADCAST;
+    p->decoded.want_response = false;
+    p->priority = meshtastic_MeshPacket_Priority_BACKGROUND;
     service->sendToMesh(p, RX_SRC_LOCAL, true);
 }
 

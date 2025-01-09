@@ -401,3 +401,34 @@ void setupSDCard()
     LOG_DEBUG("Used space: %lu MB", (uint32_t)(SD.usedBytes() / (1024 * 1024)));
 #endif
 }
+
+#if defined(ARCH_NRF52)
+#include "InternalFileSystem.h"
+
+size_t calculateNRF5xUsedBytes()
+{
+    size_t usedBytes = 0;
+#ifdef FSCom
+    File root = FSCom.open("/prefs/", FILE_O_READ);
+    if (!root || !root.isDirectory()) {
+        return 0;
+    }
+
+    File file = root.openNextFile();
+    while (file) {
+        if (!file.isDirectory()) {
+            usedBytes += file.size();
+        }
+        file.close();
+        file = root.openNextFile();
+    }
+    root.close();
+#endif
+    return usedBytes;
+}
+
+size_t getNRF5xTotalBytes() {
+    return (7 * 4096);
+}
+ 
+#endif
