@@ -92,6 +92,7 @@ NRF52Bluetooth *nrf52Bluetooth = nullptr;
 #include "mesh/raspihttp/PiWebServer.h"
 #include "platform/portduino/PortduinoGlue.h"
 #include "platform/portduino/USBHal.h"
+#include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <string>
@@ -1168,6 +1169,7 @@ void setup()
 #if __has_include(<ulfius.h>)
     if (settingsMap[webserverport] != -1) {
         piwebServerThread = new PiWebServerThread();
+        std::atexit([] { delete piwebServerThread; });
     }
 #endif
     initApiServer(TCPPort);
