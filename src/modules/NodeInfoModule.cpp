@@ -65,7 +65,7 @@ meshtastic_MeshPacket *NodeInfoModule::allocReply()
 {
     if (!airTime->isTxAllowedChannelUtil(false)) {
         ignoreRequest = true; // Mark it as ignored for MeshModule
-        LOG_DEBUG("Skip send NodeInfo > 40%% ch. util");
+        LOG_DEBUG("Skip send NodeInfo > 70%% ch. util");
         return NULL;
     }
     // If we sent our NodeInfo less than 5 min. ago, don't send it again as it may be still underway.

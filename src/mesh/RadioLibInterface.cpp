@@ -237,11 +237,13 @@ void RadioLibInterface::onNotify(uint32_t notification)
         handleTransmitInterrupt();
         startReceive();
         setTransmitDelay();
+        endBusy();
         break;
     case ISR_RX:
         handleReceiveInterrupt();
         startReceive();
         setTransmitDelay();
+        endBusy();
         break;
     case TRANSMIT_DELAY_COMPLETED:
 
@@ -278,6 +280,7 @@ void RadioLibInterface::onNotify(uint32_t notification)
         } else {
             // Do nothing, because the queue is empty
         }
+        endBusy();
         break;
     default:
         assert(0); // We expected to receive a valid notification from the ISR

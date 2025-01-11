@@ -91,7 +91,7 @@ int MeshService::handleFromRadio(const meshtastic_MeshPacket *mp)
             LOG_INFO("Heard new node on ch. %d, send NodeInfo and ask for response", mp->channel);
             nodeInfoModule->sendOurNodeInfo(mp->from, true, mp->channel);
         } else {
-            LOG_DEBUG("Skip sending NodeInfo > 25%% ch. util");
+            LOG_DEBUG("Skip sending NodeInfo > 70%% ch. util");
         }
     }
 
