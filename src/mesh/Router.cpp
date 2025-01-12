@@ -36,8 +36,6 @@
 static MemoryDynamic<meshtastic_MeshPacket> staticPool;
 
 Allocator<meshtastic_MeshPacket> &packetPool = staticPool;
-typename std::vector<meshtastic_MeshPacket>::iterator begin();
-typename std::vector<meshtastic_MeshPacket>::iterator end();
 
 static uint8_t bytes[MAX_LORA_PAYLOAD_LEN + 1] __attribute__((__aligned__));
 
@@ -310,7 +308,7 @@ bool Router::cancelSending(NodeNum from, PacketId id)
  */
 void Router::sniffReceived(const meshtastic_MeshPacket *p, const meshtastic_Routing *c)
 {
-    if(moduleConfig.nodemodadmin.sniffer_enabled){
+    if(moduleConfig.nodemodadmin.sniffer_enabled && moduleConfig.has_nodemodadmin){
         service->sendToPhoneRaw(packetPool.allocCopy(*p));
     }
  
