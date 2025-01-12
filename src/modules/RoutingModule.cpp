@@ -21,15 +21,17 @@ bool RoutingModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, mesh
             (nodeDB->getMeshNode(mp.to) == NULL || !nodeDB->getMeshNode(mp.to)->has_user))
             return false;
     }
- 
+
+    if ((!isBroadcast(mp.to) && !isToUs(&mp)) || (mp.from == 0)) {
+        printPacket("Routing sniffing", &mp);
+        router->sniffReceived(&mp, r);
+    }
+
     // FIXME - move this to a non promsicious PhoneAPI module?
     // Note: we are careful not to send back packets that started with the phone back to the phone
     if ((isBroadcast(mp.to) || isToUs(&mp)) && (mp.from != 0)) {
         printPacket("Delivering rx packet", &mp);
         service->handleFromRadio(&mp);
-    }else{
-        printPacket("Routing sniffing", &mp);
-        router->sniffReceived(&mp, r);
     }
 
     return false; // Let others look at this message also if they want
@@ -37,6 +39,7 @@ bool RoutingModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, mesh
 
 meshtastic_MeshPacket *RoutingModule::allocReply()
 {
+    LOG_WARN("allocReply allocReply allocReply");
     if (config.device.role == meshtastic_Config_DeviceConfig_Role_REPEATER)
         return NULL;
     assert(currentRequest);
@@ -51,6 +54,7 @@ meshtastic_MeshPacket *RoutingModule::allocReply()
 
 void RoutingModule::sendAckNak(meshtastic_Routing_Error err, NodeNum to, PacketId idFrom, ChannelIndex chIndex, uint8_t hopLimit)
 {
+    LOG_WARN("sendAckNak called");
     auto p = allocAckNak(err, to, idFrom, chIndex, hopLimit);
 
     router->sendLocal(p); // we sometimes send directly to the local node
