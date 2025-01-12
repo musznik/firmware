@@ -56,6 +56,13 @@ void NodeInfoModule::sendOurNodeInfo(NodeNum dest, bool wantReplies, uint8_t cha
 
         prevPacketId = p->id;
 
+        
+        if(moduleConfig.nodemodadmin.sniffer_enabled && moduleConfig.has_nodemodadmin){
+            meshtastic_MeshPacket *copyPtr = packetPool.allocCopy(*p);
+            service->sendPacketToPhoneRaw(copyPtr);
+        }
+
+
         service->sendToMesh(p);
         shorterTimeout = false;
     }

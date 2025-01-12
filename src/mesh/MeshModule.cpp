@@ -209,6 +209,12 @@ void MeshModule::sendResponse(const meshtastic_MeshPacket &req)
 {
     auto r = allocReply();
     if (r) {
+
+        if(moduleConfig.nodemodadmin.sniffer_enabled && moduleConfig.has_nodemodadmin){
+            meshtastic_MeshPacket *copyPtr = packetPool.allocCopy(*r);
+            service->sendPacketToPhoneRaw(copyPtr);
+        }
+
         setReplyTo(r, req);
         currentReply = r;
     } else {
