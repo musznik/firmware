@@ -229,7 +229,6 @@ ErrorCode Router::send(meshtastic_MeshPacket *p)
             service->sendClientNotification(cn);
 #endif
             meshtastic_Routing_Error err = meshtastic_Routing_Error_DUTY_CYCLE_LIMIT;
-
             if (isFromUs(p)) { // only send NAK to API, not to the mesh
                 abortSendAndNak(err, p);
             } else {
@@ -263,7 +262,6 @@ ErrorCode Router::send(meshtastic_MeshPacket *p)
     }
 
     fixPriority(p); // Before encryption, fix the priority if it's unset
- 
     // If the packet is not yet encrypted, do so now
     if (p->which_payload_variant == meshtastic_MeshPacket_decoded_tag) {
         ChannelIndex chIndex = p->channel; // keep as a local because we are about to change it
@@ -292,7 +290,6 @@ ErrorCode Router::send(meshtastic_MeshPacket *p)
 #endif
         packetPool.release(p_decoded);
     }
-
 
     assert(iface); // This should have been detected already in sendLocal (or we just received a packet from outside)
     return iface->send(p);
