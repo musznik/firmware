@@ -192,8 +192,8 @@ meshtastic_Telemetry DeviceTelemetryModule::getLocalStatsExtendedTelemetry()
         telemetry.variant.local_stats_extended.flash_used_bytes = FSCom.usedBytes();
         telemetry.variant.local_stats_extended.flash_total_bytes = FSCom.totalBytes(); 
         spiLock->unlock();
-        telemetry.variant.local_stats_extended.memory_psram_free = memGet.getPsramSize();
-        telemetry.variant.local_stats_extended.memory_psram_total = memGet.getFreePsram();     
+        telemetry.variant.local_stats_extended.memory_psram_free = memGet.getFreePsram();
+        telemetry.variant.local_stats_extended.memory_psram_total = memGet.getPsramSize();     
     #endif
 
     #if defined(ARCH_NRF52)
@@ -201,8 +201,8 @@ meshtastic_Telemetry DeviceTelemetryModule::getLocalStatsExtendedTelemetry()
         telemetry.variant.local_stats_extended.memory_total = memGet.getHeapSize();
         telemetry.variant.local_stats_extended.flash_used_bytes = calculateNRF5xUsedBytes(); 
         telemetry.variant.local_stats_extended.flash_total_bytes =  getNRF5xTotalBytes(); 
-        telemetry.variant.local_stats_extended.memory_psram_free = memGet.getPsramSize();
-        telemetry.variant.local_stats_extended.memory_psram_total = memGet.getFreePsram();    
+        telemetry.variant.local_stats_extended.memory_psram_free = memGet.getFreePsram();
+        telemetry.variant.local_stats_extended.memory_psram_total = memGet.getPsramSize();    
     #endif
 
     telemetry.variant.local_stats_extended.cpu_usage_percent = CpuHwUsagePercent;
