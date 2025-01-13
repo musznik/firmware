@@ -269,6 +269,10 @@ typedef struct _meshtastic_LocalStatsExtended {
     uint32_t flash_used_bytes;
     /* total available space */
     uint32_t flash_total_bytes;
+    /* psram used */
+    uint32_t memory_psram_free;
+    /* psram total */
+    uint32_t memory_psram_total;
 } meshtastic_LocalStatsExtended;
 
 /* Health telemetry metrics */
@@ -341,7 +345,7 @@ extern "C" {
 #define meshtastic_PowerMetrics_init_default     {false, 0, false, 0, false, 0, false, 0, false, 0, false, 0}
 #define meshtastic_AirQualityMetrics_init_default {false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0}
 #define meshtastic_LocalStats_init_default       {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
-#define meshtastic_LocalStatsExtended_init_default {0, 0, 0, 0, 0}
+#define meshtastic_LocalStatsExtended_init_default {0, 0, 0, 0, 0, 0, 0}
 #define meshtastic_HealthMetrics_init_default    {false, 0, false, 0, false, 0}
 #define meshtastic_Telemetry_init_default        {0, 0, {meshtastic_DeviceMetrics_init_default}}
 #define meshtastic_Nau7802Config_init_default    {0, 0}
@@ -350,7 +354,7 @@ extern "C" {
 #define meshtastic_PowerMetrics_init_zero        {false, 0, false, 0, false, 0, false, 0, false, 0, false, 0}
 #define meshtastic_AirQualityMetrics_init_zero   {false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0}
 #define meshtastic_LocalStats_init_zero          {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
-#define meshtastic_LocalStatsExtended_init_zero  {0, 0, 0, 0, 0}
+#define meshtastic_LocalStatsExtended_init_zero  {0, 0, 0, 0, 0, 0, 0}
 #define meshtastic_HealthMetrics_init_zero       {false, 0, false, 0, false, 0}
 #define meshtastic_Telemetry_init_zero           {0, 0, {meshtastic_DeviceMetrics_init_zero}}
 #define meshtastic_Nau7802Config_init_zero       {0, 0}
@@ -414,6 +418,8 @@ extern "C" {
 #define meshtastic_LocalStatsExtended_cpu_usage_percent_tag 3
 #define meshtastic_LocalStatsExtended_flash_used_bytes_tag 4
 #define meshtastic_LocalStatsExtended_flash_total_bytes_tag 5
+#define meshtastic_LocalStatsExtended_memory_psram_free_tag 6
+#define meshtastic_LocalStatsExtended_memory_psram_total_tag 7
 #define meshtastic_HealthMetrics_heart_bpm_tag   1
 #define meshtastic_HealthMetrics_spO2_tag        2
 #define meshtastic_HealthMetrics_temperature_tag 3
@@ -507,7 +513,9 @@ X(a, STATIC,   SINGULAR, UINT32,   memory_free_cheap,   1) \
 X(a, STATIC,   SINGULAR, UINT32,   memory_total,      2) \
 X(a, STATIC,   SINGULAR, UINT32,   cpu_usage_percent,   3) \
 X(a, STATIC,   SINGULAR, UINT32,   flash_used_bytes,   4) \
-X(a, STATIC,   SINGULAR, UINT32,   flash_total_bytes,   5)
+X(a, STATIC,   SINGULAR, UINT32,   flash_total_bytes,   5) \
+X(a, STATIC,   SINGULAR, UINT32,   memory_psram_free,   6) \
+X(a, STATIC,   SINGULAR, UINT32,   memory_psram_total,   7)
 #define meshtastic_LocalStatsExtended_CALLBACK NULL
 #define meshtastic_LocalStatsExtended_DEFAULT NULL
 
@@ -570,7 +578,7 @@ extern const pb_msgdesc_t meshtastic_Nau7802Config_msg;
 #define meshtastic_DeviceMetrics_size            27
 #define meshtastic_EnvironmentMetrics_size       91
 #define meshtastic_HealthMetrics_size            11
-#define meshtastic_LocalStatsExtended_size       30
+#define meshtastic_LocalStatsExtended_size       42
 #define meshtastic_LocalStats_size               60
 #define meshtastic_Nau7802Config_size            16
 #define meshtastic_PowerMetrics_size             30

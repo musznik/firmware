@@ -13,6 +13,7 @@
 #include <OLEDDisplayUi.h>
 #include <meshUtils.h>
 #include "FSCommon.h"
+#include "SPILock.h"
 
 #define MAGIC_USB_BATTERY_LEVEL 101
 
@@ -48,9 +49,10 @@ int32_t DeviceTelemetryModule::runOnce()
     {
         sendLocalStatsToMesh();
         localStatsHaveBeenSent=true;
+        lastSentLocalStatsToMesh=uptimeLastMs;
     }
 
-    if (((localStatsHaveBeenSent == true) && ((uptimeLastMs - lastSentToMesh) >= 240000)) &&
+    if (((localStatsHaveBeenSent == true) && ((uptimeLastMs - lastSentLocalStatsToMesh) >= 120000)) &&
         airTime->isTxAllowedChannelUtil(!isImpoliteRole) && airTime->isTxAllowedAirUtil() &&
         config.device.role != meshtastic_Config_DeviceConfig_Role_REPEATER &&
         config.device.role != meshtastic_Config_DeviceConfig_Role_CLIENT_HIDDEN) 
@@ -186,15 +188,21 @@ meshtastic_Telemetry DeviceTelemetryModule::getLocalStatsExtendedTelemetry()
     #if defined(ARCH_ESP32)
         telemetry.variant.local_stats_extended.memory_free_cheap = memGet.getFreeHeap();
         telemetry.variant.local_stats_extended.memory_total = memGet.getHeapSize();
+        spiLock->lock();
         telemetry.variant.local_stats_extended.flash_used_bytes = FSCom.usedBytes();
         telemetry.variant.local_stats_extended.flash_total_bytes = FSCom.totalBytes(); 
+        spiLock->unlock();
+        telemetry.variant.local_stats_extended.memory_psram_free = memGet.getPsramSize();
+        telemetry.variant.local_stats_extended.memory_psram_total = memGet.getFreePsram();     
     #endif
 
     #if defined(ARCH_NRF52)
         telemetry.variant.local_stats_extended.memory_free_cheap = memGet.getFreeHeap();
         telemetry.variant.local_stats_extended.memory_total = memGet.getHeapSize();
-        telemetry.variant.local_stats_extended.flash_used_bytes = calculateNRF5xUsedBytes();
+        telemetry.variant.local_stats_extended.flash_used_bytes = calculateNRF5xUsedBytes(); 
         telemetry.variant.local_stats_extended.flash_total_bytes =  getNRF5xTotalBytes(); 
+        telemetry.variant.local_stats_extended.memory_psram_free = memGet.getPsramSize();
+        telemetry.variant.local_stats_extended.memory_psram_total = memGet.getFreePsram();    
     #endif
 
     telemetry.variant.local_stats_extended.cpu_usage_percent = CpuHwUsagePercent;
