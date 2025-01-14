@@ -201,8 +201,8 @@ meshtastic_Telemetry DeviceTelemetryModule::getLocalStatsExtendedTelemetry()
         telemetry.variant.local_stats_extended.memory_total = memGet.getHeapSize();
         telemetry.variant.local_stats_extended.flash_used_bytes = calculateNRF5xUsedBytes(); 
         telemetry.variant.local_stats_extended.flash_total_bytes =  getNRF5xTotalBytes(); 
-        telemetry.variant.local_stats_extended.memory_psram_free = memGet.getFreePsram();
-        telemetry.variant.local_stats_extended.memory_psram_total = memGet.getPsramSize();    
+        telemetry.variant.local_stats_extended.memory_psram_free = 0;
+        telemetry.variant.local_stats_extended.memory_psram_total = 0;
     #endif
 
     telemetry.variant.local_stats_extended.cpu_usage_percent = CpuHwUsagePercent;
