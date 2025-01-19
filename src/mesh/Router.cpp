@@ -216,9 +216,9 @@ ErrorCode Router::send(meshtastic_MeshPacket *p)
     // Abort sending if we are violating the duty cycle
     if (!config.lora.override_duty_cycle && myRegion->dutyCycle < 100) {
         float hourlyTxPercent = airTime->utilizationTXPercent();
-        if (hourlyTxPercent > myRegion->dutyCycle) {
+        if (hourlyTxPercent > (myRegion->dutyCycle+moduleConfig.nodemodadmin.additional_txutil)) {
 #ifdef DEBUG_PORT
-            uint8_t silentMinutes = airTime->getSilentMinutes(hourlyTxPercent, myRegion->dutyCycle);
+            uint8_t silentMinutes = airTime->getSilentMinutes(hourlyTxPercent, myRegion->dutyCycle+float(moduleConfig.nodemodadmin.additional_txutil));
             LOG_WARN("Duty cycle limit exceeded. Aborting send for now, you can send again in %d mins", silentMinutes);
             meshtastic_ClientNotification *cn = clientNotificationPool.allocZeroed();
             cn->has_reply_id = true;

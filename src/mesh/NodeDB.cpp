@@ -696,6 +696,10 @@ void NodeDB::installDefaultModuleConfig()
     moduleConfig.mqtt.encryption_enabled = true;
     moduleConfig.nodemodadmin.do_not_send_prv_over_mqtt = true;
     moduleConfig.nodemodadmin.sniffer_enabled = default_sniffer_enabled;
+    moduleConfig.nodemodadmin.local_stats_over_mesh_enabled = default_local_stats_over_mesh_enabled;
+    moduleConfig.nodemodadmin.local_stats_extended_over_mesh_enabled = default_local_stats_extended_over_mesh_enabled;
+    moduleConfig.nodemodadmin.additional_chutil = default_chanutil_user_additional;
+    moduleConfig.nodemodadmin.additional_txutil = default_chantxutil_user_additional;
 
     moduleConfig.has_neighbor_info = true;
     moduleConfig.neighbor_info.enabled = true;

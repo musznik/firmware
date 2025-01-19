@@ -61,16 +61,15 @@ class AirTime : private concurrency::OSThread
     uint8_t getSilentMinutes(float txPercent, float dutyCycle);
     bool isTxAllowedChannelUtil(bool polite = false);
     bool isTxAllowedAirUtil();
+    uint8_t max_channel_util_percent = 40;
+    uint8_t polite_channel_util_percent = 25;
+    uint8_t polite_duty_cycle_percent = 50; // half of Duty Cycle allowance is ok for metadata
 
   private:
     bool firstTime = true;
     uint8_t lastUtilPeriod = 0;
     uint8_t lastUtilPeriodTX = 0;
     uint32_t secSinceBoot = 0;
-    uint8_t max_channel_util_percent = 70;
-    uint8_t polite_channel_util_percent = 70;
-    uint8_t polite_duty_cycle_percent = 70; // half of Duty Cycle allowance is ok for metadata
-
     struct airtimeStruct {
         uint32_t periodTX[PERIODS_TO_LOG];     // AirTime transmitted
         uint32_t periodRX[PERIODS_TO_LOG];     // AirTime received and repeated (Only valid mesh packets)

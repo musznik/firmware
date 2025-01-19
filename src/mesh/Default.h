@@ -9,7 +9,7 @@
 #define FIFTEEN_SECONDS_MS 15 * 1000
 #define TEN_SECONDS_MS 10 * 1000
 
-#define min_default_telemetry_interval_secs 10 * 60
+#define min_default_telemetry_interval_secs 10 * 60 // 10 min
 #define default_gps_update_interval IF_ROUTER(ONE_DAY, 2 * 60)
 #define default_telemetry_broadcast_interval_secs IF_ROUTER(30 * 60, 30 * 60)
 #define default_broadcast_interval_secs IF_ROUTER(60 * 60, 30 * 60)
@@ -29,6 +29,11 @@
 #define default_mqtt_root "msh/pl"
 #define default_do_not_send_prvate_messages_over_mqtt true
 #define default_sniffer_enabled false
+#define default_local_stats_over_mesh_enabled true
+#define default_local_stats_extended_over_mesh_enabled true
+#define default_idlegame_enabled false
+#define default_chanutil_user_additional 10
+#define default_chantxutil_user_additional 5
 
 #define IF_ROUTER(routerVal, normalVal)                                                                                          \
     ((config.device.role == meshtastic_Config_DeviceConfig_Role_ROUTER) ? (routerVal) : (normalVal))
