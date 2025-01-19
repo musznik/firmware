@@ -1202,38 +1202,26 @@ void scannerToSensorsMap(const std::unique_ptr<ScanI2CTwoWire> &i2cScanner, Scan
 
 void startBusy()
 {
-    // Zwiększamy licznik
     if (++g_busyCounter == 1) {
-        // Jeśli właśnie weszliśmy z 0 -> 1, zapamiętujemy czas startu
         g_lastBusyStartUs = micros();
         g_isBusy = true;
     }
 }
 
-/**
- * @brief Wywołaj po zakończeniu fragmentu kodu, który był "zajmujący CPU".
- */
 void endBusy()
 {
     if (g_busyCounter <= 0) {
-        // Na wszelki wypadek, gdyby ktoś więcej razy endBusy() wywołał
         g_busyCounter = 0;
         return;
     }
 
-    // Zmniejszamy licznik
     if (--g_busyCounter == 0) {
-        // CPU faktycznie przestało być zajęte
         uint64_t now = micros();
         g_totalBusyTimeUs += (now - g_lastBusyStartUs);
         g_isBusy = false;
     }
 }
 
-/**
- * @brief Odczyt łącznego czasu [us], w którym CPU był w stanie "busy" od startu.
- *        Jeśli w chwili wywołania wciąż jesteśmy w busy, dolicza bieżący fragment.
- */
 uint64_t getTotalBusyTimeUs()
 {
     if (g_isBusy) {
@@ -1293,16 +1281,13 @@ void loop()
         mainDelay.delay(delayMsec);
     }
 
-     // -- Pomiar co 1 sekundę --
     uint32_t nowMs = millis();
-    // Inicjalizujemy (żeby lastCheckMs miało sens)
     if (!initialized) {
         initialized = true;
         lastCheckMs = nowMs;
-        lastBusyUs  = getTotalBusyTimeUs();  // stan początkowy
+        lastBusyUs  = getTotalBusyTimeUs();
     }
 
-    // Jeśli minęła >= 1 sekunda, to dokonaj próbkowania
     if (nowMs - lastCheckMs >= 1000) {
         lastCheckMs = nowMs;
         updateCpuUsageStats();
