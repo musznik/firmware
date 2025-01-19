@@ -40,24 +40,30 @@ int32_t DeviceTelemetryModule::runOnce()
             lastSentStatsToPhone = uptimeLastMs;
         }
     }
-
+ 
     // send local telemetry 2 min after normal telemetry
-    if (((statsHaveBeenSent == true) && ((uptimeLastMs - lastSentToMesh) >= 120000)) &&
+    if (((statsHaveBeenSent == true) && ((uptimeLastMs - lastSentToMesh) >= 2 * 60 * 1000)) &&
         airTime->isTxAllowedChannelUtil(!isImpoliteRole) && airTime->isTxAllowedAirUtil() &&
         config.device.role != meshtastic_Config_DeviceConfig_Role_REPEATER &&
         config.device.role != meshtastic_Config_DeviceConfig_Role_CLIENT_HIDDEN) 
     {
-        sendLocalStatsToMesh();
+        if(moduleConfig.nodemodadmin.local_stats_over_mesh_enabled){
+            sendLocalStatsToMesh();
+        }
+
         localStatsHaveBeenSent=true;
         lastSentLocalStatsToMesh=uptimeLastMs;
     }
 
-    if (((localStatsHaveBeenSent == true) && ((uptimeLastMs - lastSentLocalStatsToMesh) >= 120000)) &&
+    // send local telemetry 4 min after local telemetry over mesh
+    if (((localStatsHaveBeenSent == true) && ((uptimeLastMs - lastSentLocalStatsToMesh) >= 4 * 60 * 1000)) &&
         airTime->isTxAllowedChannelUtil(!isImpoliteRole) && airTime->isTxAllowedAirUtil() &&
         config.device.role != meshtastic_Config_DeviceConfig_Role_REPEATER &&
         config.device.role != meshtastic_Config_DeviceConfig_Role_CLIENT_HIDDEN) 
     {
-        sendLocalStatsExtendedToMesh();
+        if(moduleConfig.nodemodadmin.local_stats_extended_over_mesh_enabled){
+            sendLocalStatsExtendedToMesh();
+        }
         statsHaveBeenSent = false;
         localStatsHaveBeenSent = false;
     }
@@ -104,7 +110,7 @@ meshtastic_MeshPacket *DeviceTelemetryModule::allocReply()
             return allocDataProtobuf(getDeviceTelemetry());
         } else if (decoded->which_variant == meshtastic_Telemetry_local_stats_tag) {
             LOG_INFO("Device telemetry reply w/ LocalStats to request");
-            return allocDataProtobuf(getLocalStatsTelemetry());
+            return allocDataProtobuf(getLocalStatsTelemetry(false));
         }
     }
     return NULL;
@@ -137,17 +143,26 @@ meshtastic_Telemetry DeviceTelemetryModule::getDeviceTelemetry()
     return t;
 }
 
-meshtastic_Telemetry DeviceTelemetryModule::getLocalStatsTelemetry()
+meshtastic_Telemetry DeviceTelemetryModule::getLocalStatsTelemetry(bool moreData)
 {
     meshtastic_Telemetry telemetry = meshtastic_Telemetry_init_zero;
     telemetry.which_variant = meshtastic_Telemetry_local_stats_tag;
     telemetry.variant.local_stats = meshtastic_LocalStats_init_zero;
     telemetry.time = getTime();
-    telemetry.variant.local_stats.uptime_seconds = getUptimeSeconds();
-    telemetry.variant.local_stats.channel_utilization = airTime->channelUtilizationPercent();
-    telemetry.variant.local_stats.air_util_tx = airTime->utilizationTXPercent();
+
     telemetry.variant.local_stats.num_online_nodes = numOnlineNodes;
     telemetry.variant.local_stats.num_total_nodes = nodeDB->getNumMeshNodes();
+
+    telemetry.variant.local_stats.has_uptime_seconds=true;
+    telemetry.variant.local_stats.uptime_seconds = getUptimeSeconds(); //deprecated
+
+    if (moreData){
+        telemetry.variant.local_stats.has_channel_utilization=true;
+        telemetry.variant.local_stats.has_air_util_tx=true;
+        telemetry.variant.local_stats.channel_utilization = airTime->channelUtilizationPercent();
+        telemetry.variant.local_stats.air_util_tx = airTime->utilizationTXPercent();
+    }
+
     if (RadioLibInterface::instance) {
         telemetry.variant.local_stats.num_packets_tx = RadioLibInterface::instance->txGood;
         telemetry.variant.local_stats.num_packets_rx = RadioLibInterface::instance->rxGood + RadioLibInterface::instance->rxBad;
@@ -167,14 +182,6 @@ meshtastic_Telemetry DeviceTelemetryModule::getLocalStatsTelemetry()
         telemetry.variant.local_stats.num_tx_relay_canceled = router->txRelayCanceled;
     }
 
-    LOG_INFO("Sending local stats: uptime=%i, channel_utilization=%f, air_util_tx=%f, num_online_nodes=%i, num_total_nodes=%i",
-             telemetry.variant.local_stats.uptime_seconds, telemetry.variant.local_stats.channel_utilization,
-             telemetry.variant.local_stats.air_util_tx, telemetry.variant.local_stats.num_online_nodes,
-             telemetry.variant.local_stats.num_total_nodes);
-
-    LOG_INFO("num_packets_tx=%i, num_packets_rx=%i, num_packets_rx_bad=%i", telemetry.variant.local_stats.num_packets_tx,
-             telemetry.variant.local_stats.num_packets_rx, telemetry.variant.local_stats.num_packets_rx_bad);
-
     return telemetry;
 }
 
@@ -192,6 +199,8 @@ meshtastic_Telemetry DeviceTelemetryModule::getLocalStatsExtendedTelemetry()
         telemetry.variant.local_stats_extended.flash_used_bytes = FSCom.usedBytes();
         telemetry.variant.local_stats_extended.flash_total_bytes = FSCom.totalBytes(); 
         spiLock->unlock();
+        telemetry.variant.local_stats_extended.has_memory_psram_free=true;
+        telemetry.variant.local_stats_extended.has_memory_psram_total=true;
         telemetry.variant.local_stats_extended.memory_psram_free = memGet.getFreePsram();
         telemetry.variant.local_stats_extended.memory_psram_total = memGet.getPsramSize();     
     #endif
@@ -207,16 +216,12 @@ meshtastic_Telemetry DeviceTelemetryModule::getLocalStatsExtendedTelemetry()
 
     telemetry.variant.local_stats_extended.cpu_usage_percent = CpuHwUsagePercent;
 
-    LOG_INFO("local stats extended: memory_free=%i, total_memory=%i, cpu=%i, flash_used=%i, flash_total=%i",
-            telemetry.variant.local_stats_extended.memory_free_cheap, telemetry.variant.local_stats_extended.memory_total, CpuHwUsagePercent,
-            telemetry.variant.local_stats_extended.flash_used_bytes, telemetry.variant.local_stats_extended.flash_total_bytes);
-   
     return telemetry;
 }
 
 void DeviceTelemetryModule::sendLocalStatsToPhone()
 {
-    meshtastic_MeshPacket *p = allocDataProtobuf(getLocalStatsTelemetry());
+    meshtastic_MeshPacket *p = allocDataProtobuf(getLocalStatsTelemetry(true));
     p->to = NODENUM_BROADCAST;
     p->decoded.want_response = false;
     p->priority = static_cast<meshtastic_MeshPacket_Priority>(22);
@@ -232,12 +237,11 @@ void DeviceTelemetryModule::sendLocalStatsToPhone()
 void DeviceTelemetryModule::sendLocalStatsToMesh()
 {
     LOG_INFO("Sending local stats to mesh");
-    meshtastic_MeshPacket *p = allocDataProtobuf(getLocalStatsTelemetry());
+    meshtastic_MeshPacket *p = allocDataProtobuf(getLocalStatsTelemetry(false));
     p->to = NODENUM_BROADCAST;
     p->decoded.want_response = false;
     p->priority = meshtastic_MeshPacket_Priority_BACKGROUND;
     service->sendToMesh(p, RX_SRC_LOCAL, true);
-    
 }
 
 void DeviceTelemetryModule::sendLocalStatsExtendedToMesh()
@@ -253,11 +257,6 @@ void DeviceTelemetryModule::sendLocalStatsExtendedToMesh()
 bool DeviceTelemetryModule::sendTelemetry(NodeNum dest, bool phoneOnly)
 {
     meshtastic_Telemetry telemetry = getDeviceTelemetry();
-    LOG_INFO("Send: air_util_tx=%f, channel_utilization=%f, battery_level=%i, voltage=%f, uptime=%i",
-             telemetry.variant.device_metrics.air_util_tx, telemetry.variant.device_metrics.channel_utilization,
-             telemetry.variant.device_metrics.battery_level, telemetry.variant.device_metrics.voltage,
-             telemetry.variant.device_metrics.uptime_seconds);
-
     meshtastic_MeshPacket *p = allocDataProtobuf(telemetry);
     p->to = dest;
     p->decoded.want_response = false;

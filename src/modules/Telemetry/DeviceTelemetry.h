@@ -43,7 +43,7 @@ class DeviceTelemetryModule : private concurrency::OSThread, public ProtobufModu
 
   private:
     meshtastic_Telemetry getDeviceTelemetry();
-    meshtastic_Telemetry getLocalStatsTelemetry();
+    meshtastic_Telemetry getLocalStatsTelemetry(bool includeDuplicates);
     meshtastic_Telemetry getLocalStatsExtendedTelemetry();
 
 
