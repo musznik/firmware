@@ -63,6 +63,7 @@
     "chrono": "cpp",
     "codecvt": "cpp",
     "ratio": "cpp",
-    "csignal": "cpp"
+    "csignal": "cpp",
+    "iomanip": "cpp"
   }
 }
