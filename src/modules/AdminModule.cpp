@@ -924,6 +924,15 @@ void AdminModule::handleGetModuleConfig(const meshtastic_MeshPacket &req, const 
             LOG_INFO("Get module config: NodeModAdmin");
             res.get_module_config_response.which_payload_variant = meshtastic_ModuleConfig_node_mod_admin_tag;
             res.get_module_config_response.payload_variant.node_mod_admin = moduleConfig.nodemodadmin;
+            res.get_module_config_response.payload_variant.node_mod_admin.current_tx_util_limit = myRegion->dutyCycle;
+            res.get_module_config_response.payload_variant.node_mod_admin.current_max_channel_util_percent = airTime->max_channel_util_percent;
+            res.get_module_config_response.payload_variant.node_mod_admin.current_polite_channel_util_percent = airTime->polite_channel_util_percent;
+            res.get_module_config_response.payload_variant.node_mod_admin.current_polite_duty_cycle_percent = airTime->polite_duty_cycle_percent;
+            break;
+        case meshtastic_AdminMessage_ModuleConfigType_IDLEGAME_ADMIN_CONFIG:
+            LOG_INFO("Get module config: IdleGame");
+            res.get_module_config_response.which_payload_variant = meshtastic_ModuleConfig_idle_game_tag;
+            res.get_module_config_response.payload_variant.idle_game = moduleConfig.idlegame;
             break;
         }
 
