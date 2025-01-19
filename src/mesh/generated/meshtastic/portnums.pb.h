@@ -137,6 +137,8 @@ typedef enum _meshtastic_PortNum {
     meshtastic_PortNum_ATAK_FORWARDER = 257,
     /* Node Modification proto for custom node status (text description) handling for Firmware+ */
     meshtastic_PortNum_NODE_MOD_APP = 278,
+    /* IdleGame port */
+    meshtastic_PortNum_IDLE_GAME_APP = 322,
     /* Currently we limit port nums to no higher than this value */
     meshtastic_PortNum_MAX = 511
 } meshtastic_PortNum;

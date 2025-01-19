@@ -15,6 +15,28 @@ typedef struct _meshtastic_NodeModAdmin {
     bool sniffer_enabled;
     /* do not send prv over mqtt */
     bool do_not_send_prv_over_mqtt;
+    /* local stats over mesh enabled */
+    bool local_stats_over_mesh_enabled;
+    /* local stats extended over mesh enabled */
+    bool local_stats_extended_over_mesh_enabled;
+    /* idlegame enabled */
+    bool idlegame_enabled;
+    /* base ch util + additional chan utilization defined by user */
+    uint8_t additional_chutil;
+    /* base tx util + additional tx chan utilization defined by user */
+    float additional_txutil;
+    /* additional chutil polite percent defined by user */
+    uint8_t additional_polite_channel_percent;
+    /* additional chutil polite percent defined by user */
+    uint8_t additional_polite_duty_cycle_percent;
+    /* current tx util limit */
+    float current_tx_util_limit;
+    /* current nmax channel util percent */
+    uint8_t current_max_channel_util_percent;
+    /* current polite channel util percent */
+    uint8_t current_polite_channel_util_percent;
+    /* current polite duty cycle percent */
+    uint8_t current_polite_duty_cycle_percent;
 } meshtastic_NodeModAdmin;
 
 
@@ -23,17 +45,39 @@ extern "C" {
 #endif
 
 /* Initializer values for message structs */
-#define meshtastic_NodeModAdmin_init_default     {0, 0}
-#define meshtastic_NodeModAdmin_init_zero        {0, 0}
+#define meshtastic_NodeModAdmin_init_default     {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+#define meshtastic_NodeModAdmin_init_zero        {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define meshtastic_NodeModAdmin_sniffer_enabled_tag 1
 #define meshtastic_NodeModAdmin_do_not_send_prv_over_mqtt_tag 2
+#define meshtastic_NodeModAdmin_local_stats_over_mesh_enabled_tag 3
+#define meshtastic_NodeModAdmin_local_stats_extended_over_mesh_enabled_tag 4
+#define meshtastic_NodeModAdmin_idlegame_enabled_tag 5
+#define meshtastic_NodeModAdmin_additional_chutil_tag 6
+#define meshtastic_NodeModAdmin_additional_txutil_tag 7
+#define meshtastic_NodeModAdmin_additional_polite_channel_percent_tag 8
+#define meshtastic_NodeModAdmin_additional_polite_duty_cycle_percent_tag 9
+#define meshtastic_NodeModAdmin_current_tx_util_limit_tag 10
+#define meshtastic_NodeModAdmin_current_max_channel_util_percent_tag 11
+#define meshtastic_NodeModAdmin_current_polite_channel_util_percent_tag 12
+#define meshtastic_NodeModAdmin_current_polite_duty_cycle_percent_tag 13
 
 /* Struct field encoding specification for nanopb */
 #define meshtastic_NodeModAdmin_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, BOOL,     sniffer_enabled,   1) \
-X(a, STATIC,   SINGULAR, BOOL,     do_not_send_prv_over_mqtt,   2)
+X(a, STATIC,   SINGULAR, BOOL,     do_not_send_prv_over_mqtt,   2) \
+X(a, STATIC,   SINGULAR, BOOL,     local_stats_over_mesh_enabled,   3) \
+X(a, STATIC,   SINGULAR, BOOL,     local_stats_extended_over_mesh_enabled,   4) \
+X(a, STATIC,   SINGULAR, BOOL,     idlegame_enabled,   5) \
+X(a, STATIC,   SINGULAR, UINT32,   additional_chutil,   6) \
+X(a, STATIC,   SINGULAR, FLOAT,    additional_txutil,   7) \
+X(a, STATIC,   SINGULAR, UINT32,   additional_polite_channel_percent,   8) \
+X(a, STATIC,   SINGULAR, UINT32,   additional_polite_duty_cycle_percent,   9) \
+X(a, STATIC,   SINGULAR, FLOAT,    current_tx_util_limit,  10) \
+X(a, STATIC,   SINGULAR, UINT32,   current_max_channel_util_percent,  11) \
+X(a, STATIC,   SINGULAR, UINT32,   current_polite_channel_util_percent,  12) \
+X(a, STATIC,   SINGULAR, UINT32,   current_polite_duty_cycle_percent,  13)
 #define meshtastic_NodeModAdmin_CALLBACK NULL
 #define meshtastic_NodeModAdmin_DEFAULT NULL
 
@@ -44,7 +88,7 @@ extern const pb_msgdesc_t meshtastic_NodeModAdmin_msg;
 
 /* Maximum encoded size of messages (where known) */
 #define MESHTASTIC_MESHTASTIC_NODE_MOD_ADMIN_PB_H_MAX_SIZE meshtastic_NodeModAdmin_size
-#define meshtastic_NodeModAdmin_size             4
+#define meshtastic_NodeModAdmin_size             38
 
 #ifdef __cplusplus
 } /* extern "C" */

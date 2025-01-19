@@ -57,7 +57,30 @@ PB_BIND(meshtastic_ModuleConfig_NodeModConfig, meshtastic_ModuleConfig_NodeModCo
 PB_BIND(meshtastic_ModuleConfig_NodeModAdminConfig, meshtastic_ModuleConfig_NodeModAdminConfig, AUTO)
 
 
+PB_BIND(meshtastic_ModuleConfig_IdleGameKnownVillages, meshtastic_ModuleConfig_IdleGameKnownVillages, 2)
+
+
+PB_BIND(meshtastic_ModuleConfig_IdleGameAlliance, meshtastic_ModuleConfig_IdleGameAlliance, AUTO)
+
+
+PB_BIND(meshtastic_ModuleConfig_IdleGamePatron, meshtastic_ModuleConfig_IdleGamePatron, AUTO)
+
+
+PB_BIND(meshtastic_ModuleConfig_IdleGameRelations, meshtastic_ModuleConfig_IdleGameRelations, 2)
+
+
+PB_BIND(meshtastic_ModuleConfig_IdleGameState, meshtastic_ModuleConfig_IdleGameState, AUTO)
+
+
+PB_BIND(meshtastic_ModuleConfig_IdleGameAction, meshtastic_ModuleConfig_IdleGameAction, AUTO)
+
+
+PB_BIND(meshtastic_ModuleConfig_IdleGameConfig, meshtastic_ModuleConfig_IdleGameConfig, 2)
+
+
 PB_BIND(meshtastic_RemoteHardwarePin, meshtastic_RemoteHardwarePin, AUTO)
+
+
 
 
 

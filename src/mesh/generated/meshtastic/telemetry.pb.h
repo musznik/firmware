@@ -81,7 +81,9 @@ typedef enum _meshtastic_TelemetrySensorType {
     /* ClimateGuard RadSens, radiation, Geiger-Muller Tube */
     meshtastic_TelemetrySensorType_RADSENS = 33,
     /* High accuracy current and voltage */
-    meshtastic_TelemetrySensorType_INA226 = 34
+    meshtastic_TelemetrySensorType_INA226 = 34,
+    /* DFRobot Gravity tipping bucket rain gauge */
+    meshtastic_TelemetrySensorType_DFROBOT_RAIN = 35
 } meshtastic_TelemetrySensorType;
 
 /* Struct definitions */
@@ -162,6 +164,12 @@ typedef struct _meshtastic_EnvironmentMetrics {
     /* Radiation in µR/h */
     bool has_radiation;
     float radiation;
+    /* Rainfall in the last hour in mm */
+    bool has_rainfall_1h;
+    float rainfall_1h;
+    /* Rainfall in the last 24 hours in mm */
+    bool has_rainfall_24h;
+    float rainfall_24h;
 } meshtastic_EnvironmentMetrics;
 
 /* Power Metrics (voltage / current / etc) */
@@ -232,10 +240,13 @@ typedef struct _meshtastic_AirQualityMetrics {
 /* Local device mesh statistics */
 typedef struct _meshtastic_LocalStats {
     /* How long the device has been running since the last reboot (in seconds) */
+    bool has_uptime_seconds;
     uint32_t uptime_seconds;
     /* Utilization for the current channel, including well formed TX, RX and malformed RX (aka noise). */
+    bool has_channel_utilization;
     float channel_utilization;
     /* Percent of airtime for transmission used within the last hour. */
+    bool has_air_util_tx;
     float air_util_tx;
     /* Number of packets sent */
     uint32_t num_packets_tx;
@@ -270,9 +281,15 @@ typedef struct _meshtastic_LocalStatsExtended {
     /* total available space */
     uint32_t flash_total_bytes;
     /* psram used */
+    bool has_memory_psram_free;
     uint32_t memory_psram_free;
     /* psram total */
+    bool has_memory_psram_total;
     uint32_t memory_psram_total;
+    /* psram total */
+    uint32_t rx_total_bytes;
+    /* psram total */
+    uint32_t tx_total_bytes;
 } meshtastic_LocalStatsExtended;
 
 /* Health telemetry metrics */
@@ -326,8 +343,8 @@ extern "C" {
 
 /* Helper constants for enums */
 #define _meshtastic_TelemetrySensorType_MIN meshtastic_TelemetrySensorType_SENSOR_UNSET
-#define _meshtastic_TelemetrySensorType_MAX meshtastic_TelemetrySensorType_INA226
-#define _meshtastic_TelemetrySensorType_ARRAYSIZE ((meshtastic_TelemetrySensorType)(meshtastic_TelemetrySensorType_INA226+1))
+#define _meshtastic_TelemetrySensorType_MAX meshtastic_TelemetrySensorType_DFROBOT_RAIN
+#define _meshtastic_TelemetrySensorType_ARRAYSIZE ((meshtastic_TelemetrySensorType)(meshtastic_TelemetrySensorType_DFROBOT_RAIN+1))
 
 
 
@@ -341,20 +358,20 @@ extern "C" {
 
 /* Initializer values for message structs */
 #define meshtastic_DeviceMetrics_init_default    {false, 0, false, 0, false, 0, false, 0, false, 0}
-#define meshtastic_EnvironmentMetrics_init_default {false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0}
+#define meshtastic_EnvironmentMetrics_init_default {false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0}
 #define meshtastic_PowerMetrics_init_default     {false, 0, false, 0, false, 0, false, 0, false, 0, false, 0}
 #define meshtastic_AirQualityMetrics_init_default {false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0}
-#define meshtastic_LocalStats_init_default       {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
-#define meshtastic_LocalStatsExtended_init_default {0, 0, 0, 0, 0, 0, 0}
+#define meshtastic_LocalStats_init_default       {false, 0, false, 0, false, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+#define meshtastic_LocalStatsExtended_init_default {0, 0, 0, 0, 0, false, 0, false, 0, 0, 0}
 #define meshtastic_HealthMetrics_init_default    {false, 0, false, 0, false, 0}
 #define meshtastic_Telemetry_init_default        {0, 0, {meshtastic_DeviceMetrics_init_default}}
 #define meshtastic_Nau7802Config_init_default    {0, 0}
 #define meshtastic_DeviceMetrics_init_zero       {false, 0, false, 0, false, 0, false, 0, false, 0}
-#define meshtastic_EnvironmentMetrics_init_zero  {false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0}
+#define meshtastic_EnvironmentMetrics_init_zero  {false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0}
 #define meshtastic_PowerMetrics_init_zero        {false, 0, false, 0, false, 0, false, 0, false, 0, false, 0}
 #define meshtastic_AirQualityMetrics_init_zero   {false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0}
-#define meshtastic_LocalStats_init_zero          {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
-#define meshtastic_LocalStatsExtended_init_zero  {0, 0, 0, 0, 0, 0, 0}
+#define meshtastic_LocalStats_init_zero          {false, 0, false, 0, false, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+#define meshtastic_LocalStatsExtended_init_zero  {0, 0, 0, 0, 0, false, 0, false, 0, 0, 0}
 #define meshtastic_HealthMetrics_init_zero       {false, 0, false, 0, false, 0}
 #define meshtastic_Telemetry_init_zero           {0, 0, {meshtastic_DeviceMetrics_init_zero}}
 #define meshtastic_Nau7802Config_init_zero       {0, 0}
@@ -383,6 +400,8 @@ extern "C" {
 #define meshtastic_EnvironmentMetrics_wind_gust_tag 16
 #define meshtastic_EnvironmentMetrics_wind_lull_tag 17
 #define meshtastic_EnvironmentMetrics_radiation_tag 18
+#define meshtastic_EnvironmentMetrics_rainfall_1h_tag 19
+#define meshtastic_EnvironmentMetrics_rainfall_24h_tag 20
 #define meshtastic_PowerMetrics_ch1_voltage_tag  1
 #define meshtastic_PowerMetrics_ch1_current_tag  2
 #define meshtastic_PowerMetrics_ch2_voltage_tag  3
@@ -420,6 +439,8 @@ extern "C" {
 #define meshtastic_LocalStatsExtended_flash_total_bytes_tag 5
 #define meshtastic_LocalStatsExtended_memory_psram_free_tag 6
 #define meshtastic_LocalStatsExtended_memory_psram_total_tag 7
+#define meshtastic_LocalStatsExtended_rx_total_bytes_tag 8
+#define meshtastic_LocalStatsExtended_tx_total_bytes_tag 9
 #define meshtastic_HealthMetrics_heart_bpm_tag   1
 #define meshtastic_HealthMetrics_spO2_tag        2
 #define meshtastic_HealthMetrics_temperature_tag 3
@@ -462,7 +483,9 @@ X(a, STATIC,   OPTIONAL, FLOAT,    wind_speed,       14) \
 X(a, STATIC,   OPTIONAL, FLOAT,    weight,           15) \
 X(a, STATIC,   OPTIONAL, FLOAT,    wind_gust,        16) \
 X(a, STATIC,   OPTIONAL, FLOAT,    wind_lull,        17) \
-X(a, STATIC,   OPTIONAL, FLOAT,    radiation,        18)
+X(a, STATIC,   OPTIONAL, FLOAT,    radiation,        18) \
+X(a, STATIC,   OPTIONAL, FLOAT,    rainfall_1h,      19) \
+X(a, STATIC,   OPTIONAL, FLOAT,    rainfall_24h,     20)
 #define meshtastic_EnvironmentMetrics_CALLBACK NULL
 #define meshtastic_EnvironmentMetrics_DEFAULT NULL
 
@@ -494,9 +517,9 @@ X(a, STATIC,   OPTIONAL, UINT32,   co2,              13)
 #define meshtastic_AirQualityMetrics_DEFAULT NULL
 
 #define meshtastic_LocalStats_FIELDLIST(X, a) \
-X(a, STATIC,   SINGULAR, UINT32,   uptime_seconds,    1) \
-X(a, STATIC,   SINGULAR, FLOAT,    channel_utilization,   2) \
-X(a, STATIC,   SINGULAR, FLOAT,    air_util_tx,       3) \
+X(a, STATIC,   OPTIONAL, UINT32,   uptime_seconds,    1) \
+X(a, STATIC,   OPTIONAL, FLOAT,    channel_utilization,   2) \
+X(a, STATIC,   OPTIONAL, FLOAT,    air_util_tx,       3) \
 X(a, STATIC,   SINGULAR, UINT32,   num_packets_tx,    4) \
 X(a, STATIC,   SINGULAR, UINT32,   num_packets_rx,    5) \
 X(a, STATIC,   SINGULAR, UINT32,   num_packets_rx_bad,   6) \
@@ -514,8 +537,10 @@ X(a, STATIC,   SINGULAR, UINT32,   memory_total,      2) \
 X(a, STATIC,   SINGULAR, UINT32,   cpu_usage_percent,   3) \
 X(a, STATIC,   SINGULAR, UINT32,   flash_used_bytes,   4) \
 X(a, STATIC,   SINGULAR, UINT32,   flash_total_bytes,   5) \
-X(a, STATIC,   SINGULAR, UINT32,   memory_psram_free,   6) \
-X(a, STATIC,   SINGULAR, UINT32,   memory_psram_total,   7)
+X(a, STATIC,   OPTIONAL, UINT32,   memory_psram_free,   6) \
+X(a, STATIC,   OPTIONAL, UINT32,   memory_psram_total,   7) \
+X(a, STATIC,   SINGULAR, UINT32,   rx_total_bytes,    8) \
+X(a, STATIC,   SINGULAR, UINT32,   tx_total_bytes,    9)
 #define meshtastic_LocalStatsExtended_CALLBACK NULL
 #define meshtastic_LocalStatsExtended_DEFAULT NULL
 
@@ -576,13 +601,13 @@ extern const pb_msgdesc_t meshtastic_Nau7802Config_msg;
 #define MESHTASTIC_MESHTASTIC_TELEMETRY_PB_H_MAX_SIZE meshtastic_Telemetry_size
 #define meshtastic_AirQualityMetrics_size        78
 #define meshtastic_DeviceMetrics_size            27
-#define meshtastic_EnvironmentMetrics_size       91
+#define meshtastic_EnvironmentMetrics_size       103
 #define meshtastic_HealthMetrics_size            11
-#define meshtastic_LocalStatsExtended_size       42
+#define meshtastic_LocalStatsExtended_size       54
 #define meshtastic_LocalStats_size               60
 #define meshtastic_Nau7802Config_size            16
 #define meshtastic_PowerMetrics_size             30
-#define meshtastic_Telemetry_size                98
+#define meshtastic_Telemetry_size                110
 
 #ifdef __cplusplus
 } /* extern "C" */

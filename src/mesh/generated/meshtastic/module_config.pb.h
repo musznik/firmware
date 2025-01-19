@@ -19,6 +19,14 @@ typedef enum _meshtastic_RemoteHardwarePinType {
     meshtastic_RemoteHardwarePinType_DIGITAL_WRITE = 2
 } meshtastic_RemoteHardwarePinType;
 
+typedef enum _meshtastic_ModuleConfig_IdleGameActionType {
+    meshtastic_ModuleConfig_IdleGameActionType_ACTION_NONE = 0,
+    meshtastic_ModuleConfig_IdleGameActionType_ACTION_ATTACK = 1,
+    meshtastic_ModuleConfig_IdleGameActionType_ACTION_TRADE = 2,
+    meshtastic_ModuleConfig_IdleGameActionType_ACTION_ALLIANCE = 3,
+    meshtastic_ModuleConfig_IdleGameActionType_ACTION_OTHER = 4
+} meshtastic_ModuleConfig_IdleGameActionType;
+
 typedef enum _meshtastic_ModuleConfig_DetectionSensorConfig_TriggerType {
     /* Event is triggered if pin is low */
     meshtastic_ModuleConfig_DetectionSensorConfig_TriggerType_LOGIC_LOW = 0,
@@ -400,7 +408,79 @@ typedef struct _meshtastic_ModuleConfig_NodeModAdminConfig {
     bool sniffer_enabled;
     /* do not send prv over mqtt */
     bool do_not_send_prv_over_mqtt;
+    /* local stats over mesh enabled */
+    bool local_stats_over_mesh_enabled;
+    /* local stats extended over mesh enabled */
+    bool local_stats_extended_over_mesh_enabled;
+    /* idlegame enabled */
+    bool idlegame_enabled;
+    /* base ch util + additional chan utilization defined by user */
+    uint32_t additional_chutil;
+    /* base tx util + additional tx chan utilization defined by user */
+    float additional_txutil;
+    /* additional chutil polite percent defined by user */
+    uint32_t additional_polite_channel_percent;
+    /* additional chutil polite percent defined by user */
+    uint32_t additional_polite_duty_cycle_percent;
+    /* current tx util limit */
+    float current_tx_util_limit;
+    /* current nmax channel util percent */
+    uint32_t current_max_channel_util_percent;
+    /* current polite channel util percent */
+    uint32_t current_polite_channel_util_percent;
+    /* current polite duty cycle percent */
+    uint32_t current_polite_duty_cycle_percent;
 } meshtastic_ModuleConfig_NodeModAdminConfig;
+
+typedef PB_BYTES_ARRAY_T(1) meshtastic_ModuleConfig_IdleGameAlliance_morale_bonus_t;
+typedef struct _meshtastic_ModuleConfig_IdleGameAlliance {
+    uint8_t node_id;
+    uint8_t started_at;
+    meshtastic_ModuleConfig_IdleGameAlliance_morale_bonus_t morale_bonus;
+} meshtastic_ModuleConfig_IdleGameAlliance;
+
+typedef struct _meshtastic_ModuleConfig_IdleGamePatron {
+    uint8_t node_id;
+    uint8_t started_at;
+} meshtastic_ModuleConfig_IdleGamePatron;
+
+typedef struct _meshtastic_ModuleConfig_IdleGameRelations {
+    pb_size_t alliances_count;
+    meshtastic_ModuleConfig_IdleGameAlliance alliances[10];
+    pb_size_t patrons_count;
+    meshtastic_ModuleConfig_IdleGamePatron patrons[10];
+} meshtastic_ModuleConfig_IdleGameRelations;
+
+typedef struct _meshtastic_ModuleConfig_IdleGameState {
+    char village_name[38];
+    uint8_t population;
+    uint8_t resources;
+    uint8_t defense;
+    uint8_t technology;
+    uint8_t node_id;
+    uint32_t level;
+    uint32_t version;
+} meshtastic_ModuleConfig_IdleGameState;
+
+typedef struct _meshtastic_ModuleConfig_IdleGameKnownVillages {
+    pb_size_t known_count;
+    meshtastic_ModuleConfig_IdleGameState known[15];
+} meshtastic_ModuleConfig_IdleGameKnownVillages;
+
+typedef struct _meshtastic_ModuleConfig_IdleGameAction {
+    meshtastic_ModuleConfig_IdleGameActionType action_type;
+    uint8_t quantity;
+} meshtastic_ModuleConfig_IdleGameAction;
+
+typedef struct _meshtastic_ModuleConfig_IdleGameConfig {
+    pb_size_t which_variant;
+    union {
+        meshtastic_ModuleConfig_IdleGameState state;
+        meshtastic_ModuleConfig_IdleGameAction action;
+        meshtastic_ModuleConfig_IdleGameKnownVillages known_villages;
+        meshtastic_ModuleConfig_IdleGameRelations relations;
+    } variant;
+} meshtastic_ModuleConfig_IdleGameConfig;
 
 /* A GPIO pin definition for remote hardware module */
 typedef struct _meshtastic_RemoteHardwarePin {
@@ -455,6 +535,7 @@ typedef struct _meshtastic_ModuleConfig {
         meshtastic_ModuleConfig_PaxcounterConfig paxcounter;
         meshtastic_ModuleConfig_NodeModConfig node_mod;
         meshtastic_ModuleConfig_NodeModAdminConfig node_mod_admin;
+        meshtastic_ModuleConfig_IdleGameConfig idle_game;
     } payload_variant;
 } meshtastic_ModuleConfig;
 
@@ -467,6 +548,10 @@ extern "C" {
 #define _meshtastic_RemoteHardwarePinType_MIN meshtastic_RemoteHardwarePinType_UNKNOWN
 #define _meshtastic_RemoteHardwarePinType_MAX meshtastic_RemoteHardwarePinType_DIGITAL_WRITE
 #define _meshtastic_RemoteHardwarePinType_ARRAYSIZE ((meshtastic_RemoteHardwarePinType)(meshtastic_RemoteHardwarePinType_DIGITAL_WRITE+1))
+
+#define _meshtastic_ModuleConfig_IdleGameActionType_MIN meshtastic_ModuleConfig_IdleGameActionType_ACTION_NONE
+#define _meshtastic_ModuleConfig_IdleGameActionType_MAX meshtastic_ModuleConfig_IdleGameActionType_ACTION_OTHER
+#define _meshtastic_ModuleConfig_IdleGameActionType_ARRAYSIZE ((meshtastic_ModuleConfig_IdleGameActionType)(meshtastic_ModuleConfig_IdleGameActionType_ACTION_OTHER+1))
 
 #define _meshtastic_ModuleConfig_DetectionSensorConfig_TriggerType_MIN meshtastic_ModuleConfig_DetectionSensorConfig_TriggerType_LOGIC_LOW
 #define _meshtastic_ModuleConfig_DetectionSensorConfig_TriggerType_MAX meshtastic_ModuleConfig_DetectionSensorConfig_TriggerType_EITHER_EDGE_ACTIVE_HIGH
@@ -512,6 +597,14 @@ extern "C" {
 
 
 
+
+
+
+
+
+#define meshtastic_ModuleConfig_IdleGameAction_action_type_ENUMTYPE meshtastic_ModuleConfig_IdleGameActionType
+
+
 #define meshtastic_RemoteHardwarePin_type_ENUMTYPE meshtastic_RemoteHardwarePinType
 
 
@@ -532,7 +625,14 @@ extern "C" {
 #define meshtastic_ModuleConfig_CannedMessageConfig_init_default {0, 0, 0, 0, _meshtastic_ModuleConfig_CannedMessageConfig_InputEventChar_MIN, _meshtastic_ModuleConfig_CannedMessageConfig_InputEventChar_MIN, _meshtastic_ModuleConfig_CannedMessageConfig_InputEventChar_MIN, 0, 0, "", 0}
 #define meshtastic_ModuleConfig_AmbientLightingConfig_init_default {0, 0, 0, 0, 0}
 #define meshtastic_ModuleConfig_NodeModConfig_init_default {""}
-#define meshtastic_ModuleConfig_NodeModAdminConfig_init_default {0, 0}
+#define meshtastic_ModuleConfig_NodeModAdminConfig_init_default {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+#define meshtastic_ModuleConfig_IdleGameKnownVillages_init_default {0, {meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default}}
+#define meshtastic_ModuleConfig_IdleGameAlliance_init_default {0, 0, {0, {0}}}
+#define meshtastic_ModuleConfig_IdleGamePatron_init_default {0, 0}
+#define meshtastic_ModuleConfig_IdleGameRelations_init_default {0, {meshtastic_ModuleConfig_IdleGameAlliance_init_default, meshtastic_ModuleConfig_IdleGameAlliance_init_default, meshtastic_ModuleConfig_IdleGameAlliance_init_default, meshtastic_ModuleConfig_IdleGameAlliance_init_default, meshtastic_ModuleConfig_IdleGameAlliance_init_default, meshtastic_ModuleConfig_IdleGameAlliance_init_default, meshtastic_ModuleConfig_IdleGameAlliance_init_default, meshtastic_ModuleConfig_IdleGameAlliance_init_default, meshtastic_ModuleConfig_IdleGameAlliance_init_default, meshtastic_ModuleConfig_IdleGameAlliance_init_default}, 0, {meshtastic_ModuleConfig_IdleGamePatron_init_default, meshtastic_ModuleConfig_IdleGamePatron_init_default, meshtastic_ModuleConfig_IdleGamePatron_init_default, meshtastic_ModuleConfig_IdleGamePatron_init_default, meshtastic_ModuleConfig_IdleGamePatron_init_default, meshtastic_ModuleConfig_IdleGamePatron_init_default, meshtastic_ModuleConfig_IdleGamePatron_init_default, meshtastic_ModuleConfig_IdleGamePatron_init_default, meshtastic_ModuleConfig_IdleGamePatron_init_default, meshtastic_ModuleConfig_IdleGamePatron_init_default}}
+#define meshtastic_ModuleConfig_IdleGameState_init_default {"", 0, 0, 0, 0, 0, 0, 0}
+#define meshtastic_ModuleConfig_IdleGameAction_init_default {_meshtastic_ModuleConfig_IdleGameActionType_MIN, 0}
+#define meshtastic_ModuleConfig_IdleGameConfig_init_default {0, {meshtastic_ModuleConfig_IdleGameState_init_default}}
 #define meshtastic_RemoteHardwarePin_init_default {0, "", _meshtastic_RemoteHardwarePinType_MIN}
 #define meshtastic_ModuleConfig_init_zero        {0, {meshtastic_ModuleConfig_MQTTConfig_init_zero}}
 #define meshtastic_ModuleConfig_MQTTConfig_init_zero {0, "", "", "", 0, 0, 0, "", 0, 0, false, meshtastic_ModuleConfig_MapReportSettings_init_zero}
@@ -550,7 +650,14 @@ extern "C" {
 #define meshtastic_ModuleConfig_CannedMessageConfig_init_zero {0, 0, 0, 0, _meshtastic_ModuleConfig_CannedMessageConfig_InputEventChar_MIN, _meshtastic_ModuleConfig_CannedMessageConfig_InputEventChar_MIN, _meshtastic_ModuleConfig_CannedMessageConfig_InputEventChar_MIN, 0, 0, "", 0}
 #define meshtastic_ModuleConfig_AmbientLightingConfig_init_zero {0, 0, 0, 0, 0}
 #define meshtastic_ModuleConfig_NodeModConfig_init_zero {""}
-#define meshtastic_ModuleConfig_NodeModAdminConfig_init_zero {0, 0}
+#define meshtastic_ModuleConfig_NodeModAdminConfig_init_zero {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+#define meshtastic_ModuleConfig_IdleGameKnownVillages_init_zero {0, {meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero}}
+#define meshtastic_ModuleConfig_IdleGameAlliance_init_zero {0, 0, {0, {0}}}
+#define meshtastic_ModuleConfig_IdleGamePatron_init_zero {0, 0}
+#define meshtastic_ModuleConfig_IdleGameRelations_init_zero {0, {meshtastic_ModuleConfig_IdleGameAlliance_init_zero, meshtastic_ModuleConfig_IdleGameAlliance_init_zero, meshtastic_ModuleConfig_IdleGameAlliance_init_zero, meshtastic_ModuleConfig_IdleGameAlliance_init_zero, meshtastic_ModuleConfig_IdleGameAlliance_init_zero, meshtastic_ModuleConfig_IdleGameAlliance_init_zero, meshtastic_ModuleConfig_IdleGameAlliance_init_zero, meshtastic_ModuleConfig_IdleGameAlliance_init_zero, meshtastic_ModuleConfig_IdleGameAlliance_init_zero, meshtastic_ModuleConfig_IdleGameAlliance_init_zero}, 0, {meshtastic_ModuleConfig_IdleGamePatron_init_zero, meshtastic_ModuleConfig_IdleGamePatron_init_zero, meshtastic_ModuleConfig_IdleGamePatron_init_zero, meshtastic_ModuleConfig_IdleGamePatron_init_zero, meshtastic_ModuleConfig_IdleGamePatron_init_zero, meshtastic_ModuleConfig_IdleGamePatron_init_zero, meshtastic_ModuleConfig_IdleGamePatron_init_zero, meshtastic_ModuleConfig_IdleGamePatron_init_zero, meshtastic_ModuleConfig_IdleGamePatron_init_zero, meshtastic_ModuleConfig_IdleGamePatron_init_zero}}
+#define meshtastic_ModuleConfig_IdleGameState_init_zero {"", 0, 0, 0, 0, 0, 0, 0}
+#define meshtastic_ModuleConfig_IdleGameAction_init_zero {_meshtastic_ModuleConfig_IdleGameActionType_MIN, 0}
+#define meshtastic_ModuleConfig_IdleGameConfig_init_zero {0, {meshtastic_ModuleConfig_IdleGameState_init_zero}}
 #define meshtastic_RemoteHardwarePin_init_zero   {0, "", _meshtastic_RemoteHardwarePinType_MIN}
 
 /* Field tags (for use in manual encoding/decoding) */
@@ -653,6 +760,39 @@ extern "C" {
 #define meshtastic_ModuleConfig_NodeModConfig_text_status_tag 1
 #define meshtastic_ModuleConfig_NodeModAdminConfig_sniffer_enabled_tag 1
 #define meshtastic_ModuleConfig_NodeModAdminConfig_do_not_send_prv_over_mqtt_tag 2
+#define meshtastic_ModuleConfig_NodeModAdminConfig_local_stats_over_mesh_enabled_tag 3
+#define meshtastic_ModuleConfig_NodeModAdminConfig_local_stats_extended_over_mesh_enabled_tag 4
+#define meshtastic_ModuleConfig_NodeModAdminConfig_idlegame_enabled_tag 5
+#define meshtastic_ModuleConfig_NodeModAdminConfig_additional_chutil_tag 6
+#define meshtastic_ModuleConfig_NodeModAdminConfig_additional_txutil_tag 7
+#define meshtastic_ModuleConfig_NodeModAdminConfig_additional_polite_channel_percent_tag 8
+#define meshtastic_ModuleConfig_NodeModAdminConfig_additional_polite_duty_cycle_percent_tag 9
+#define meshtastic_ModuleConfig_NodeModAdminConfig_current_tx_util_limit_tag 10
+#define meshtastic_ModuleConfig_NodeModAdminConfig_current_max_channel_util_percent_tag 11
+#define meshtastic_ModuleConfig_NodeModAdminConfig_current_polite_channel_util_percent_tag 12
+#define meshtastic_ModuleConfig_NodeModAdminConfig_current_polite_duty_cycle_percent_tag 13
+#define meshtastic_ModuleConfig_IdleGameAlliance_node_id_tag 1
+#define meshtastic_ModuleConfig_IdleGameAlliance_started_at_tag 2
+#define meshtastic_ModuleConfig_IdleGameAlliance_morale_bonus_tag 3
+#define meshtastic_ModuleConfig_IdleGamePatron_node_id_tag 1
+#define meshtastic_ModuleConfig_IdleGamePatron_started_at_tag 2
+#define meshtastic_ModuleConfig_IdleGameRelations_alliances_tag 1
+#define meshtastic_ModuleConfig_IdleGameRelations_patrons_tag 2
+#define meshtastic_ModuleConfig_IdleGameState_village_name_tag 1
+#define meshtastic_ModuleConfig_IdleGameState_population_tag 2
+#define meshtastic_ModuleConfig_IdleGameState_resources_tag 3
+#define meshtastic_ModuleConfig_IdleGameState_defense_tag 4
+#define meshtastic_ModuleConfig_IdleGameState_technology_tag 5
+#define meshtastic_ModuleConfig_IdleGameState_node_id_tag 6
+#define meshtastic_ModuleConfig_IdleGameState_level_tag 7
+#define meshtastic_ModuleConfig_IdleGameState_version_tag 8
+#define meshtastic_ModuleConfig_IdleGameKnownVillages_known_tag 1
+#define meshtastic_ModuleConfig_IdleGameAction_action_type_tag 1
+#define meshtastic_ModuleConfig_IdleGameAction_quantity_tag 4
+#define meshtastic_ModuleConfig_IdleGameConfig_state_tag 1
+#define meshtastic_ModuleConfig_IdleGameConfig_action_tag 2
+#define meshtastic_ModuleConfig_IdleGameConfig_known_villages_tag 3
+#define meshtastic_ModuleConfig_IdleGameConfig_relations_tag 4
 #define meshtastic_RemoteHardwarePin_gpio_pin_tag 1
 #define meshtastic_RemoteHardwarePin_name_tag    2
 #define meshtastic_RemoteHardwarePin_type_tag    3
@@ -674,6 +814,7 @@ extern "C" {
 #define meshtastic_ModuleConfig_paxcounter_tag   13
 #define meshtastic_ModuleConfig_node_mod_tag     20
 #define meshtastic_ModuleConfig_node_mod_admin_tag 21
+#define meshtastic_ModuleConfig_idle_game_tag    22
 
 /* Struct field encoding specification for nanopb */
 #define meshtastic_ModuleConfig_FIELDLIST(X, a) \
@@ -691,7 +832,8 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (payload_variant,ambient_lighting,payload_var
 X(a, STATIC,   ONEOF,    MESSAGE,  (payload_variant,detection_sensor,payload_variant.detection_sensor),  12) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (payload_variant,paxcounter,payload_variant.paxcounter),  13) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (payload_variant,node_mod,payload_variant.node_mod),  20) \
-X(a, STATIC,   ONEOF,    MESSAGE,  (payload_variant,node_mod_admin,payload_variant.node_mod_admin),  21)
+X(a, STATIC,   ONEOF,    MESSAGE,  (payload_variant,node_mod_admin,payload_variant.node_mod_admin),  21) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (payload_variant,idle_game,payload_variant.idle_game),  22)
 #define meshtastic_ModuleConfig_CALLBACK NULL
 #define meshtastic_ModuleConfig_DEFAULT NULL
 #define meshtastic_ModuleConfig_payload_variant_mqtt_MSGTYPE meshtastic_ModuleConfig_MQTTConfig
@@ -709,6 +851,7 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (payload_variant,node_mod_admin,payload_varia
 #define meshtastic_ModuleConfig_payload_variant_paxcounter_MSGTYPE meshtastic_ModuleConfig_PaxcounterConfig
 #define meshtastic_ModuleConfig_payload_variant_node_mod_MSGTYPE meshtastic_ModuleConfig_NodeModConfig
 #define meshtastic_ModuleConfig_payload_variant_node_mod_admin_MSGTYPE meshtastic_ModuleConfig_NodeModAdminConfig
+#define meshtastic_ModuleConfig_payload_variant_idle_game_MSGTYPE meshtastic_ModuleConfig_IdleGameConfig
 
 #define meshtastic_ModuleConfig_MQTTConfig_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, BOOL,     enabled,           1) \
@@ -874,9 +1017,77 @@ X(a, STATIC,   SINGULAR, STRING,   text_status,       1)
 
 #define meshtastic_ModuleConfig_NodeModAdminConfig_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, BOOL,     sniffer_enabled,   1) \
-X(a, STATIC,   SINGULAR, BOOL,     do_not_send_prv_over_mqtt,   2)
+X(a, STATIC,   SINGULAR, BOOL,     do_not_send_prv_over_mqtt,   2) \
+X(a, STATIC,   SINGULAR, BOOL,     local_stats_over_mesh_enabled,   3) \
+X(a, STATIC,   SINGULAR, BOOL,     local_stats_extended_over_mesh_enabled,   4) \
+X(a, STATIC,   SINGULAR, BOOL,     idlegame_enabled,   5) \
+X(a, STATIC,   SINGULAR, UINT32,   additional_chutil,   6) \
+X(a, STATIC,   SINGULAR, FLOAT,    additional_txutil,   7) \
+X(a, STATIC,   SINGULAR, UINT32,   additional_polite_channel_percent,   8) \
+X(a, STATIC,   SINGULAR, UINT32,   additional_polite_duty_cycle_percent,   9) \
+X(a, STATIC,   SINGULAR, FLOAT,    current_tx_util_limit,  10) \
+X(a, STATIC,   SINGULAR, UINT32,   current_max_channel_util_percent,  11) \
+X(a, STATIC,   SINGULAR, UINT32,   current_polite_channel_util_percent,  12) \
+X(a, STATIC,   SINGULAR, UINT32,   current_polite_duty_cycle_percent,  13)
 #define meshtastic_ModuleConfig_NodeModAdminConfig_CALLBACK NULL
 #define meshtastic_ModuleConfig_NodeModAdminConfig_DEFAULT NULL
+
+#define meshtastic_ModuleConfig_IdleGameKnownVillages_FIELDLIST(X, a) \
+X(a, STATIC,   REPEATED, MESSAGE,  known,             1)
+#define meshtastic_ModuleConfig_IdleGameKnownVillages_CALLBACK NULL
+#define meshtastic_ModuleConfig_IdleGameKnownVillages_DEFAULT NULL
+#define meshtastic_ModuleConfig_IdleGameKnownVillages_known_MSGTYPE meshtastic_ModuleConfig_IdleGameState
+
+#define meshtastic_ModuleConfig_IdleGameAlliance_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, UINT32,   node_id,           1) \
+X(a, STATIC,   SINGULAR, UINT32,   started_at,        2) \
+X(a, STATIC,   SINGULAR, BYTES,    morale_bonus,      3)
+#define meshtastic_ModuleConfig_IdleGameAlliance_CALLBACK NULL
+#define meshtastic_ModuleConfig_IdleGameAlliance_DEFAULT NULL
+
+#define meshtastic_ModuleConfig_IdleGamePatron_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, UINT32,   node_id,           1) \
+X(a, STATIC,   SINGULAR, UINT32,   started_at,        2)
+#define meshtastic_ModuleConfig_IdleGamePatron_CALLBACK NULL
+#define meshtastic_ModuleConfig_IdleGamePatron_DEFAULT NULL
+
+#define meshtastic_ModuleConfig_IdleGameRelations_FIELDLIST(X, a) \
+X(a, STATIC,   REPEATED, MESSAGE,  alliances,         1) \
+X(a, STATIC,   REPEATED, MESSAGE,  patrons,           2)
+#define meshtastic_ModuleConfig_IdleGameRelations_CALLBACK NULL
+#define meshtastic_ModuleConfig_IdleGameRelations_DEFAULT NULL
+#define meshtastic_ModuleConfig_IdleGameRelations_alliances_MSGTYPE meshtastic_ModuleConfig_IdleGameAlliance
+#define meshtastic_ModuleConfig_IdleGameRelations_patrons_MSGTYPE meshtastic_ModuleConfig_IdleGamePatron
+
+#define meshtastic_ModuleConfig_IdleGameState_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, STRING,   village_name,      1) \
+X(a, STATIC,   SINGULAR, UINT32,   population,        2) \
+X(a, STATIC,   SINGULAR, UINT32,   resources,         3) \
+X(a, STATIC,   SINGULAR, UINT32,   defense,           4) \
+X(a, STATIC,   SINGULAR, UINT32,   technology,        5) \
+X(a, STATIC,   SINGULAR, UINT32,   node_id,           6) \
+X(a, STATIC,   SINGULAR, UINT32,   level,             7) \
+X(a, STATIC,   SINGULAR, UINT32,   version,           8)
+#define meshtastic_ModuleConfig_IdleGameState_CALLBACK NULL
+#define meshtastic_ModuleConfig_IdleGameState_DEFAULT NULL
+
+#define meshtastic_ModuleConfig_IdleGameAction_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, UENUM,    action_type,       1) \
+X(a, STATIC,   SINGULAR, UINT32,   quantity,          4)
+#define meshtastic_ModuleConfig_IdleGameAction_CALLBACK NULL
+#define meshtastic_ModuleConfig_IdleGameAction_DEFAULT NULL
+
+#define meshtastic_ModuleConfig_IdleGameConfig_FIELDLIST(X, a) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (variant,state,variant.state),   1) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (variant,action,variant.action),   2) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (variant,known_villages,variant.known_villages),   3) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (variant,relations,variant.relations),   4)
+#define meshtastic_ModuleConfig_IdleGameConfig_CALLBACK NULL
+#define meshtastic_ModuleConfig_IdleGameConfig_DEFAULT NULL
+#define meshtastic_ModuleConfig_IdleGameConfig_variant_state_MSGTYPE meshtastic_ModuleConfig_IdleGameState
+#define meshtastic_ModuleConfig_IdleGameConfig_variant_action_MSGTYPE meshtastic_ModuleConfig_IdleGameAction
+#define meshtastic_ModuleConfig_IdleGameConfig_variant_known_villages_MSGTYPE meshtastic_ModuleConfig_IdleGameKnownVillages
+#define meshtastic_ModuleConfig_IdleGameConfig_variant_relations_MSGTYPE meshtastic_ModuleConfig_IdleGameRelations
 
 #define meshtastic_RemoteHardwarePin_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, UINT32,   gpio_pin,          1) \
@@ -902,6 +1113,13 @@ extern const pb_msgdesc_t meshtastic_ModuleConfig_CannedMessageConfig_msg;
 extern const pb_msgdesc_t meshtastic_ModuleConfig_AmbientLightingConfig_msg;
 extern const pb_msgdesc_t meshtastic_ModuleConfig_NodeModConfig_msg;
 extern const pb_msgdesc_t meshtastic_ModuleConfig_NodeModAdminConfig_msg;
+extern const pb_msgdesc_t meshtastic_ModuleConfig_IdleGameKnownVillages_msg;
+extern const pb_msgdesc_t meshtastic_ModuleConfig_IdleGameAlliance_msg;
+extern const pb_msgdesc_t meshtastic_ModuleConfig_IdleGamePatron_msg;
+extern const pb_msgdesc_t meshtastic_ModuleConfig_IdleGameRelations_msg;
+extern const pb_msgdesc_t meshtastic_ModuleConfig_IdleGameState_msg;
+extern const pb_msgdesc_t meshtastic_ModuleConfig_IdleGameAction_msg;
+extern const pb_msgdesc_t meshtastic_ModuleConfig_IdleGameConfig_msg;
 extern const pb_msgdesc_t meshtastic_RemoteHardwarePin_msg;
 
 /* Defines for backwards compatibility with code written before nanopb-0.4.0 */
@@ -922,6 +1140,13 @@ extern const pb_msgdesc_t meshtastic_RemoteHardwarePin_msg;
 #define meshtastic_ModuleConfig_AmbientLightingConfig_fields &meshtastic_ModuleConfig_AmbientLightingConfig_msg
 #define meshtastic_ModuleConfig_NodeModConfig_fields &meshtastic_ModuleConfig_NodeModConfig_msg
 #define meshtastic_ModuleConfig_NodeModAdminConfig_fields &meshtastic_ModuleConfig_NodeModAdminConfig_msg
+#define meshtastic_ModuleConfig_IdleGameKnownVillages_fields &meshtastic_ModuleConfig_IdleGameKnownVillages_msg
+#define meshtastic_ModuleConfig_IdleGameAlliance_fields &meshtastic_ModuleConfig_IdleGameAlliance_msg
+#define meshtastic_ModuleConfig_IdleGamePatron_fields &meshtastic_ModuleConfig_IdleGamePatron_msg
+#define meshtastic_ModuleConfig_IdleGameRelations_fields &meshtastic_ModuleConfig_IdleGameRelations_msg
+#define meshtastic_ModuleConfig_IdleGameState_fields &meshtastic_ModuleConfig_IdleGameState_msg
+#define meshtastic_ModuleConfig_IdleGameAction_fields &meshtastic_ModuleConfig_IdleGameAction_msg
+#define meshtastic_ModuleConfig_IdleGameConfig_fields &meshtastic_ModuleConfig_IdleGameConfig_msg
 #define meshtastic_RemoteHardwarePin_fields &meshtastic_RemoteHardwarePin_msg
 
 /* Maximum encoded size of messages (where known) */
@@ -931,10 +1156,17 @@ extern const pb_msgdesc_t meshtastic_RemoteHardwarePin_msg;
 #define meshtastic_ModuleConfig_CannedMessageConfig_size 49
 #define meshtastic_ModuleConfig_DetectionSensorConfig_size 44
 #define meshtastic_ModuleConfig_ExternalNotificationConfig_size 42
+#define meshtastic_ModuleConfig_IdleGameAction_size 5
+#define meshtastic_ModuleConfig_IdleGameAlliance_size 9
+#define meshtastic_ModuleConfig_IdleGameConfig_size 1023
+#define meshtastic_ModuleConfig_IdleGameKnownVillages_size 1020
+#define meshtastic_ModuleConfig_IdleGamePatron_size 6
+#define meshtastic_ModuleConfig_IdleGameRelations_size 190
+#define meshtastic_ModuleConfig_IdleGameState_size 66
 #define meshtastic_ModuleConfig_MQTTConfig_size  254
 #define meshtastic_ModuleConfig_MapReportSettings_size 12
 #define meshtastic_ModuleConfig_NeighborInfoConfig_size 10
-#define meshtastic_ModuleConfig_NodeModAdminConfig_size 4
+#define meshtastic_ModuleConfig_NodeModAdminConfig_size 56
 #define meshtastic_ModuleConfig_NodeModConfig_size 202
 #define meshtastic_ModuleConfig_PaxcounterConfig_size 30
 #define meshtastic_ModuleConfig_RangeTestConfig_size 10
@@ -942,7 +1174,7 @@ extern const pb_msgdesc_t meshtastic_RemoteHardwarePin_msg;
 #define meshtastic_ModuleConfig_SerialConfig_size 28
 #define meshtastic_ModuleConfig_StoreForwardConfig_size 24
 #define meshtastic_ModuleConfig_TelemetryConfig_size 46
-#define meshtastic_ModuleConfig_size             257
+#define meshtastic_ModuleConfig_size             1027
 #define meshtastic_RemoteHardwarePin_size        21
 
 #ifdef __cplusplus
