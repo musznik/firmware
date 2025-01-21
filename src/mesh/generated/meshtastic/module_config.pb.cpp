@@ -66,7 +66,7 @@ PB_BIND(meshtastic_ModuleConfig_IdleGameAlliance, meshtastic_ModuleConfig_IdleGa
 PB_BIND(meshtastic_ModuleConfig_IdleGamePatron, meshtastic_ModuleConfig_IdleGamePatron, AUTO)
 
 
-PB_BIND(meshtastic_ModuleConfig_IdleGameRelations, meshtastic_ModuleConfig_IdleGameRelations, 2)
+PB_BIND(meshtastic_ModuleConfig_IdleGameRelations, meshtastic_ModuleConfig_IdleGameRelations, AUTO)
 
 
 PB_BIND(meshtastic_ModuleConfig_IdleGameState, meshtastic_ModuleConfig_IdleGameState, AUTO)

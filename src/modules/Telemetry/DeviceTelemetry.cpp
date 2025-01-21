@@ -42,7 +42,8 @@ int32_t DeviceTelemetryModule::runOnce()
     }
  
     // send local telemetry 2 min after normal telemetry
-    if (((statsHaveBeenSent == true) && ((uptimeLastMs - lastSentToMesh) >= 2 * 60 * 1000)) &&
+    if (statsHaveBeenSent == true && 
+        (uptimeLastMs - lastSentToMesh) >= 2 * 60 * 1000 && 
         airTime->isTxAllowedChannelUtil(!isImpoliteRole) && airTime->isTxAllowedAirUtil() &&
         config.device.role != meshtastic_Config_DeviceConfig_Role_REPEATER &&
         config.device.role != meshtastic_Config_DeviceConfig_Role_CLIENT_HIDDEN) 
@@ -56,7 +57,8 @@ int32_t DeviceTelemetryModule::runOnce()
     }
 
     // send local telemetry 4 min after local telemetry over mesh
-    if (((localStatsHaveBeenSent == true) && ((uptimeLastMs - lastSentLocalStatsToMesh) >= 4 * 60 * 1000)) &&
+    if (localStatsHaveBeenSent == true && 
+        (uptimeLastMs - lastSentLocalStatsToMesh) >= 4 * 60 * 1000 &&
         airTime->isTxAllowedChannelUtil(!isImpoliteRole) && airTime->isTxAllowedAirUtil() &&
         config.device.role != meshtastic_Config_DeviceConfig_Role_REPEATER &&
         config.device.role != meshtastic_Config_DeviceConfig_Role_CLIENT_HIDDEN) 
@@ -64,6 +66,7 @@ int32_t DeviceTelemetryModule::runOnce()
         if(moduleConfig.nodemodadmin.local_stats_extended_over_mesh_enabled){
             sendLocalStatsExtendedToMesh();
         }
+
         statsHaveBeenSent = false;
         localStatsHaveBeenSent = false;
     }
@@ -145,9 +148,8 @@ meshtastic_Telemetry DeviceTelemetryModule::getDeviceTelemetry()
 
 meshtastic_Telemetry DeviceTelemetryModule::getLocalStatsTelemetry(bool moreData)
 {
-    meshtastic_Telemetry telemetry = meshtastic_Telemetry_init_zero;
+    meshtastic_Telemetry telemetry = {};
     telemetry.which_variant = meshtastic_Telemetry_local_stats_tag;
-    telemetry.variant.local_stats = meshtastic_LocalStats_init_zero;
     telemetry.time = getTime();
 
     telemetry.variant.local_stats.num_online_nodes = numOnlineNodes;
@@ -156,12 +158,10 @@ meshtastic_Telemetry DeviceTelemetryModule::getLocalStatsTelemetry(bool moreData
     telemetry.variant.local_stats.has_uptime_seconds=true;
     telemetry.variant.local_stats.uptime_seconds = getUptimeSeconds(); //deprecated
 
-    if (moreData){
-        telemetry.variant.local_stats.has_channel_utilization=true;
-        telemetry.variant.local_stats.has_air_util_tx=true;
-        telemetry.variant.local_stats.channel_utilization = airTime->channelUtilizationPercent();
-        telemetry.variant.local_stats.air_util_tx = airTime->utilizationTXPercent();
-    }
+    telemetry.variant.local_stats.has_channel_utilization=true;
+    telemetry.variant.local_stats.has_air_util_tx=true;
+    telemetry.variant.local_stats.channel_utilization = airTime->channelUtilizationPercent();
+    telemetry.variant.local_stats.air_util_tx = airTime->utilizationTXPercent();
 
     if (RadioLibInterface::instance) {
         telemetry.variant.local_stats.num_packets_tx = RadioLibInterface::instance->txGood;
@@ -187,9 +187,8 @@ meshtastic_Telemetry DeviceTelemetryModule::getLocalStatsTelemetry(bool moreData
 
 meshtastic_Telemetry DeviceTelemetryModule::getLocalStatsExtendedTelemetry()
 {
-    meshtastic_Telemetry telemetry = meshtastic_Telemetry_init_zero;
+    meshtastic_Telemetry telemetry = {};
     telemetry.which_variant = meshtastic_Telemetry_local_stats_extended_tag;
-    telemetry.variant.local_stats = meshtastic_LocalStatsExtended_init_zero;
     telemetry.time = getTime();
 
     #if defined(ARCH_ESP32)
@@ -222,13 +221,13 @@ meshtastic_Telemetry DeviceTelemetryModule::getLocalStatsExtendedTelemetry()
 void DeviceTelemetryModule::sendLocalStatsToPhone()
 {
     meshtastic_MeshPacket *p = allocDataProtobuf(getLocalStatsTelemetry(true));
-    p->to = NODENUM_BROADCAST;
+    p->to = myNodeInfo.my_node_num;
     p->decoded.want_response = false;
     p->priority = static_cast<meshtastic_MeshPacket_Priority>(22);
     service->sendToPhone(p);
 
     meshtastic_MeshPacket *p2 = allocDataProtobuf(getLocalStatsExtendedTelemetry());
-    p2->to = NODENUM_BROADCAST;
+    p2->to = myNodeInfo.my_node_num;
     p2->decoded.want_response = false;
     p2->priority = static_cast<meshtastic_MeshPacket_Priority>(22);
     service->sendToPhone(p2);
@@ -237,20 +236,25 @@ void DeviceTelemetryModule::sendLocalStatsToPhone()
 void DeviceTelemetryModule::sendLocalStatsToMesh()
 {
     LOG_INFO("Sending local stats to mesh");
-    meshtastic_MeshPacket *p = allocDataProtobuf(getLocalStatsTelemetry(false));
+    meshtastic_Telemetry telemetry = getLocalStatsTelemetry(false);
+    meshtastic_MeshPacket *p = allocDataProtobuf(telemetry);
     p->to = NODENUM_BROADCAST;
     p->decoded.want_response = false;
     p->priority = meshtastic_MeshPacket_Priority_BACKGROUND;
+ 
     service->sendToMesh(p, RX_SRC_LOCAL, true);
 }
 
 void DeviceTelemetryModule::sendLocalStatsExtendedToMesh()
 {
     LOG_INFO("Sending local stats extended to mesh");
-    meshtastic_MeshPacket *p = allocDataProtobuf(getLocalStatsExtendedTelemetry());
+    meshtastic_Telemetry telemetry = getLocalStatsExtendedTelemetry();
+    meshtastic_MeshPacket *p = allocDataProtobuf(telemetry);
     p->to = NODENUM_BROADCAST;
     p->decoded.want_response = false;
-    p->priority = meshtastic_MeshPacket_Priority_BACKGROUND;
+    p->priority = meshtastic_MeshPacket_Priority_BACKGROUND;    
+
+ 
     service->sendToMesh(p, RX_SRC_LOCAL, true);
 }
 
@@ -266,6 +270,7 @@ bool DeviceTelemetryModule::sendTelemetry(NodeNum dest, bool phoneOnly)
     if (phoneOnly) {
         LOG_INFO("Send packet to phone");
         p->priority = static_cast<meshtastic_MeshPacket_Priority>(22);
+        p->to = myNodeInfo.my_node_num;
         service->sendToPhone(p);
     } else {
         LOG_INFO("Send packet to mesh");

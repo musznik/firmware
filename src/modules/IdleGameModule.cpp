@@ -75,12 +75,12 @@ bool IdleGameModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, mes
         case meshtastic_ModuleConfig_IdleGameConfig_action_tag: {
             meshtastic_IdleGameAction receivedAction = t->variant.action;
             LOG_INFO("IdleGame: action received: %s => %s, typ=%d, qty=%u",
-                     receivedAction.from_village,
-                     receivedAction.to_village,
+                     receivedAction.from_node_id_village,
+                     receivedAction.to_node_id_village,
                      receivedAction.action_type,
                      receivedAction.quantity);
 
-            if (strcmp(receivedAction.to_village,moduleConfig.idlegame.variant.state.village_name)) {
+            if (receivedAction.to_node_id_village == myNodeInfo.my_node_num) {
                 switch (receivedAction.action_type) {
                     case meshtastic_IdleGameActionType_ACTION_ATTACK:
                         if (moduleConfig.idlegame.variant.state.defense >= receivedAction.quantity) {
@@ -186,7 +186,7 @@ void IdleGameModule::sendIdleGameAction(meshtastic_IdleGameAction &action)
     p->to = NODENUM_BROADCAST; 
     p->decoded.want_response = false;
     p->priority = meshtastic_MeshPacket_Priority_DEFAULT; 
-    LOG_INFO("IdleGame: sending action %d from %s to %s", action.action_type, action.from_village, action.to_village);
+    LOG_INFO("IdleGame: sending action %d from %s to %s", action.action_type, action.from_node_id_village, action.to_node_id_village);
 
     service->sendToMesh(p, RX_SRC_LOCAL, true);
 }

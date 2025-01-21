@@ -19,32 +19,27 @@ typedef enum _meshtastic_IdleGameActionType {
 } meshtastic_IdleGameActionType;
 
 /* Struct definitions */
-/* Reprezentacja stanu węzła (miasta) w grze */
 typedef struct _meshtastic_IdleGameState {
-    char village_name[38];
+    char village_name[18];
     uint8_t population;
     uint8_t resources;
     uint8_t defense;
     uint8_t technology;
-    uint32_t node_id;
+    uint8_t node_id;
 } meshtastic_IdleGameState;
 
 typedef struct _meshtastic_IdleGameKnownVillages {
     pb_size_t known_count;
-    meshtastic_IdleGameState known[15];
+    meshtastic_IdleGameState known[10];
 } meshtastic_IdleGameKnownVillages;
 
 typedef struct _meshtastic_IdleGameAction {
     meshtastic_IdleGameActionType action_type;
-    char from_village[38];
-    char to_village[38];
-    /* Przykładowa ilość surowców bądź wojska */
+    uint8_t from_node_id_village;
+    uint8_t to_node_id_village;
     uint8_t quantity;
-    /* Opcjonalne pole tekstowe, np. "Handel 10 surowców za 5 energii" albo "Atakujemy!" */
-    char note[50];
 } meshtastic_IdleGameAction;
 
-/* Główna wiadomość: zawiera albo stan (IdleGameState), albo akcję (IdleGameAction) */
 typedef struct _meshtastic_IdleGame {
     pb_size_t which_variant;
     union {
@@ -71,13 +66,13 @@ extern "C" {
 
 
 /* Initializer values for message structs */
-#define meshtastic_IdleGameKnownVillages_init_default {0, {meshtastic_IdleGameState_init_default, meshtastic_IdleGameState_init_default, meshtastic_IdleGameState_init_default, meshtastic_IdleGameState_init_default, meshtastic_IdleGameState_init_default, meshtastic_IdleGameState_init_default, meshtastic_IdleGameState_init_default, meshtastic_IdleGameState_init_default, meshtastic_IdleGameState_init_default, meshtastic_IdleGameState_init_default, meshtastic_IdleGameState_init_default, meshtastic_IdleGameState_init_default, meshtastic_IdleGameState_init_default, meshtastic_IdleGameState_init_default, meshtastic_IdleGameState_init_default}}
+#define meshtastic_IdleGameKnownVillages_init_default {0, {meshtastic_IdleGameState_init_default, meshtastic_IdleGameState_init_default, meshtastic_IdleGameState_init_default, meshtastic_IdleGameState_init_default, meshtastic_IdleGameState_init_default, meshtastic_IdleGameState_init_default, meshtastic_IdleGameState_init_default, meshtastic_IdleGameState_init_default, meshtastic_IdleGameState_init_default, meshtastic_IdleGameState_init_default}}
 #define meshtastic_IdleGameState_init_default    {"", 0, 0, 0, 0, 0}
-#define meshtastic_IdleGameAction_init_default   {_meshtastic_IdleGameActionType_MIN, "", "", 0, ""}
+#define meshtastic_IdleGameAction_init_default   {_meshtastic_IdleGameActionType_MIN, 0, 0, 0}
 #define meshtastic_IdleGame_init_default         {0, {meshtastic_IdleGameState_init_default}}
-#define meshtastic_IdleGameKnownVillages_init_zero {0, {meshtastic_IdleGameState_init_zero, meshtastic_IdleGameState_init_zero, meshtastic_IdleGameState_init_zero, meshtastic_IdleGameState_init_zero, meshtastic_IdleGameState_init_zero, meshtastic_IdleGameState_init_zero, meshtastic_IdleGameState_init_zero, meshtastic_IdleGameState_init_zero, meshtastic_IdleGameState_init_zero, meshtastic_IdleGameState_init_zero, meshtastic_IdleGameState_init_zero, meshtastic_IdleGameState_init_zero, meshtastic_IdleGameState_init_zero, meshtastic_IdleGameState_init_zero, meshtastic_IdleGameState_init_zero}}
+#define meshtastic_IdleGameKnownVillages_init_zero {0, {meshtastic_IdleGameState_init_zero, meshtastic_IdleGameState_init_zero, meshtastic_IdleGameState_init_zero, meshtastic_IdleGameState_init_zero, meshtastic_IdleGameState_init_zero, meshtastic_IdleGameState_init_zero, meshtastic_IdleGameState_init_zero, meshtastic_IdleGameState_init_zero, meshtastic_IdleGameState_init_zero, meshtastic_IdleGameState_init_zero}}
 #define meshtastic_IdleGameState_init_zero       {"", 0, 0, 0, 0, 0}
-#define meshtastic_IdleGameAction_init_zero      {_meshtastic_IdleGameActionType_MIN, "", "", 0, ""}
+#define meshtastic_IdleGameAction_init_zero      {_meshtastic_IdleGameActionType_MIN, 0, 0, 0}
 #define meshtastic_IdleGame_init_zero            {0, {meshtastic_IdleGameState_init_zero}}
 
 /* Field tags (for use in manual encoding/decoding) */
@@ -89,10 +84,9 @@ extern "C" {
 #define meshtastic_IdleGameState_node_id_tag     6
 #define meshtastic_IdleGameKnownVillages_known_tag 1
 #define meshtastic_IdleGameAction_action_type_tag 1
-#define meshtastic_IdleGameAction_from_village_tag 2
-#define meshtastic_IdleGameAction_to_village_tag 3
+#define meshtastic_IdleGameAction_from_node_id_village_tag 2
+#define meshtastic_IdleGameAction_to_node_id_village_tag 3
 #define meshtastic_IdleGameAction_quantity_tag   4
-#define meshtastic_IdleGameAction_note_tag       5
 #define meshtastic_IdleGame_state_tag            1
 #define meshtastic_IdleGame_action_tag           2
 #define meshtastic_IdleGame_known_villages_tag   3
@@ -116,10 +110,9 @@ X(a, STATIC,   SINGULAR, UINT32,   node_id,           6)
 
 #define meshtastic_IdleGameAction_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, UENUM,    action_type,       1) \
-X(a, STATIC,   SINGULAR, STRING,   from_village,      2) \
-X(a, STATIC,   SINGULAR, STRING,   to_village,        3) \
-X(a, STATIC,   SINGULAR, UINT32,   quantity,          4) \
-X(a, STATIC,   SINGULAR, STRING,   note,              5)
+X(a, STATIC,   SINGULAR, UINT32,   from_node_id_village,   2) \
+X(a, STATIC,   SINGULAR, UINT32,   to_node_id_village,   3) \
+X(a, STATIC,   SINGULAR, UINT32,   quantity,          4)
 #define meshtastic_IdleGameAction_CALLBACK NULL
 #define meshtastic_IdleGameAction_DEFAULT NULL
 
@@ -146,10 +139,10 @@ extern const pb_msgdesc_t meshtastic_IdleGame_msg;
 
 /* Maximum encoded size of messages (where known) */
 #define MESHTASTIC_MESHTASTIC_IDLEGAME_PB_H_MAX_SIZE meshtastic_IdleGame_size
-#define meshtastic_IdleGameAction_size           134
-#define meshtastic_IdleGameKnownVillages_size    885
-#define meshtastic_IdleGameState_size            57
-#define meshtastic_IdleGame_size                 888
+#define meshtastic_IdleGameAction_size           11
+#define meshtastic_IdleGameKnownVillages_size    360
+#define meshtastic_IdleGameState_size            34
+#define meshtastic_IdleGame_size                 363
 
 #ifdef __cplusplus
 } /* extern "C" */

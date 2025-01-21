@@ -9,7 +9,7 @@
 #include <vector>
 
 // Make sure that we never let our packets grow too large for one BLE packet
-#define MAX_TO_FROM_RADIO_SIZE 1536
+#define MAX_TO_FROM_RADIO_SIZE 512
 
 #if meshtastic_FromRadio_size > MAX_TO_FROM_RADIO_SIZE
 #error "meshtastic_FromRadio_size is too large for our BLE packets"

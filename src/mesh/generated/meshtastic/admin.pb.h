@@ -393,7 +393,7 @@ extern const pb_msgdesc_t meshtastic_NodeRemoteHardwarePinsResponse_msg;
 
 /* Maximum encoded size of messages (where known) */
 #define MESHTASTIC_MESHTASTIC_ADMIN_PB_H_MAX_SIZE meshtastic_AdminMessage_size
-#define meshtastic_AdminMessage_size             1042
+#define meshtastic_AdminMessage_size             511
 #define meshtastic_HamParameters_size            31
 #define meshtastic_NodeRemoteHardwarePinsResponse_size 496
 
