@@ -194,26 +194,31 @@ meshtastic_Telemetry DeviceTelemetryModule::getLocalStatsExtendedTelemetry()
     telemetry.which_variant = meshtastic_Telemetry_local_stats_extended_tag;
     telemetry.time = getTime();
 
+    telemetry.variant.local_stats_extended.has_memory_total=true;
+    telemetry.variant.local_stats_extended.has_flash_total_bytes=true;
+    telemetry.variant.local_stats_extended.has_flash_used_bytes=true;
+    telemetry.variant.local_stats_extended.has_memory_free_cheap=true;
+    telemetry.variant.local_stats_extended.has_cpu_usage_percent=true;
+
+    telemetry.variant.local_stats_extended.memory_free_cheap = memGet.getFreeHeap();
+    telemetry.variant.local_stats_extended.memory_total = memGet.getHeapSize();
+
     #if defined(ARCH_ESP32)
-        telemetry.variant.local_stats_extended.memory_free_cheap = memGet.getFreeHeap();
-        telemetry.variant.local_stats_extended.memory_total = memGet.getHeapSize();
         spiLock->lock();
         telemetry.variant.local_stats_extended.flash_used_bytes = FSCom.usedBytes();
         telemetry.variant.local_stats_extended.flash_total_bytes = FSCom.totalBytes(); 
         spiLock->unlock();
+
         telemetry.variant.local_stats_extended.has_memory_psram_free=true;
         telemetry.variant.local_stats_extended.has_memory_psram_total=true;
+
         telemetry.variant.local_stats_extended.memory_psram_free = memGet.getFreePsram();
         telemetry.variant.local_stats_extended.memory_psram_total = memGet.getPsramSize();     
     #endif
 
     #if defined(ARCH_NRF52)
-        telemetry.variant.local_stats_extended.memory_free_cheap = memGet.getFreeHeap();
-        telemetry.variant.local_stats_extended.memory_total = memGet.getHeapSize();
         telemetry.variant.local_stats_extended.flash_used_bytes = calculateNRF5xUsedBytes(); 
         telemetry.variant.local_stats_extended.flash_total_bytes =  getNRF5xTotalBytes(); 
-        telemetry.variant.local_stats_extended.memory_psram_free = 0;
-        telemetry.variant.local_stats_extended.memory_psram_total = 0;
     #endif
 
     telemetry.variant.local_stats_extended.cpu_usage_percent = CpuHwUsagePercent;
@@ -256,7 +261,6 @@ void DeviceTelemetryModule::sendLocalStatsExtendedToMesh()
     p->to = NODENUM_BROADCAST;
     p->decoded.want_response = false;
     p->priority = meshtastic_MeshPacket_Priority_BACKGROUND;    
-
 
     service->sendToMesh(p, RX_SRC_LOCAL, true);
 }

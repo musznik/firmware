@@ -271,14 +271,19 @@ typedef struct _meshtastic_LocalStats {
 /* Local device mesh statistics */
 typedef struct _meshtastic_LocalStatsExtended {
     /* free cheap memory */
+    bool has_memory_free_cheap;
     uint32_t memory_free_cheap;
     /* total memory */
+    bool has_memory_total;
     uint32_t memory_total;
     /* cpu usage percent */
+    bool has_cpu_usage_percent;
     uint32_t cpu_usage_percent;
     /* free space on flash */
+    bool has_flash_used_bytes;
     uint32_t flash_used_bytes;
     /* total available space */
+    bool has_flash_total_bytes;
     uint32_t flash_total_bytes;
     /* psram used */
     bool has_memory_psram_free;
@@ -287,8 +292,10 @@ typedef struct _meshtastic_LocalStatsExtended {
     bool has_memory_psram_total;
     uint32_t memory_psram_total;
     /* psram total */
+    bool has_rx_total_bytes;
     uint32_t rx_total_bytes;
     /* psram total */
+    bool has_tx_total_bytes;
     uint32_t tx_total_bytes;
 } meshtastic_LocalStatsExtended;
 
@@ -362,7 +369,7 @@ extern "C" {
 #define meshtastic_PowerMetrics_init_default     {false, 0, false, 0, false, 0, false, 0, false, 0, false, 0}
 #define meshtastic_AirQualityMetrics_init_default {false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0}
 #define meshtastic_LocalStats_init_default       {false, 0, false, 0, false, 0, 0, 0, 0, 0, 0, 0, 0, 0}
-#define meshtastic_LocalStatsExtended_init_default {0, 0, 0, 0, 0, false, 0, false, 0, 0, 0}
+#define meshtastic_LocalStatsExtended_init_default {false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0}
 #define meshtastic_HealthMetrics_init_default    {false, 0, false, 0, false, 0}
 #define meshtastic_Telemetry_init_default        {0, 0, {meshtastic_DeviceMetrics_init_default}}
 #define meshtastic_Nau7802Config_init_default    {0, 0}
@@ -371,7 +378,7 @@ extern "C" {
 #define meshtastic_PowerMetrics_init_zero        {false, 0, false, 0, false, 0, false, 0, false, 0, false, 0}
 #define meshtastic_AirQualityMetrics_init_zero   {false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0}
 #define meshtastic_LocalStats_init_zero          {false, 0, false, 0, false, 0, 0, 0, 0, 0, 0, 0, 0, 0}
-#define meshtastic_LocalStatsExtended_init_zero  {0, 0, 0, 0, 0, false, 0, false, 0, 0, 0}
+#define meshtastic_LocalStatsExtended_init_zero  {false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0}
 #define meshtastic_HealthMetrics_init_zero       {false, 0, false, 0, false, 0}
 #define meshtastic_Telemetry_init_zero           {0, 0, {meshtastic_DeviceMetrics_init_zero}}
 #define meshtastic_Nau7802Config_init_zero       {0, 0}
@@ -532,15 +539,15 @@ X(a, STATIC,   SINGULAR, UINT32,   num_tx_relay_canceled,  11)
 #define meshtastic_LocalStats_DEFAULT NULL
 
 #define meshtastic_LocalStatsExtended_FIELDLIST(X, a) \
-X(a, STATIC,   SINGULAR, UINT32,   memory_free_cheap,   1) \
-X(a, STATIC,   SINGULAR, UINT32,   memory_total,      2) \
-X(a, STATIC,   SINGULAR, UINT32,   cpu_usage_percent,   3) \
-X(a, STATIC,   SINGULAR, UINT32,   flash_used_bytes,   4) \
-X(a, STATIC,   SINGULAR, UINT32,   flash_total_bytes,   5) \
+X(a, STATIC,   OPTIONAL, UINT32,   memory_free_cheap,   1) \
+X(a, STATIC,   OPTIONAL, UINT32,   memory_total,      2) \
+X(a, STATIC,   OPTIONAL, UINT32,   cpu_usage_percent,   3) \
+X(a, STATIC,   OPTIONAL, UINT32,   flash_used_bytes,   4) \
+X(a, STATIC,   OPTIONAL, UINT32,   flash_total_bytes,   5) \
 X(a, STATIC,   OPTIONAL, UINT32,   memory_psram_free,   6) \
 X(a, STATIC,   OPTIONAL, UINT32,   memory_psram_total,   7) \
-X(a, STATIC,   SINGULAR, UINT32,   rx_total_bytes,    8) \
-X(a, STATIC,   SINGULAR, UINT32,   tx_total_bytes,    9)
+X(a, STATIC,   OPTIONAL, UINT32,   rx_total_bytes,    8) \
+X(a, STATIC,   OPTIONAL, UINT32,   tx_total_bytes,    9)
 #define meshtastic_LocalStatsExtended_CALLBACK NULL
 #define meshtastic_LocalStatsExtended_DEFAULT NULL
 
