@@ -40,11 +40,11 @@ int32_t DeviceTelemetryModule::runOnce()
             lastSentStatsToPhone = uptimeLastMs;
         }
     }
- 
+
     // send local telemetry 2 min after normal telemetry
     if (statsHaveBeenSent == true && 
         localStatsHaveBeenSent == false &&
-        (uptimeLastMs - lastSentToMesh) >= 2 * 60 * 1000 && 
+        (uptimeLastMs - lastSentToMesh) >= 3 * 60 * 1000 && 
         airTime->isTxAllowedChannelUtil(!isImpoliteRole) && airTime->isTxAllowedAirUtil() &&
         config.device.role != meshtastic_Config_DeviceConfig_Role_REPEATER &&
         config.device.role != meshtastic_Config_DeviceConfig_Role_CLIENT_HIDDEN) 
@@ -57,10 +57,10 @@ int32_t DeviceTelemetryModule::runOnce()
         lastSentLocalStatsToMesh=uptimeLastMs;
     }
 
-    // send local telemetry 4 min after local telemetry over mesh
+    // send local telemetry 2 min after local telemetry over mesh
     if (statsHaveBeenSent == true && 
         localStatsHaveBeenSent == true &&
-        (uptimeLastMs - lastSentLocalStatsToMesh) >= 4 * 60 * 1000 &&
+        (uptimeLastMs - lastSentLocalStatsToMesh) >= 2 * 60 * 1000 &&
         airTime->isTxAllowedChannelUtil(!isImpoliteRole) && airTime->isTxAllowedAirUtil() &&
         config.device.role != meshtastic_Config_DeviceConfig_Role_REPEATER &&
         config.device.role != meshtastic_Config_DeviceConfig_Role_CLIENT_HIDDEN) 
@@ -189,7 +189,8 @@ meshtastic_Telemetry DeviceTelemetryModule::getLocalStatsTelemetry(bool moreData
 }
 
 meshtastic_Telemetry DeviceTelemetryModule::getLocalStatsExtendedTelemetry()
-{
+{   
+    LOG_WARN("GETTING getLocalStatsExtendedTelemetry");
     meshtastic_Telemetry telemetry = {};
     telemetry.which_variant = meshtastic_Telemetry_local_stats_extended_tag;
     telemetry.time = getTime();
@@ -222,6 +223,15 @@ meshtastic_Telemetry DeviceTelemetryModule::getLocalStatsExtendedTelemetry()
     #endif
 
     telemetry.variant.local_stats_extended.cpu_usage_percent = CpuHwUsagePercent;
+
+    // packet history stats
+    telemetry.variant.local_stats_extended.rx_packet_history_count=6;
+    for (int i = 0; i < 5; i++) {
+        telemetry.variant.local_stats_extended.rx_packet_history[i] = moduleConfig.nodemodadmin.rx_packet_history[i];
+        LOG_WARN("stats rx : %d",moduleConfig.nodemodadmin.rx_packet_history[i]);
+    }
+ 
+    telemetry.variant.local_stats_extended.rx_avg_60_min = moduleConfig.nodemodadmin.rx_avg_60_min;
 
     return telemetry;
 }

@@ -300,14 +300,14 @@ bool Router::cancelSending(NodeNum from, PacketId id)
 {
     return iface ? iface->cancelSending(from, id) : false;
 }
-
+ 
 /**
  * Every (non duplicate) packet this node receives will be passed through this method.  This allows subclasses to
  * update routing tables etc... based on what we overhear (even for messages not destined to our node)
  */
 void Router::sniffReceived(const meshtastic_MeshPacket *p, const meshtastic_Routing *c)
 {
- 
+    m_packetCounter.onPacketReceived();
 }
 
 

@@ -297,6 +297,11 @@ typedef struct _meshtastic_LocalStatsExtended {
     /* psram total */
     bool has_tx_total_bytes;
     uint32_t tx_total_bytes;
+    /* avg. RX packets/60min */
+    float rx_avg_60_min;
+    /* packer rx counter history over time */
+    pb_size_t rx_packet_history_count;
+    uint32_t rx_packet_history[6];
 } meshtastic_LocalStatsExtended;
 
 /* Health telemetry metrics */
@@ -369,7 +374,7 @@ extern "C" {
 #define meshtastic_PowerMetrics_init_default     {false, 0, false, 0, false, 0, false, 0, false, 0, false, 0}
 #define meshtastic_AirQualityMetrics_init_default {false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0}
 #define meshtastic_LocalStats_init_default       {false, 0, false, 0, false, 0, 0, 0, 0, 0, 0, 0, 0, 0}
-#define meshtastic_LocalStatsExtended_init_default {false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0}
+#define meshtastic_LocalStatsExtended_init_default {false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, 0, 0, {0, 0, 0, 0, 0, 0}}
 #define meshtastic_HealthMetrics_init_default    {false, 0, false, 0, false, 0}
 #define meshtastic_Telemetry_init_default        {0, 0, {meshtastic_DeviceMetrics_init_default}}
 #define meshtastic_Nau7802Config_init_default    {0, 0}
@@ -378,7 +383,7 @@ extern "C" {
 #define meshtastic_PowerMetrics_init_zero        {false, 0, false, 0, false, 0, false, 0, false, 0, false, 0}
 #define meshtastic_AirQualityMetrics_init_zero   {false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0}
 #define meshtastic_LocalStats_init_zero          {false, 0, false, 0, false, 0, 0, 0, 0, 0, 0, 0, 0, 0}
-#define meshtastic_LocalStatsExtended_init_zero  {false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0}
+#define meshtastic_LocalStatsExtended_init_zero  {false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, 0, 0, {0, 0, 0, 0, 0, 0}}
 #define meshtastic_HealthMetrics_init_zero       {false, 0, false, 0, false, 0}
 #define meshtastic_Telemetry_init_zero           {0, 0, {meshtastic_DeviceMetrics_init_zero}}
 #define meshtastic_Nau7802Config_init_zero       {0, 0}
@@ -448,6 +453,8 @@ extern "C" {
 #define meshtastic_LocalStatsExtended_memory_psram_total_tag 7
 #define meshtastic_LocalStatsExtended_rx_total_bytes_tag 8
 #define meshtastic_LocalStatsExtended_tx_total_bytes_tag 9
+#define meshtastic_LocalStatsExtended_rx_avg_60_min_tag 10
+#define meshtastic_LocalStatsExtended_rx_packet_history_tag 11
 #define meshtastic_HealthMetrics_heart_bpm_tag   1
 #define meshtastic_HealthMetrics_spO2_tag        2
 #define meshtastic_HealthMetrics_temperature_tag 3
@@ -547,7 +554,9 @@ X(a, STATIC,   OPTIONAL, UINT32,   flash_total_bytes,   5) \
 X(a, STATIC,   OPTIONAL, UINT32,   memory_psram_free,   6) \
 X(a, STATIC,   OPTIONAL, UINT32,   memory_psram_total,   7) \
 X(a, STATIC,   OPTIONAL, UINT32,   rx_total_bytes,    8) \
-X(a, STATIC,   OPTIONAL, UINT32,   tx_total_bytes,    9)
+X(a, STATIC,   OPTIONAL, UINT32,   tx_total_bytes,    9) \
+X(a, STATIC,   SINGULAR, FLOAT,    rx_avg_60_min,    10) \
+X(a, STATIC,   REPEATED, UINT32,   rx_packet_history,  11)
 #define meshtastic_LocalStatsExtended_CALLBACK NULL
 #define meshtastic_LocalStatsExtended_DEFAULT NULL
 
@@ -610,7 +619,7 @@ extern const pb_msgdesc_t meshtastic_Nau7802Config_msg;
 #define meshtastic_DeviceMetrics_size            27
 #define meshtastic_EnvironmentMetrics_size       103
 #define meshtastic_HealthMetrics_size            11
-#define meshtastic_LocalStatsExtended_size       54
+#define meshtastic_LocalStatsExtended_size       95
 #define meshtastic_LocalStats_size               60
 #define meshtastic_Nau7802Config_size            16
 #define meshtastic_PowerMetrics_size             30

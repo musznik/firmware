@@ -7,7 +7,7 @@
 #include "PointerQueue.h"
 #include "RadioInterface.h"
 #include "concurrency/OSThread.h"
-
+#include "PacketCounter.h"
 /**
  * A mesh aware router that supports multiple interfaces.
  */
@@ -135,6 +135,8 @@ class Router : protected concurrency::OSThread
 
     /** Frees the provided packet, and generates a NAK indicating the specifed error while sending */
     void abortSendAndNak(meshtastic_Routing_Error err, meshtastic_MeshPacket *p);
+    /* packet counter history */
+     PacketCounter m_packetCounter; 
 };
 
 /** FIXME - move this into a mesh packet class
