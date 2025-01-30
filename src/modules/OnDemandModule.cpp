@@ -37,15 +37,15 @@ bool OnDemandModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, mes
 meshtastic_OnDemand OnDemandModule::prepareRxPacketHistory()
 {   
     LOG_WARN("exec prepareRxPacketHistory");
-    meshtastic_OnDemand onDemand = {};
+    meshtastic_OnDemand onDemand = meshtastic_OnDemand_init_zero;
     onDemand.which_variant = meshtastic_OnDemand_response_tag;
     onDemand.packet_index = 1;
     onDemand.packet_total = 1;
     
     onDemand.variant.response.response_type = meshtastic_OnDemandType_RESPONSE_PACKET_RX_HISTORY;
     onDemand.variant.response.which_response_data = meshtastic_OnDemandResponse_rx_packet_history_tag;
-    onDemand.variant.response.response_data.rx_packet_history.rx_packet_history_count = 40;
-    memcpy(onDemand.variant.response.response_data.rx_packet_history.rx_packet_history, moduleConfig.nodemodadmin.rx_packet_history, 40 * sizeof(uint32_t));
+    onDemand.variant.response.response_data.rx_packet_history.rx_packet_history_count = moduleConfig.nodemodadmin.rx_packet_history_count;
+    memcpy(onDemand.variant.response.response_data.rx_packet_history.rx_packet_history, moduleConfig.nodemodadmin.rx_packet_history, moduleConfig.nodemodadmin.rx_packet_history_count * sizeof(uint32_t));
  
     return onDemand;
 }
@@ -53,10 +53,9 @@ meshtastic_OnDemand OnDemandModule::prepareRxPacketHistory()
 void OnDemandModule::sendPacketToRequester(meshtastic_OnDemand demand_packet,u_int32_t from){
     meshtastic_MeshPacket *p = allocDataProtobuf(demand_packet);
     p->to = from;
-    p->which_payload_variant = 
     p->decoded.want_response = false;
     p->priority = meshtastic_MeshPacket_Priority_BACKGROUND;    
-
+    LOG_WARN("SENDING OnDemandModule::sendPacketToRequester");
     service->sendToMesh(p, RX_SRC_LOCAL, true);
 }
 
