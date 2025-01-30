@@ -1,0 +1,69 @@
+#pragma once
+#include "../mesh/generated/meshtastic/ondemand.pb.h"
+#include "NodeDB.h"
+#include "ProtobufModule.h"
+
+ 
+class OnDemandModule : private concurrency::OSThread, public ProtobufModule<meshtastic_OnDemand>
+{
+
+    CallbackObserver<OnDemandModule, const meshtastic::Status *> nodeStatusObserver =
+        CallbackObserver<OnDemandModule, const meshtastic::Status *>(this, &OnDemandModule::handleStatusUpdate);
+
+  public:
+    OnDemandModule()
+        : concurrency::OSThread("OnDemand"),
+          ProtobufModule("OnDemand", meshtastic_PortNum_ON_DEMAND_APP, &meshtastic_OnDemand_msg)
+    {
+        uptimeWrapCount = 0;
+        uptimeLastMs = millis();
+        refreshUptime();
+    
+        nodeStatusObserver.observe(&nodeStatus->onNewStatus);
+    }
+
+   
+
+  protected:
+    /** Called to handle a particular incoming message
+    @return true if you've guaranteed you've handled this message and no other handlers should be considered for it
+    */
+    virtual bool handleReceivedProtobuf(const meshtastic_MeshPacket &mp, meshtastic_OnDemand *p) override;
+    virtual meshtastic_MeshPacket *allocReply() override;
+    virtual int32_t runOnce() override;
+    /**
+     * Send our Telemetry into the mesh
+     */
+    void sendToMesh(bool statusChanged);
+    void sendToPhone();
+    meshtastic_MeshPacket* preparePacket();
+
+    /**
+     * Get the uptime in seconds
+     * Loses some accuracy after 49 days, but that's fine
+     */
+    uint32_t getUptimeSeconds() { return (0xFFFFFFFF / 1000) * uptimeWrapCount + (uptimeLastMs / 1000); }
+
+    meshtastic_OnDemand prepareRxPacketHistory();
+    void sendPacketToRequester(meshtastic_OnDemand demand_packet,u_int32_t from);
+
+  private:
+    uint32_t lastSentToMesh = 0;
+    uint32_t lastSentStatsToPhone = 0;
+    bool statsHaveBeenSent = false;
+
+    void refreshUptime()
+    {
+        auto now = millis();
+        // If we wrapped around (~49 days), increment the wrap count
+        if (now < uptimeLastMs)
+            uptimeWrapCount++;
+
+        uptimeLastMs = now;
+    }
+
+    uint32_t uptimeWrapCount;
+    uint32_t uptimeLastMs;
+};
+
+extern OnDemandModule *onDemandModule;

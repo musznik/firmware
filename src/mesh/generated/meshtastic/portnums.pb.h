@@ -139,6 +139,8 @@ typedef enum _meshtastic_PortNum {
     meshtastic_PortNum_NODE_MOD_APP = 278,
     /* IdleGame port */
     meshtastic_PortNum_IDLE_GAME_APP = 322,
+    /* OnDemand requests port */
+    meshtastic_PortNum_ON_DEMAND_APP = 354,
     /* Currently we limit port nums to no higher than this value */
     meshtastic_PortNum_MAX = 511
 } meshtastic_PortNum;
