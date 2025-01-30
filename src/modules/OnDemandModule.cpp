@@ -22,11 +22,8 @@ int32_t OnDemandModule::runOnce()
 
 bool OnDemandModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, meshtastic_OnDemand *t)
 {
-    LOG_WARN("OnDemandModule::handleReceivedProtobuf");
     if (t->which_variant == meshtastic_OnDemand_request_tag) {
-        LOG_WARN("OnDemandModule:: == meshtastic_OnDemand_request_tag");
         if(t->variant.request.request_type == meshtastic_OnDemandType_REQUEST_PACKET_RX_HISTORY){
-            LOG_WARN("OnDemandModule:: == variant.request.request_type == meshtastic_OnDemandType_REQUEST_PACKET_RX_HISTORY");
             sendPacketToRequester(prepareRxPacketHistory(),mp.from);
         }
     }
@@ -36,7 +33,6 @@ bool OnDemandModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, mes
 
 meshtastic_OnDemand OnDemandModule::prepareRxPacketHistory()
 {   
-    LOG_WARN("exec prepareRxPacketHistory");
     meshtastic_OnDemand onDemand = meshtastic_OnDemand_init_zero;
     onDemand.which_variant = meshtastic_OnDemand_response_tag;
     onDemand.packet_index = 1;
@@ -55,7 +51,6 @@ void OnDemandModule::sendPacketToRequester(meshtastic_OnDemand demand_packet,u_i
     p->to = from;
     p->decoded.want_response = false;
     p->priority = meshtastic_MeshPacket_Priority_BACKGROUND;    
-    LOG_WARN("SENDING OnDemandModule::sendPacketToRequester");
     service->sendToMesh(p, RX_SRC_LOCAL, true);
 }
 

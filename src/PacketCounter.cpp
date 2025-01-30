@@ -5,7 +5,6 @@ void PacketCounter::onPacketReceived()
     uint64_t max_entries = 39;
     currentBucketCount++;
     uint64_t nowMs = getMonotonicUptimeMs();
-    LOG_WARN("Current rx counter: %d",currentBucketCount);
     if (nowMs - bucketStartMs >= 600000ULL) { // 600000 ms = 10 min
         for (int i = max_entries; i > 0; i--) {
             moduleConfig.nodemodadmin.rx_packet_history[i] =
