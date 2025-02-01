@@ -3,7 +3,6 @@
 #include "NodeDB.h"
 #include "ProtobufModule.h"
 
- 
 class OnDemandModule : private concurrency::OSThread, public ProtobufModule<meshtastic_OnDemand>
 {
 
@@ -19,11 +18,9 @@ class OnDemandModule : private concurrency::OSThread, public ProtobufModule<mesh
         uptimeLastMs = millis();
         refreshUptime();
     
-        nodeStatusObserver.observe(&nodeStatus->onNewStatus);
+        //nodeStatusObserver.observe(&nodeStatus->onNewStatus);
     }
-
-   
-
+ 
   protected:
     /** Called to handle a particular incoming message
     @return true if you've guaranteed you've handled this message and no other handlers should be considered for it
@@ -31,13 +28,8 @@ class OnDemandModule : private concurrency::OSThread, public ProtobufModule<mesh
     virtual bool handleReceivedProtobuf(const meshtastic_MeshPacket &mp, meshtastic_OnDemand *p) override;
     virtual meshtastic_MeshPacket *allocReply() override;
     virtual int32_t runOnce() override;
-    /**
-     * Send our Telemetry into the mesh
-     */
-    void sendToMesh(bool statusChanged);
-    void sendToPhone();
-    meshtastic_MeshPacket* preparePacket();
 
+ 
     /**
      * Get the uptime in seconds
      * Loses some accuracy after 49 days, but that's fine
@@ -45,7 +37,14 @@ class OnDemandModule : private concurrency::OSThread, public ProtobufModule<mesh
     uint32_t getUptimeSeconds() { return (0xFFFFFFFF / 1000) * uptimeWrapCount + (uptimeLastMs / 1000); }
 
     meshtastic_OnDemand prepareRxPacketHistory();
+ 
     void sendPacketToRequester(meshtastic_OnDemand demand_packet,u_int32_t from);
+
+    bool fitsInPacket(const meshtastic_OnDemand &onDemand, size_t maxSize);
+    std::vector<std::unique_ptr<meshtastic_OnDemand>> createSegmentedNodeList();
+    meshtastic_OnDemand prepareNodeList(uint32_t packetIndex);
+    static uint32_t getLastHeard(const meshtastic_NodeInfoLite* node);
+    uint32_t sinceLastSeen(const meshtastic_NodeInfoLite *n);
 
   private:
     uint32_t lastSentToMesh = 0;

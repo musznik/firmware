@@ -9,13 +9,19 @@
 PB_BIND(meshtastic_RxPacketHistory, meshtastic_RxPacketHistory, AUTO)
 
 
+PB_BIND(meshtastic_NodeEntry, meshtastic_NodeEntry, AUTO)
+
+
+PB_BIND(meshtastic_NodesList, meshtastic_NodesList, 2)
+
+
 PB_BIND(meshtastic_OnDemandRequest, meshtastic_OnDemandRequest, AUTO)
 
 
-PB_BIND(meshtastic_OnDemandResponse, meshtastic_OnDemandResponse, AUTO)
+PB_BIND(meshtastic_OnDemandResponse, meshtastic_OnDemandResponse, 2)
 
 
-PB_BIND(meshtastic_OnDemand, meshtastic_OnDemand, AUTO)
+PB_BIND(meshtastic_OnDemand, meshtastic_OnDemand, 2)
 
 
 
