@@ -3,7 +3,6 @@
 #include "Default.h"
 #include "MeshService.h"
 #include "NodeDB.h"
-// #include "PowerFSM.h"
 #include "RTC.h"
 #include "RadioLibInterface.h"
 #include "Router.h"
@@ -11,8 +10,6 @@
 #include "main.h"
 #include <meshUtils.h>
 #include <pb_encode.h>
-// #include <cstring>
-// #include <memory> 
 
 OnDemandModule *onDemandModule;
 static const int MAX_NODES_PER_PACKET = 10;
@@ -24,10 +21,42 @@ int32_t OnDemandModule::runOnce()
     return default_broadcast_interval_secs;
 }
 
+bool OnDemandModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, meshtastic_OnDemand *t)
+{
+    if (t->which_variant == meshtastic_OnDemand_request_tag) 
+    {
+        if(t->variant.request.request_type == meshtastic_OnDemandType_REQUEST_PACKET_RX_HISTORY)
+        {
+            meshtastic_OnDemand od = prepareRxPacketHistory();
+            sendPacketToRequester(od,mp.from);
+        }
+
+        if(t->variant.request.request_type == meshtastic_OnDemandType_REQUEST_NODES_ONLINE)
+        {
+            auto packets = createSegmentedNodeList();
+
+            for (auto &pkt : packets)
+            {
+                sendPacketToRequester(*pkt, mp.from);
+                vTaskDelay(10000 / portTICK_PERIOD_MS);
+            }
+            return true;
+        }
+
+        if(t->variant.request.request_type == meshtastic_OnDemandType_REQUEST_PING)
+        {
+            meshtastic_OnDemand od = preparePingResponse();
+            sendPacketToRequester(od, mp.from);
+        }
+    }
+
+    return false; // Let others look at this message also if they want
+}
+
 bool OnDemandModule::fitsInPacket(const meshtastic_OnDemand &onDemand, size_t maxSize)
 {
-    // temp buff 
-    uint8_t buffer[512]; 
+    // temp buff
+    uint8_t buffer[512];
 
     pb_ostream_t stream = pb_ostream_from_buffer(buffer, sizeof(buffer));
 
@@ -163,29 +192,19 @@ meshtastic_OnDemand OnDemandModule::prepareNodeList(uint32_t packetIndex)
     return onDemand;
 }
 
-bool OnDemandModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, meshtastic_OnDemand *t)
-{
-    if (t->which_variant == meshtastic_OnDemand_request_tag) {
-        if(t->variant.request.request_type == meshtastic_OnDemandType_REQUEST_PACKET_RX_HISTORY){
-            meshtastic_OnDemand od = prepareRxPacketHistory();
-            sendPacketToRequester(od,mp.from);
-        }
+meshtastic_OnDemand OnDemandModule::preparePingResponse()
+{   
+    meshtastic_OnDemand onDemand = meshtastic_OnDemand_init_zero;
+    onDemand.which_variant = meshtastic_OnDemand_response_tag;
+    onDemand.packet_index = 1;
+    onDemand.packet_total = 1;
 
-        if(t->variant.request.request_type == meshtastic_OnDemandType_REQUEST_NODES_ONLINE){
-            auto packets = createSegmentedNodeList();
-
-            for (auto &pkt : packets)
-            {
-                sendPacketToRequester(*pkt, mp.from);
-                vTaskDelay(10000 / portTICK_PERIOD_MS);
-            }
-            return true;
-        }
-    }
-
-    return false; // Let others look at this message also if they want
+    onDemand.variant.response.response_type = meshtastic_OnDemandType_RESPONSE_PING;
+    onDemand.variant.response.which_response_data = meshtastic_OnDemandResponse_ping_tag;
+    onDemand.variant.response.response_data.ping.direct=false;
+ 
+    return onDemand;
 }
-
 
 meshtastic_OnDemand OnDemandModule::prepareRxPacketHistory()
 {   

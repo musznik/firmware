@@ -15,6 +15,9 @@ PB_BIND(meshtastic_NodeEntry, meshtastic_NodeEntry, AUTO)
 PB_BIND(meshtastic_NodesList, meshtastic_NodesList, 2)
 
 
+PB_BIND(meshtastic_Ping, meshtastic_Ping, AUTO)
+
+
 PB_BIND(meshtastic_OnDemandRequest, meshtastic_OnDemandRequest, AUTO)
 
 
