@@ -22,6 +22,9 @@ void AirTime::logAirtime(reportTypes reportType, uint32_t airtime_ms)
         LOG_DEBUG("Packet RX: %ums", airtime_ms);
         this->airtimes.periodRX[0] = this->airtimes.periodRX[0] + airtime_ms;
         air_period_rx[0] = air_period_rx[0] + airtime_ms;
+
+        currentRxWindowSum += airtime_ms; //fw+
+        currentRxWindowCount++; //fw+
     } else if (reportType == RX_ALL_LOG) {
         LOG_DEBUG("Packet RX (noise?) : %ums", airtime_ms);
         this->airtimes.periodRX_ALL[0] = this->airtimes.periodRX_ALL[0] + airtime_ms;
@@ -206,5 +209,24 @@ int32_t AirTime::runOnce()
             this->utilizationTX[utilPeriodTX] = 0;
         }
     }
+
+    if (secSinceBoot != 0 && secSinceBoot % RX_WINDOW_INTERVAL_SECONDS == 0) {
+        uint32_t average = (currentRxWindowCount > 0 ? currentRxWindowSum / currentRxWindowCount : 0);
+        LOG_WARN("updating 10-min windows RX: avg = %u", average);
+        
+        pushNewRxWindowAverage(average);
+
+        currentRxWindowSum = 0;
+        currentRxWindowCount = 0;
+    }
+
     return (1000 * 1);
+}
+
+void AirTime::pushNewRxWindowAverage(uint32_t average)
+{
+    for (int i = 0; i < RX_WINDOW_COUNT - 1; i++) {
+        rxWindowAverages[i] = rxWindowAverages[i + 1];
+    }
+    rxWindowAverages[RX_WINDOW_COUNT - 1] = average;
 }

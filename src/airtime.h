@@ -32,6 +32,9 @@
 #define SECONDS_IN_MINUTE 60
 #define MS_IN_MINUTE (SECONDS_IN_MINUTE * 1000)
 #define MS_IN_HOUR (MINUTES_IN_HOUR * SECONDS_IN_MINUTE * 1000)
+#define RX_WINDOW_INTERVAL_SECONDS 600   // fw+ 10min
+#define RX_WINDOW_COUNT 40               // fw+ 40 probes
+
 
 enum reportTypes { TX_LOG, RX_LOG, RX_ALL_LOG };
 
@@ -64,6 +67,10 @@ class AirTime : private concurrency::OSThread
     uint8_t max_channel_util_percent = 40;
     uint8_t polite_channel_util_percent = 25;
     uint8_t polite_duty_cycle_percent = 50; // half of Duty Cycle allowance is ok for metadata
+    uint32_t rxWindowAverages[RX_WINDOW_COUNT] = {0}; // Tablica przechowująca średnie dla 40 okien
+    uint32_t currentRxWindowSum = 0;    // Sumaryczny czas RX w bieżącym 10‑minutowym oknie
+    uint32_t currentRxWindowCount = 0;  // Liczba pakietów zliczonych w bieżącym 10‑minutowym oknie
+
 
   private:
     bool firstTime = true;
@@ -80,6 +87,7 @@ class AirTime : private concurrency::OSThread
     uint8_t getPeriodUtilMinute();
     uint8_t getPeriodUtilHour();
     uint8_t currentPeriodIndex();
+    void pushNewRxWindowAverage(uint32_t average); //fw+
 
   protected:
     virtual int32_t runOnce() override;
