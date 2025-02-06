@@ -10,6 +10,7 @@
 #include "main.h"
 #include <meshUtils.h>
 #include <pb_encode.h>
+#include "ProtobufModule.h"
 
 OnDemandModule *onDemandModule;
 static const int MAX_NODES_PER_PACKET = 10;
@@ -25,6 +26,13 @@ bool OnDemandModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, mes
 {
     if (t->which_variant == meshtastic_OnDemand_request_tag) 
     {
+
+        if(t->variant.request.request_type == meshtastic_OnDemandType_REQUEST_PORT_COUNTER_HISTORY)
+        {
+            meshtastic_OnDemand od = preparePortCounterHistory();
+            sendPacketToRequester(od,mp.from);
+        }
+
         if(t->variant.request.request_type == meshtastic_OnDemandType_REQUEST_PACKET_RX_HISTORY)
         {
             meshtastic_OnDemand od = prepareRxPacketHistory();
@@ -177,6 +185,29 @@ meshtastic_OnDemand OnDemandModule::prepareRxAvgTimeHistory()
     onDemand.variant.response.response_data.rx_packet_history.rx_packet_history_count = 40;
  
     memcpy(onDemand.variant.response.response_data.rx_avg_time_history.rx_avg_history, airTime->rxWindowAverages, 40 * sizeof(uint32_t));
+
+    return onDemand;
+}
+
+
+meshtastic_OnDemand OnDemandModule::preparePortCounterHistory()
+{   
+    meshtastic_OnDemand onDemand = meshtastic_OnDemand_init_zero;
+    onDemand.which_variant = meshtastic_OnDemand_response_tag;
+    onDemand.variant.response.response_type = meshtastic_OnDemandType_RESPONSE_PORT_COUNTER_HISTORY;
+    onDemand.variant.response.which_response_data = meshtastic_OnDemandResponse_port_counter_history_tag;
+
+    uint8_t entryCount = 0;
+    for (uint16_t i = 0; i < MAX_PORTS && entryCount < 20; i++) {
+        if (portCounters[i] > 0) 
+        {
+            onDemand.variant.response.response_data.port_counter_history.port_counter_history[entryCount].port = i;
+            onDemand.variant.response.response_data.port_counter_history.port_counter_history[entryCount].count = portCounters[i];
+            entryCount++;
+        }
+    }
+ 
+    onDemand.variant.response.response_data.port_counter_history.port_counter_history_count = entryCount;
 
     return onDemand;
 }

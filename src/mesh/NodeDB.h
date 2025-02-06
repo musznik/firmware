@@ -12,6 +12,9 @@
 #include "mesh-pb-constants.h"
 #include "mesh/generated/meshtastic/mesh.pb.h" // For CriticalErrorCode
 
+ 
+extern const uint32_t MAX_PORTS;
+extern uint32_t portCounters[];
 /*
 DeviceState versions used to be defined in the .proto file but really only this function cares.  So changed to a
 #define here.
@@ -40,6 +43,7 @@ uint32_t sinceLastSeen(const meshtastic_NodeInfoLite *n);
 /// Given a packet, return how many seconds in the past (vs now) it was received
 uint32_t sinceReceived(const meshtastic_MeshPacket *p);
 
+
 enum LoadFileResult {
     // Successfully opened the file
     LOAD_SUCCESS = 1,
@@ -52,6 +56,7 @@ enum LoadFileResult {
     // File exists, but open failed for some reason
     OTHER_FAILURE = 5
 };
+
 
 class NodeDB
 {
@@ -68,6 +73,8 @@ class NodeDB
     meshtastic_NodeInfoLite *updateGUIforNode = NULL; // if currently showing this node, we think you should update the GUI
     Observable<const meshtastic::NodeStatus *> newStatus;
     pb_size_t numMeshNodes;
+
+
 
     /// don't do mesh based algorithm for node id assignment (initially)
     /// instead just store in flash - possibly even in the initial alpha release do this hack

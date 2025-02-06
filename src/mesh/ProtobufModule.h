@@ -8,21 +8,28 @@
  * If you are using protobufs to encode your packets (recommended) you can use this as a baseclass for your module
  * and avoid a bunch of boilerplate code.
  */
+
 template <class T> class ProtobufModule : protected SinglePortModule
 {
     const pb_msgdesc_t *fields;
 
   public:
     uint8_t numOnlineNodes = 0;
+
     /** Constructor
      * name is for debugging output
      */
     ProtobufModule(const char *_name, meshtastic_PortNum _ourPortNum, const pb_msgdesc_t *_fields)
         : SinglePortModule(_name, _ourPortNum), fields(_fields)
     {
+        //memset(portCounters, 0, MAX_PORTS * sizeof(uint32_t));
+        //portCounters[MAX_PORTS] = {0};
     }
 
   protected:
+
+    //fw+
+
     /**
      * Handle a received message, the data field in the message is already decoded and is provided
      *
@@ -78,6 +85,14 @@ template <class T> class ProtobufModule : protected SinglePortModule
     */
     virtual ProcessMessage handleReceived(const meshtastic_MeshPacket &mp) override
     {
+        //fw+
+        // if (mp.which_payload_variant == meshtastic_MeshPacket_decoded_tag) {
+        //             int port = mp.decoded.portnum;
+        //             if (port >= 0 && port < MAX_PORTS) {
+        //                 ++portCounters[port];
+        //             }
+        // }
+
         // FIXME - we currently update position data in the DB only if the message was a broadcast or destined to us
         // it would be better to update even if the message was destined to others.
 
@@ -96,7 +111,7 @@ template <class T> class ProtobufModule : protected SinglePortModule
                 return ProcessMessage::STOP;
             }
         }
-
+          
         return handleReceivedProtobuf(mp, decoded) ? ProcessMessage::STOP : ProcessMessage::CONTINUE;
     }
 
@@ -121,3 +136,4 @@ template <class T> class ProtobufModule : protected SinglePortModule
         }
     }
 };
+

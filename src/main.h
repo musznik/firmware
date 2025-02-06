@@ -39,6 +39,8 @@ extern bool pmu_found;
 extern bool isCharging;
 extern bool isUSBPowered;
 
+
+
 #ifdef T_WATCH_S3
 #include <Adafruit_DRV2605.h>
 extern Adafruit_DRV2605 drv;

@@ -53,6 +53,10 @@
 
 NodeDB *nodeDB = nullptr;
 
+//fw+ port usage counter
+const uint32_t MAX_PORTS = 512;
+uint32_t portCounters[512] = {0};
+
 // we have plenty of ram so statically alloc this tempbuf (for now)
 EXT_RAM_BSS_ATTR meshtastic_DeviceState devicestate;
 meshtastic_MyNodeInfo &myNodeInfo = devicestate.my_node;

@@ -67,9 +67,9 @@ class AirTime : private concurrency::OSThread
     uint8_t max_channel_util_percent = 40;
     uint8_t polite_channel_util_percent = 25;
     uint8_t polite_duty_cycle_percent = 50; // half of Duty Cycle allowance is ok for metadata
-    uint32_t rxWindowAverages[RX_WINDOW_COUNT] = {0}; // Tablica przechowująca średnie dla 40 okien
-    uint32_t currentRxWindowSum = 0;    // Sumaryczny czas RX w bieżącym 10‑minutowym oknie
-    uint32_t currentRxWindowCount = 0;  // Liczba pakietów zliczonych w bieżącym 10‑minutowym oknie
+    uint32_t rxWindowAverages[RX_WINDOW_COUNT] = {0}; //fw+
+    uint32_t currentRxWindowSum = 0;    // fw+
+    uint32_t currentRxWindowCount = 0;  // fw+
 
 
   private:

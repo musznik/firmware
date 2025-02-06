@@ -12,6 +12,12 @@ PB_BIND(meshtastic_RxPacketHistory, meshtastic_RxPacketHistory, AUTO)
 PB_BIND(meshtastic_RxAvgTimeHistory, meshtastic_RxAvgTimeHistory, AUTO)
 
 
+PB_BIND(meshtastic_PortCounterEntry, meshtastic_PortCounterEntry, AUTO)
+
+
+PB_BIND(meshtastic_PortCountersHistory, meshtastic_PortCountersHistory, AUTO)
+
+
 PB_BIND(meshtastic_NodeEntry, meshtastic_NodeEntry, AUTO)
 
 
