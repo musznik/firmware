@@ -230,9 +230,17 @@ void OnDemandModule::sendPacketToRequester(meshtastic_OnDemand demand_packet,u_i
     meshtastic_MeshPacket *p = allocDataProtobuf(demand_packet);
     p->to = from;
     p->decoded.want_response = false;
-    p->want_ack=false;
-    p->priority = meshtastic_MeshPacket_Priority_BACKGROUND;    
-    service->sendToMesh(p, RX_SRC_LOCAL, true);
+    p->pki_encrypted = false;
+    p->want_ack = false;
+    p->priority = meshtastic_MeshPacket_Priority_BACKGROUND;
+
+    if(from == RX_SRC_LOCAL){
+        p->to = myNodeInfo.my_node_num;
+        service->sendToPhone(p);
+    }else{
+        service->sendToMesh(p, RX_SRC_LOCAL, false);
+    }
+    
 }
 
 meshtastic_MeshPacket *OnDemandModule::allocReply()
