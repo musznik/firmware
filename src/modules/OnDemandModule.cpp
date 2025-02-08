@@ -52,7 +52,7 @@ bool OnDemandModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, mes
             for (auto &pkt : packets)
             {
                 sendPacketToRequester(*pkt, mp.from);
-                vTaskDelay(10000 / portTICK_PERIOD_MS);
+                //vTaskDelay(10000 / portTICK_PERIOD_MS);
             }
             return true;
         }
@@ -127,16 +127,23 @@ std::vector<std::unique_ptr<meshtastic_OnDemand>> OnDemandModule::createSegmente
                 currentIndex++;
                 continue;
              }
+
+             if(node->num == myNodeInfo.my_node_num){
+                currentIndex++;
+                continue;
+             }
                
             entry.node_id = node->num;
-            entry.last_heard = sinceLastSeen(node);   
-            entry.snr = node->snr;
-
+            entry.last_heard = sinceLastSeen(node);
+            entry.snr = 0;
+            entry.hops = node->hops_away;
+            
+            if(node->hops_away==0){
+                entry.snr = node->snr;
+            }
+            
             strncpy(entry.long_name, node->user.long_name, sizeof(entry.long_name) - 1);
-            entry.long_name[sizeof(entry.long_name) - 1] = '\0';
-
             strncpy(entry.short_name, node->user.short_name, sizeof(entry.short_name) - 1);
-            entry.short_name[sizeof(entry.short_name) - 1] = '\0';
 
             int pos = listRef.node_list_count;
             listRef.node_list[pos] = entry;

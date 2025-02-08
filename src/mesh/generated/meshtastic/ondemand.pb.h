@@ -51,6 +51,7 @@ typedef struct _meshtastic_NodeEntry {
     char short_name[5];
     uint32_t last_heard;
     float snr;
+    uint32_t hops;
 } meshtastic_NodeEntry;
 
 typedef struct _meshtastic_NodesList {
@@ -118,7 +119,7 @@ extern "C" {
 #define meshtastic_RxAvgTimeHistory_init_default {0, {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}}
 #define meshtastic_PortCounterEntry_init_default {0, 0}
 #define meshtastic_PortCountersHistory_init_default {0, {meshtastic_PortCounterEntry_init_default, meshtastic_PortCounterEntry_init_default, meshtastic_PortCounterEntry_init_default, meshtastic_PortCounterEntry_init_default, meshtastic_PortCounterEntry_init_default, meshtastic_PortCounterEntry_init_default, meshtastic_PortCounterEntry_init_default, meshtastic_PortCounterEntry_init_default, meshtastic_PortCounterEntry_init_default, meshtastic_PortCounterEntry_init_default, meshtastic_PortCounterEntry_init_default, meshtastic_PortCounterEntry_init_default, meshtastic_PortCounterEntry_init_default, meshtastic_PortCounterEntry_init_default, meshtastic_PortCounterEntry_init_default, meshtastic_PortCounterEntry_init_default, meshtastic_PortCounterEntry_init_default, meshtastic_PortCounterEntry_init_default, meshtastic_PortCounterEntry_init_default, meshtastic_PortCounterEntry_init_default}}
-#define meshtastic_NodeEntry_init_default        {0, "", "", 0, 0}
+#define meshtastic_NodeEntry_init_default        {0, "", "", 0, 0, 0}
 #define meshtastic_NodesList_init_default        {0, {meshtastic_NodeEntry_init_default, meshtastic_NodeEntry_init_default, meshtastic_NodeEntry_init_default, meshtastic_NodeEntry_init_default, meshtastic_NodeEntry_init_default, meshtastic_NodeEntry_init_default, meshtastic_NodeEntry_init_default, meshtastic_NodeEntry_init_default, meshtastic_NodeEntry_init_default, meshtastic_NodeEntry_init_default}}
 #define meshtastic_Ping_init_default             {0}
 #define meshtastic_OnDemandRequest_init_default  {_meshtastic_OnDemandType_MIN}
@@ -128,7 +129,7 @@ extern "C" {
 #define meshtastic_RxAvgTimeHistory_init_zero    {0, {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}}
 #define meshtastic_PortCounterEntry_init_zero    {0, 0}
 #define meshtastic_PortCountersHistory_init_zero {0, {meshtastic_PortCounterEntry_init_zero, meshtastic_PortCounterEntry_init_zero, meshtastic_PortCounterEntry_init_zero, meshtastic_PortCounterEntry_init_zero, meshtastic_PortCounterEntry_init_zero, meshtastic_PortCounterEntry_init_zero, meshtastic_PortCounterEntry_init_zero, meshtastic_PortCounterEntry_init_zero, meshtastic_PortCounterEntry_init_zero, meshtastic_PortCounterEntry_init_zero, meshtastic_PortCounterEntry_init_zero, meshtastic_PortCounterEntry_init_zero, meshtastic_PortCounterEntry_init_zero, meshtastic_PortCounterEntry_init_zero, meshtastic_PortCounterEntry_init_zero, meshtastic_PortCounterEntry_init_zero, meshtastic_PortCounterEntry_init_zero, meshtastic_PortCounterEntry_init_zero, meshtastic_PortCounterEntry_init_zero, meshtastic_PortCounterEntry_init_zero}}
-#define meshtastic_NodeEntry_init_zero           {0, "", "", 0, 0}
+#define meshtastic_NodeEntry_init_zero           {0, "", "", 0, 0, 0}
 #define meshtastic_NodesList_init_zero           {0, {meshtastic_NodeEntry_init_zero, meshtastic_NodeEntry_init_zero, meshtastic_NodeEntry_init_zero, meshtastic_NodeEntry_init_zero, meshtastic_NodeEntry_init_zero, meshtastic_NodeEntry_init_zero, meshtastic_NodeEntry_init_zero, meshtastic_NodeEntry_init_zero, meshtastic_NodeEntry_init_zero, meshtastic_NodeEntry_init_zero}}
 #define meshtastic_Ping_init_zero                {0}
 #define meshtastic_OnDemandRequest_init_zero     {_meshtastic_OnDemandType_MIN}
@@ -146,6 +147,7 @@ extern "C" {
 #define meshtastic_NodeEntry_short_name_tag      3
 #define meshtastic_NodeEntry_last_heard_tag      4
 #define meshtastic_NodeEntry_snr_tag             5
+#define meshtastic_NodeEntry_hops_tag            6
 #define meshtastic_NodesList_node_list_tag       1
 #define meshtastic_OnDemandRequest_request_type_tag 1
 #define meshtastic_OnDemandResponse_response_type_tag 1
@@ -187,7 +189,8 @@ X(a, STATIC,   SINGULAR, UINT32,   node_id,           1) \
 X(a, STATIC,   SINGULAR, STRING,   long_name,         2) \
 X(a, STATIC,   SINGULAR, STRING,   short_name,        3) \
 X(a, STATIC,   SINGULAR, FIXED32,  last_heard,        4) \
-X(a, STATIC,   SINGULAR, FLOAT,    snr,               5)
+X(a, STATIC,   SINGULAR, FLOAT,    snr,               5) \
+X(a, STATIC,   SINGULAR, UINT32,   hops,              6)
 #define meshtastic_NodeEntry_CALLBACK NULL
 #define meshtastic_NodeEntry_DEFAULT NULL
 
@@ -257,11 +260,11 @@ extern const pb_msgdesc_t meshtastic_OnDemand_msg;
 
 /* Maximum encoded size of messages (where known) */
 #define MESHTASTIC_MESHTASTIC_ONDEMAND_PB_H_MAX_SIZE meshtastic_OnDemand_size
-#define meshtastic_NodeEntry_size                63
-#define meshtastic_NodesList_size                650
+#define meshtastic_NodeEntry_size                69
+#define meshtastic_NodesList_size                710
 #define meshtastic_OnDemandRequest_size          2
-#define meshtastic_OnDemandResponse_size         655
-#define meshtastic_OnDemand_size                 664
+#define meshtastic_OnDemandResponse_size         715
+#define meshtastic_OnDemand_size                 724
 #define meshtastic_Ping_size                     0
 #define meshtastic_PortCounterEntry_size         12
 #define meshtastic_PortCountersHistory_size      280
