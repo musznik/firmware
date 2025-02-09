@@ -1,7 +1,12 @@
 #include "PacketCounter.h"
- 
-void PacketCounter::onPacketReceived()
+#include "NodeDB.h"
+
+void PacketCounter::onPacketReceived(const meshtastic_MeshPacket *p)
 {
+    //echange packet history 
+    nodeDB->packetHistoryLog.addEntry({p->from, p->to, p->decoded.portnum});
+
+    //counters rxhistory
     uint64_t max_entries = 39;
     currentBucketCount++;
     uint64_t nowMs = getMonotonicUptimeMs();

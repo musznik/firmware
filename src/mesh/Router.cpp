@@ -213,6 +213,7 @@ ErrorCode Router::send(meshtastic_MeshPacket *p)
         return meshtastic_Routing_Error_BAD_REQUEST;
     } // should have already been handled by sendLocal
 
+
     // Abort sending if we are violating the duty cycle
     if (!config.lora.override_duty_cycle && myRegion->dutyCycle < 100) {
         float hourlyTxPercent = airTime->utilizationTXPercent();
@@ -229,11 +230,14 @@ ErrorCode Router::send(meshtastic_MeshPacket *p)
             service->sendClientNotification(cn);
 #endif
             meshtastic_Routing_Error err = meshtastic_Routing_Error_DUTY_CYCLE_LIMIT;
+
+           
             if (isFromUs(p)) { // only send NAK to API, not to the mesh
                 abortSendAndNak(err, p);
             } else {
                 packetPool.release(p);
             }
+
             return err;
         }
     }
@@ -288,10 +292,12 @@ ErrorCode Router::send(meshtastic_MeshPacket *p)
             }
         }
 #endif
+        m_packetCounter.onPacketReceived(p_decoded);
         packetPool.release(p_decoded);
     }
 
     assert(iface); // This should have been detected already in sendLocal (or we just received a packet from outside)
+    
     return iface->send(p);
 }
 
@@ -307,7 +313,7 @@ bool Router::cancelSending(NodeNum from, PacketId id)
  */
 void Router::sniffReceived(const meshtastic_MeshPacket *p, const meshtastic_Routing *c)
 {
-    m_packetCounter.onPacketReceived();
+    m_packetCounter.onPacketReceived(p);
 }
 
 

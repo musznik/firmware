@@ -27,6 +27,12 @@ bool OnDemandModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, mes
     if (t->which_variant == meshtastic_OnDemand_request_tag) 
     {
 
+        if(t->variant.request.request_type == meshtastic_OnDemandType_REQUEST_PACKET_EXCHANGE_HISTORY)
+        {
+            meshtastic_OnDemand od = preparePacketHistoryLog();
+            sendPacketToRequester(od,mp.from);
+        }
+
         if(t->variant.request.request_type == meshtastic_OnDemandType_REQUEST_PORT_COUNTER_HISTORY)
         {
             meshtastic_OnDemand od = preparePortCounterHistory();
@@ -52,7 +58,7 @@ bool OnDemandModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, mes
             for (auto &pkt : packets)
             {
                 sendPacketToRequester(*pkt, mp.from);
-                //vTaskDelay(10000 / portTICK_PERIOD_MS);
+                vTaskDelay(5000 / portTICK_PERIOD_MS);
             }
             return true;
         }
@@ -137,7 +143,7 @@ std::vector<std::unique_ptr<meshtastic_OnDemand>> OnDemandModule::createSegmente
             entry.last_heard = sinceLastSeen(node);
             entry.snr = 0;
             entry.hops = node->hops_away;
-            
+
             if(node->hops_away==0){
                 entry.snr = node->snr;
             }
@@ -196,6 +202,21 @@ meshtastic_OnDemand OnDemandModule::prepareRxAvgTimeHistory()
     return onDemand;
 }
 
+meshtastic_OnDemand OnDemandModule::preparePacketHistoryLog()
+{   
+    meshtastic_OnDemand onDemand = meshtastic_OnDemand_init_zero;
+    onDemand.which_variant = meshtastic_OnDemand_response_tag;
+    onDemand.variant.response.response_type = meshtastic_OnDemandType_RESPONSE_PACKET_EXCHANGE_HISTORY;
+    onDemand.variant.response.which_response_data = meshtastic_OnDemandResponse_exchange_packet_log_tag;
+
+    onDemand.variant.response.response_data.exchange_packet_log.exchange_list_count=12;
+    for (uint16_t i = 0; i < 12; i++) {
+            onDemand.variant.response.response_data.exchange_packet_log.exchange_list[i].port_num = nodeDB->packetHistoryLog.entries[i].port_num;
+            onDemand.variant.response.response_data.exchange_packet_log.exchange_list[i].from_node = nodeDB->packetHistoryLog.entries[i].from_node;
+            onDemand.variant.response.response_data.exchange_packet_log.exchange_list[i].to_node = nodeDB->packetHistoryLog.entries[i].to_node;   
+    }
+    return onDemand;
+}
 
 meshtastic_OnDemand OnDemandModule::preparePortCounterHistory()
 {   
@@ -237,8 +258,7 @@ void OnDemandModule::sendPacketToRequester(meshtastic_OnDemand demand_packet,u_i
     meshtastic_MeshPacket *p = allocDataProtobuf(demand_packet);
     p->to = from;
     p->decoded.want_response = false;
-    p->pki_encrypted = false;
-    p->want_ack = false;
+    p->want_ack = true;
     p->priority = meshtastic_MeshPacket_Priority_BACKGROUND;
 
     if(from == RX_SRC_LOCAL){

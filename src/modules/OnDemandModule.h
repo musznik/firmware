@@ -48,6 +48,7 @@ class OnDemandModule : private concurrency::OSThread, public ProtobufModule<mesh
     meshtastic_OnDemand preparePingResponse();
     meshtastic_OnDemand prepareRxAvgTimeHistory();
     meshtastic_OnDemand preparePortCounterHistory();
+    meshtastic_OnDemand preparePacketHistoryLog();
 
   private:
     uint32_t lastSentToMesh = 0;

@@ -57,6 +57,37 @@ enum LoadFileResult {
     OTHER_FAILURE = 5
 };
 
+struct ExchangeEntry {
+    uint32_t from_node;
+    uint32_t to_node;
+    uint32_t port_num;
+};
+struct ExchangeList {
+    std::array<ExchangeEntry, 40> entries; 
+    size_t count = 0; 
+
+    void addEntry(const ExchangeEntry &entry) {
+
+        if(entry.port_num==-1 || entry.from_node == entry.to_node){
+            return;
+        }
+        
+
+        if (count < entries.size()) {
+            for (size_t i = count; i > 0; --i) {
+                entries[i] = entries[i - 1];
+            }
+            entries[0] = entry;
+            ++count;
+        } else {
+            for (size_t i = entries.size() - 1; i > 0; --i) {
+                entries[i] = entries[i - 1];
+            }
+            entries[0] = entry;
+        }
+    }
+};
+
 
 class NodeDB
 {
@@ -73,7 +104,8 @@ class NodeDB
     meshtastic_NodeInfoLite *updateGUIforNode = NULL; // if currently showing this node, we think you should update the GUI
     Observable<const meshtastic::NodeStatus *> newStatus;
     pb_size_t numMeshNodes;
-
+    ExchangeList packetHistoryLog;
+    
 
 
     /// don't do mesh based algorithm for node id assignment (initially)

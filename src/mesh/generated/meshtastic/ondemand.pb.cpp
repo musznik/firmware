@@ -21,6 +21,12 @@ PB_BIND(meshtastic_PortCountersHistory, meshtastic_PortCountersHistory, AUTO)
 PB_BIND(meshtastic_NodeEntry, meshtastic_NodeEntry, AUTO)
 
 
+PB_BIND(meshtastic_ExchangeEntry, meshtastic_ExchangeEntry, AUTO)
+
+
+PB_BIND(meshtastic_ExchangeList, meshtastic_ExchangeList, AUTO)
+
+
 PB_BIND(meshtastic_NodesList, meshtastic_NodesList, 2)
 
 

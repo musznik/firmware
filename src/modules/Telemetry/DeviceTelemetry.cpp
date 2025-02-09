@@ -190,7 +190,6 @@ meshtastic_Telemetry DeviceTelemetryModule::getLocalStatsTelemetry(bool moreData
 
 meshtastic_Telemetry DeviceTelemetryModule::getLocalStatsExtendedTelemetry()
 {   
-    LOG_WARN("GETTING getLocalStatsExtendedTelemetry");
     meshtastic_Telemetry telemetry = {};
     telemetry.which_variant = meshtastic_Telemetry_local_stats_extended_tag;
     telemetry.time = getTime();
@@ -228,7 +227,6 @@ meshtastic_Telemetry DeviceTelemetryModule::getLocalStatsExtendedTelemetry()
     telemetry.variant.local_stats_extended.rx_packet_history_count=6;
     for (int i = 0; i < 6; i++) {
         telemetry.variant.local_stats_extended.rx_packet_history[i] = moduleConfig.nodemodadmin.rx_packet_history[i];
-        LOG_WARN("stats rx : %d",moduleConfig.nodemodadmin.rx_packet_history[i]);
     }
  
     telemetry.variant.local_stats_extended.rx_avg_60_min = moduleConfig.nodemodadmin.rx_avg_60_min;
