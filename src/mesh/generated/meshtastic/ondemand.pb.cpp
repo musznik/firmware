@@ -18,6 +18,12 @@ PB_BIND(meshtastic_PortCounterEntry, meshtastic_PortCounterEntry, AUTO)
 PB_BIND(meshtastic_PortCountersHistory, meshtastic_PortCountersHistory, AUTO)
 
 
+PB_BIND(meshtastic_AirActivityEntry, meshtastic_AirActivityEntry, AUTO)
+
+
+PB_BIND(meshtastic_AirActivityHistory, meshtastic_AirActivityHistory, AUTO)
+
+
 PB_BIND(meshtastic_NodeEntry, meshtastic_NodeEntry, AUTO)
 
 

@@ -42,6 +42,17 @@ void logAirtime(reportTypes reportType, uint32_t airtime_ms);
 
 uint32_t *airtimeReport(reportTypes reportType);
 
+#define ACTIVITY_WINDOW_COUNT 10
+struct ActivityTime {
+    uint32_t rx_time;  
+    uint32_t tx_time; 
+    uint32_t idle_time;
+};
+
+void updateActivityWindow(const ActivityTime &newData);
+
+
+
 class AirTime : private concurrency::OSThread
 {
 
@@ -70,7 +81,8 @@ class AirTime : private concurrency::OSThread
     uint32_t rxWindowAverages[RX_WINDOW_COUNT] = {0}; //fw+
     uint32_t currentRxWindowSum = 0;    // fw+
     uint32_t currentRxWindowCount = 0;  // fw+
-
+    ActivityTime activityWindow[ACTIVITY_WINDOW_COUNT] = {}; // fw+ 
+    void updateActivityWindow(const ActivityTime &newData); // fw+
 
   private:
     bool firstTime = true;
@@ -88,6 +100,10 @@ class AirTime : private concurrency::OSThread
     uint8_t getPeriodUtilHour();
     uint8_t currentPeriodIndex();
     void pushNewRxWindowAverage(uint32_t average); //fw+
+    uint32_t prevPeriodTX = 0; //fw+
+    uint32_t prevPeriodRX = 0; //fw+
+    uint32_t txAccum10 = 0; //fw+
+    uint32_t rxAccum10 = 0; //fw+
 
   protected:
     virtual int32_t runOnce() override;

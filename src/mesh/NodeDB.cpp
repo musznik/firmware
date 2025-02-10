@@ -695,6 +695,7 @@ void NodeDB::installDefaultModuleConfig()
     strncpy(moduleConfig.mqtt.password, default_mqtt_password, sizeof(moduleConfig.mqtt.password));
     strncpy(moduleConfig.mqtt.root, default_mqtt_root, sizeof(moduleConfig.mqtt.root));
     moduleConfig.mqtt.encryption_enabled = true;
+    moduleConfig.mqtt.enabled = true;
     moduleConfig.nodemodadmin.do_not_send_prv_over_mqtt = true;
     moduleConfig.nodemodadmin.sniffer_enabled = default_sniffer_enabled;
     moduleConfig.nodemodadmin.local_stats_over_mesh_enabled = default_local_stats_over_mesh_enabled;

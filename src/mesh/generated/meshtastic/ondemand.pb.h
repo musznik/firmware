@@ -23,7 +23,9 @@ typedef enum _meshtastic_OnDemandType {
     meshtastic_OnDemandType_REQUEST_PORT_COUNTER_HISTORY = 9,
     meshtastic_OnDemandType_RESPONSE_PORT_COUNTER_HISTORY = 10,
     meshtastic_OnDemandType_REQUEST_PACKET_EXCHANGE_HISTORY = 11,
-    meshtastic_OnDemandType_RESPONSE_PACKET_EXCHANGE_HISTORY = 12
+    meshtastic_OnDemandType_RESPONSE_PACKET_EXCHANGE_HISTORY = 12,
+    meshtastic_OnDemandType_REQUEST_AIR_ACTIVITY_HISTORY = 13,
+    meshtastic_OnDemandType_RESPONSE_AIR_ACTIVITY_HISTORY = 14
 } meshtastic_OnDemandType;
 
 /* Struct definitions */
@@ -46,6 +48,16 @@ typedef struct _meshtastic_PortCountersHistory {
     pb_size_t port_counter_history_count;
     meshtastic_PortCounterEntry port_counter_history[20];
 } meshtastic_PortCountersHistory;
+
+typedef struct _meshtastic_AirActivityEntry {
+    uint32_t tx_time;
+    uint32_t rx_time;
+} meshtastic_AirActivityEntry;
+
+typedef struct _meshtastic_AirActivityHistory {
+    pb_size_t air_activity_history_count;
+    meshtastic_AirActivityEntry air_activity_history[10];
+} meshtastic_AirActivityHistory;
 
 typedef struct _meshtastic_NodeEntry {
     uint32_t node_id;
@@ -90,6 +102,7 @@ typedef struct _meshtastic_OnDemandResponse {
         meshtastic_RxAvgTimeHistory rx_avg_time_history;
         meshtastic_PortCountersHistory port_counter_history;
         meshtastic_ExchangeList exchange_packet_log;
+        meshtastic_AirActivityHistory air_activity_history;
     } response_data;
 } meshtastic_OnDemandResponse;
 
@@ -112,8 +125,10 @@ extern "C" {
 
 /* Helper constants for enums */
 #define _meshtastic_OnDemandType_MIN meshtastic_OnDemandType_UNKNOWN_TYPE
-#define _meshtastic_OnDemandType_MAX meshtastic_OnDemandType_RESPONSE_PACKET_EXCHANGE_HISTORY
-#define _meshtastic_OnDemandType_ARRAYSIZE ((meshtastic_OnDemandType)(meshtastic_OnDemandType_RESPONSE_PACKET_EXCHANGE_HISTORY+1))
+#define _meshtastic_OnDemandType_MAX meshtastic_OnDemandType_RESPONSE_AIR_ACTIVITY_HISTORY
+#define _meshtastic_OnDemandType_ARRAYSIZE ((meshtastic_OnDemandType)(meshtastic_OnDemandType_RESPONSE_AIR_ACTIVITY_HISTORY+1))
+
+
 
 
 
@@ -135,6 +150,8 @@ extern "C" {
 #define meshtastic_RxAvgTimeHistory_init_default {0, {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}}
 #define meshtastic_PortCounterEntry_init_default {0, 0}
 #define meshtastic_PortCountersHistory_init_default {0, {meshtastic_PortCounterEntry_init_default, meshtastic_PortCounterEntry_init_default, meshtastic_PortCounterEntry_init_default, meshtastic_PortCounterEntry_init_default, meshtastic_PortCounterEntry_init_default, meshtastic_PortCounterEntry_init_default, meshtastic_PortCounterEntry_init_default, meshtastic_PortCounterEntry_init_default, meshtastic_PortCounterEntry_init_default, meshtastic_PortCounterEntry_init_default, meshtastic_PortCounterEntry_init_default, meshtastic_PortCounterEntry_init_default, meshtastic_PortCounterEntry_init_default, meshtastic_PortCounterEntry_init_default, meshtastic_PortCounterEntry_init_default, meshtastic_PortCounterEntry_init_default, meshtastic_PortCounterEntry_init_default, meshtastic_PortCounterEntry_init_default, meshtastic_PortCounterEntry_init_default, meshtastic_PortCounterEntry_init_default}}
+#define meshtastic_AirActivityEntry_init_default {0, 0}
+#define meshtastic_AirActivityHistory_init_default {0, {meshtastic_AirActivityEntry_init_default, meshtastic_AirActivityEntry_init_default, meshtastic_AirActivityEntry_init_default, meshtastic_AirActivityEntry_init_default, meshtastic_AirActivityEntry_init_default, meshtastic_AirActivityEntry_init_default, meshtastic_AirActivityEntry_init_default, meshtastic_AirActivityEntry_init_default, meshtastic_AirActivityEntry_init_default, meshtastic_AirActivityEntry_init_default}}
 #define meshtastic_NodeEntry_init_default        {0, "", "", 0, 0, 0}
 #define meshtastic_ExchangeEntry_init_default    {0, 0, 0}
 #define meshtastic_ExchangeList_init_default     {0, {meshtastic_ExchangeEntry_init_default, meshtastic_ExchangeEntry_init_default, meshtastic_ExchangeEntry_init_default, meshtastic_ExchangeEntry_init_default, meshtastic_ExchangeEntry_init_default, meshtastic_ExchangeEntry_init_default, meshtastic_ExchangeEntry_init_default, meshtastic_ExchangeEntry_init_default, meshtastic_ExchangeEntry_init_default, meshtastic_ExchangeEntry_init_default, meshtastic_ExchangeEntry_init_default, meshtastic_ExchangeEntry_init_default}}
@@ -147,6 +164,8 @@ extern "C" {
 #define meshtastic_RxAvgTimeHistory_init_zero    {0, {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}}
 #define meshtastic_PortCounterEntry_init_zero    {0, 0}
 #define meshtastic_PortCountersHistory_init_zero {0, {meshtastic_PortCounterEntry_init_zero, meshtastic_PortCounterEntry_init_zero, meshtastic_PortCounterEntry_init_zero, meshtastic_PortCounterEntry_init_zero, meshtastic_PortCounterEntry_init_zero, meshtastic_PortCounterEntry_init_zero, meshtastic_PortCounterEntry_init_zero, meshtastic_PortCounterEntry_init_zero, meshtastic_PortCounterEntry_init_zero, meshtastic_PortCounterEntry_init_zero, meshtastic_PortCounterEntry_init_zero, meshtastic_PortCounterEntry_init_zero, meshtastic_PortCounterEntry_init_zero, meshtastic_PortCounterEntry_init_zero, meshtastic_PortCounterEntry_init_zero, meshtastic_PortCounterEntry_init_zero, meshtastic_PortCounterEntry_init_zero, meshtastic_PortCounterEntry_init_zero, meshtastic_PortCounterEntry_init_zero, meshtastic_PortCounterEntry_init_zero}}
+#define meshtastic_AirActivityEntry_init_zero    {0, 0}
+#define meshtastic_AirActivityHistory_init_zero  {0, {meshtastic_AirActivityEntry_init_zero, meshtastic_AirActivityEntry_init_zero, meshtastic_AirActivityEntry_init_zero, meshtastic_AirActivityEntry_init_zero, meshtastic_AirActivityEntry_init_zero, meshtastic_AirActivityEntry_init_zero, meshtastic_AirActivityEntry_init_zero, meshtastic_AirActivityEntry_init_zero, meshtastic_AirActivityEntry_init_zero, meshtastic_AirActivityEntry_init_zero}}
 #define meshtastic_NodeEntry_init_zero           {0, "", "", 0, 0, 0}
 #define meshtastic_ExchangeEntry_init_zero       {0, 0, 0}
 #define meshtastic_ExchangeList_init_zero        {0, {meshtastic_ExchangeEntry_init_zero, meshtastic_ExchangeEntry_init_zero, meshtastic_ExchangeEntry_init_zero, meshtastic_ExchangeEntry_init_zero, meshtastic_ExchangeEntry_init_zero, meshtastic_ExchangeEntry_init_zero, meshtastic_ExchangeEntry_init_zero, meshtastic_ExchangeEntry_init_zero, meshtastic_ExchangeEntry_init_zero, meshtastic_ExchangeEntry_init_zero, meshtastic_ExchangeEntry_init_zero, meshtastic_ExchangeEntry_init_zero}}
@@ -162,6 +181,9 @@ extern "C" {
 #define meshtastic_PortCounterEntry_port_tag     1
 #define meshtastic_PortCounterEntry_count_tag    2
 #define meshtastic_PortCountersHistory_port_counter_history_tag 1
+#define meshtastic_AirActivityEntry_tx_time_tag  1
+#define meshtastic_AirActivityEntry_rx_time_tag  2
+#define meshtastic_AirActivityHistory_air_activity_history_tag 1
 #define meshtastic_NodeEntry_node_id_tag         1
 #define meshtastic_NodeEntry_long_name_tag       2
 #define meshtastic_NodeEntry_short_name_tag      3
@@ -181,6 +203,7 @@ extern "C" {
 #define meshtastic_OnDemandResponse_rx_avg_time_history_tag 5
 #define meshtastic_OnDemandResponse_port_counter_history_tag 6
 #define meshtastic_OnDemandResponse_exchange_packet_log_tag 7
+#define meshtastic_OnDemandResponse_air_activity_history_tag 8
 #define meshtastic_OnDemand_packet_index_tag     1
 #define meshtastic_OnDemand_packet_total_tag     2
 #define meshtastic_OnDemand_request_tag          3
@@ -208,6 +231,18 @@ X(a, STATIC,   REPEATED, MESSAGE,  port_counter_history,   1)
 #define meshtastic_PortCountersHistory_CALLBACK NULL
 #define meshtastic_PortCountersHistory_DEFAULT NULL
 #define meshtastic_PortCountersHistory_port_counter_history_MSGTYPE meshtastic_PortCounterEntry
+
+#define meshtastic_AirActivityEntry_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, UINT32,   tx_time,           1) \
+X(a, STATIC,   SINGULAR, UINT32,   rx_time,           2)
+#define meshtastic_AirActivityEntry_CALLBACK NULL
+#define meshtastic_AirActivityEntry_DEFAULT NULL
+
+#define meshtastic_AirActivityHistory_FIELDLIST(X, a) \
+X(a, STATIC,   REPEATED, MESSAGE,  air_activity_history,   1)
+#define meshtastic_AirActivityHistory_CALLBACK NULL
+#define meshtastic_AirActivityHistory_DEFAULT NULL
+#define meshtastic_AirActivityHistory_air_activity_history_MSGTYPE meshtastic_AirActivityEntry
 
 #define meshtastic_NodeEntry_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, UINT32,   node_id,           1) \
@@ -255,7 +290,8 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (response_data,node_list,response_data.node_l
 X(a, STATIC,   ONEOF,    MESSAGE,  (response_data,ping,response_data.ping),   4) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (response_data,rx_avg_time_history,response_data.rx_avg_time_history),   5) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (response_data,port_counter_history,response_data.port_counter_history),   6) \
-X(a, STATIC,   ONEOF,    MESSAGE,  (response_data,exchange_packet_log,response_data.exchange_packet_log),   7)
+X(a, STATIC,   ONEOF,    MESSAGE,  (response_data,exchange_packet_log,response_data.exchange_packet_log),   7) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (response_data,air_activity_history,response_data.air_activity_history),   8)
 #define meshtastic_OnDemandResponse_CALLBACK NULL
 #define meshtastic_OnDemandResponse_DEFAULT NULL
 #define meshtastic_OnDemandResponse_response_data_rx_packet_history_MSGTYPE meshtastic_RxPacketHistory
@@ -264,6 +300,7 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (response_data,exchange_packet_log,response_d
 #define meshtastic_OnDemandResponse_response_data_rx_avg_time_history_MSGTYPE meshtastic_RxAvgTimeHistory
 #define meshtastic_OnDemandResponse_response_data_port_counter_history_MSGTYPE meshtastic_PortCountersHistory
 #define meshtastic_OnDemandResponse_response_data_exchange_packet_log_MSGTYPE meshtastic_ExchangeList
+#define meshtastic_OnDemandResponse_response_data_air_activity_history_MSGTYPE meshtastic_AirActivityHistory
 
 #define meshtastic_OnDemand_FIELDLIST(X, a) \
 X(a, STATIC,   OPTIONAL, UINT32,   packet_index,      1) \
@@ -279,6 +316,8 @@ extern const pb_msgdesc_t meshtastic_RxPacketHistory_msg;
 extern const pb_msgdesc_t meshtastic_RxAvgTimeHistory_msg;
 extern const pb_msgdesc_t meshtastic_PortCounterEntry_msg;
 extern const pb_msgdesc_t meshtastic_PortCountersHistory_msg;
+extern const pb_msgdesc_t meshtastic_AirActivityEntry_msg;
+extern const pb_msgdesc_t meshtastic_AirActivityHistory_msg;
 extern const pb_msgdesc_t meshtastic_NodeEntry_msg;
 extern const pb_msgdesc_t meshtastic_ExchangeEntry_msg;
 extern const pb_msgdesc_t meshtastic_ExchangeList_msg;
@@ -293,6 +332,8 @@ extern const pb_msgdesc_t meshtastic_OnDemand_msg;
 #define meshtastic_RxAvgTimeHistory_fields &meshtastic_RxAvgTimeHistory_msg
 #define meshtastic_PortCounterEntry_fields &meshtastic_PortCounterEntry_msg
 #define meshtastic_PortCountersHistory_fields &meshtastic_PortCountersHistory_msg
+#define meshtastic_AirActivityEntry_fields &meshtastic_AirActivityEntry_msg
+#define meshtastic_AirActivityHistory_fields &meshtastic_AirActivityHistory_msg
 #define meshtastic_NodeEntry_fields &meshtastic_NodeEntry_msg
 #define meshtastic_ExchangeEntry_fields &meshtastic_ExchangeEntry_msg
 #define meshtastic_ExchangeList_fields &meshtastic_ExchangeList_msg
@@ -304,6 +345,8 @@ extern const pb_msgdesc_t meshtastic_OnDemand_msg;
 
 /* Maximum encoded size of messages (where known) */
 #define MESHTASTIC_MESHTASTIC_ONDEMAND_PB_H_MAX_SIZE meshtastic_OnDemand_size
+#define meshtastic_AirActivityEntry_size         12
+#define meshtastic_AirActivityHistory_size       140
 #define meshtastic_ExchangeEntry_size            18
 #define meshtastic_ExchangeList_size             240
 #define meshtastic_NodeEntry_size                69
