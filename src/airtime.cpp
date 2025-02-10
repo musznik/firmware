@@ -219,28 +219,22 @@ int32_t AirTime::runOnce()
         }
     }
 
+    //fw+ 10m window
     if (secSinceBoot != 0 && secSinceBoot % RX_WINDOW_INTERVAL_SECONDS == 0) {
-        // Ustalamy całkowity czas okna: 10 minut = 600000 ms
         uint32_t window_ms = RX_WINDOW_INTERVAL_SECONDS * 1000; // 600000 ms
 
-        // Pobieramy sumy tylko dla bieżącego 10-minutowego interwału
         uint32_t delta_tx = txAccum10;
         uint32_t delta_rx = rxAccum10;
 
-        // Obliczamy idle time jako resztę czasu okna
         uint32_t current_idle = (window_ms > (delta_tx + delta_rx)) ? (window_ms - (delta_tx + delta_rx)) : 0;
 
         ActivityTime newActivity = { delta_rx, delta_tx, current_idle };
         updateActivityWindow(newActivity);
 
-        // Resetujemy akumulatory 10-minutowe, by zacząć zbierać dane od nowa
         txAccum10 = 0;
         rxAccum10 = 0;
 
-        // Dodatkowo, wykonujemy operacje związane z RX oknem (takie jak pushNewRxWindowAverage)
         uint32_t average = (currentRxWindowCount > 0 ? currentRxWindowSum / currentRxWindowCount : 0);
-        LOG_WARN("updating 10-min windows RX: avg = %u", average);
-
         pushNewRxWindowAverage(average);
 
         currentRxWindowSum = 0;
