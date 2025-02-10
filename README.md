@@ -20,11 +20,15 @@
 - Neighbor Info enabled again on primary channel (LongFast, MediumFast, etc.), enabled by default.
 - Node status custom text transmitted over mesh (as new protobuf, port: 278), requires custom APK like "Meshtastic Android APK+ (loranet version)" for operations.
 - Handling of OnDemand packages, the ability to retrieve packet reception statistics from a node in 10-minute intervals for 40 measurements (6 hours). The ability to request a list of nodes seen by the node (2 hours). Supported in APK+. Port 354.
-- OnDemand request lists
+- OnDemand request lists (remote over mesh and local)
 <ol>
 <li>total number of reads and writes (RX/RX) for a 10-minute window across 40 measurements (6h~)</li>
 <li>average time spent reading (RX) a packet by LoRA</li>
-<li> usage counter of a given protobuf (port) since the node was started</li>
+<li>usage counter of a given protobuf (port) since the node was started</li>
+<li>remote node list request</li>
+<li>last 10 routing logs (from,to,type)</li>
+<li>air activity for tx/rx/idle (10min window) in 10 measurments</li>
+<li>simple ping request</li>
 </ol>
 - Transmitting the average number of received packets along with 6 measurements (1 hour) for every 10 minutes over the mesh.
 
