@@ -37,11 +37,6 @@ typedef struct _meshtastic_NodeModAdmin {
     uint8_t current_polite_channel_util_percent;
     /* current polite duty cycle percent */
     uint8_t current_polite_duty_cycle_percent;
-    /* avg. RX packets/60min */
-    float rx_avg_60_min;
-    /* packer rx counter history over time */
-    pb_size_t rx_packet_history_count;
-    uint32_t rx_packet_history[40];
 } meshtastic_NodeModAdmin;
 
 
@@ -50,8 +45,8 @@ extern "C" {
 #endif
 
 /* Initializer values for message structs */
-#define meshtastic_NodeModAdmin_init_default     {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}}
-#define meshtastic_NodeModAdmin_init_zero        {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}}
+#define meshtastic_NodeModAdmin_init_default     {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+#define meshtastic_NodeModAdmin_init_zero        {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define meshtastic_NodeModAdmin_sniffer_enabled_tag 1
@@ -67,8 +62,6 @@ extern "C" {
 #define meshtastic_NodeModAdmin_current_max_channel_util_percent_tag 11
 #define meshtastic_NodeModAdmin_current_polite_channel_util_percent_tag 12
 #define meshtastic_NodeModAdmin_current_polite_duty_cycle_percent_tag 13
-#define meshtastic_NodeModAdmin_rx_avg_60_min_tag 14
-#define meshtastic_NodeModAdmin_rx_packet_history_tag 15
 
 /* Struct field encoding specification for nanopb */
 #define meshtastic_NodeModAdmin_FIELDLIST(X, a) \
@@ -84,9 +77,7 @@ X(a, STATIC,   SINGULAR, UINT32,   additional_polite_duty_cycle_percent,   9) \
 X(a, STATIC,   SINGULAR, FLOAT,    current_tx_util_limit,  10) \
 X(a, STATIC,   SINGULAR, UINT32,   current_max_channel_util_percent,  11) \
 X(a, STATIC,   SINGULAR, UINT32,   current_polite_channel_util_percent,  12) \
-X(a, STATIC,   SINGULAR, UINT32,   current_polite_duty_cycle_percent,  13) \
-X(a, STATIC,   SINGULAR, FLOAT,    rx_avg_60_min,    14) \
-X(a, STATIC,   REPEATED, UINT32,   rx_packet_history,  15)
+X(a, STATIC,   SINGULAR, UINT32,   current_polite_duty_cycle_percent,  13)
 #define meshtastic_NodeModAdmin_CALLBACK NULL
 #define meshtastic_NodeModAdmin_DEFAULT NULL
 
@@ -97,7 +88,7 @@ extern const pb_msgdesc_t meshtastic_NodeModAdmin_msg;
 
 /* Maximum encoded size of messages (where known) */
 #define MESHTASTIC_MESHTASTIC_NODE_MOD_ADMIN_PB_H_MAX_SIZE meshtastic_NodeModAdmin_size
-#define meshtastic_NodeModAdmin_size             283
+#define meshtastic_NodeModAdmin_size             38
 
 #ifdef __cplusplus
 } /* extern "C" */

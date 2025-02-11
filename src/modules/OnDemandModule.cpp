@@ -201,7 +201,7 @@ meshtastic_OnDemand OnDemandModule::prepareRxAvgTimeHistory()
 
     onDemand.variant.response.response_type = meshtastic_OnDemandType_RESPONSE_RX_AVG_TIME;
     onDemand.variant.response.which_response_data = meshtastic_OnDemandResponse_rx_avg_time_history_tag;
-    onDemand.variant.response.response_data.rx_packet_history.rx_packet_history_count = 40;
+    onDemand.variant.response.response_data.rx_avg_time_history.rx_avg_history_count = 40;
  
     memcpy(onDemand.variant.response.response_data.rx_avg_time_history.rx_avg_history, airTime->rxWindowAverages, 40 * sizeof(uint32_t));
 
@@ -215,10 +215,12 @@ meshtastic_OnDemand OnDemandModule::prepareAirActivityHistoryLog()
     onDemand.variant.response.response_type = meshtastic_OnDemandType_RESPONSE_AIR_ACTIVITY_HISTORY;
     onDemand.variant.response.which_response_data = meshtastic_OnDemandResponse_air_activity_history_tag;
 
-    onDemand.variant.response.response_data.exchange_packet_log.exchange_list_count=10;
+    onDemand.variant.response.response_data.air_activity_history.air_activity_history_count=10;
     for (uint16_t i = 0; i < 10; i++) {
+            LOG_WARN("rx_time %d tx_time %d rxBad_time %d", airTime->activityWindow[i].rx_time,airTime->activityWindow[i].tx_time,airTime->activityWindow[i].rx_bad_time);
             onDemand.variant.response.response_data.air_activity_history.air_activity_history[i].rx_time = airTime->activityWindow[i].rx_time;
             onDemand.variant.response.response_data.air_activity_history.air_activity_history[i].tx_time = airTime->activityWindow[i].tx_time;
+            onDemand.variant.response.response_data.air_activity_history.air_activity_history[i].rxBad_time = airTime->activityWindow[i].rx_bad_time;
     }
     return onDemand;
 }
@@ -268,9 +270,9 @@ meshtastic_OnDemand OnDemandModule::prepareRxPacketHistory()
 
     onDemand.variant.response.response_type = meshtastic_OnDemandType_RESPONSE_PACKET_RX_HISTORY;
     onDemand.variant.response.which_response_data = meshtastic_OnDemandResponse_rx_packet_history_tag;
-    onDemand.variant.response.response_data.rx_packet_history.rx_packet_history_count = moduleConfig.nodemodadmin.rx_packet_history_count;
+    onDemand.variant.response.response_data.rx_packet_history.rx_packet_history_count = RXTXALL_ACTIVITY_COUNT;
  
-    memcpy(onDemand.variant.response.response_data.rx_packet_history.rx_packet_history, moduleConfig.nodemodadmin.rx_packet_history, moduleConfig.nodemodadmin.rx_packet_history_count * sizeof(uint32_t));
+    memcpy(onDemand.variant.response.response_data.rx_packet_history.rx_packet_history, airTime->rxTxAllActivities, RXTXALL_ACTIVITY_COUNT * sizeof(uint32_t));
 
     return onDemand;
 }

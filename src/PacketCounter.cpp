@@ -1,5 +1,6 @@
 #include "PacketCounter.h"
 #include "NodeDB.h"
+#include "AirTime.h"
 
 void PacketCounter::onPacketReceived(const meshtastic_MeshPacket *p)
 {
@@ -9,24 +10,23 @@ void PacketCounter::onPacketReceived(const meshtastic_MeshPacket *p)
     //counters rxhistory
     uint64_t max_entries = 39;
     currentBucketCount++;
+    
     uint64_t nowMs = getMonotonicUptimeMs();
     if (nowMs - bucketStartMs >= 600000ULL) { // 600000 ms = 10 min
         for (int i = max_entries; i > 0; i--) {
-            moduleConfig.nodemodadmin.rx_packet_history[i] =
-                moduleConfig.nodemodadmin.rx_packet_history[i - 1];
+            airTime->rxTxAllActivities[i]=airTime->rxTxAllActivities[i - 1];
         }
 
-        moduleConfig.nodemodadmin.rx_packet_history[0] = currentBucketCount;
-
-        if (moduleConfig.nodemodadmin.rx_packet_history_count < max_entries) {
-            moduleConfig.nodemodadmin.rx_packet_history_count++;
+        airTime->rxTxAllActivities[0].rxTxAll_counter=currentBucketCount;
+        if (airTime->rxTxAllActivitiesCount < RXTXALL_ACTIVITY_COUNT) {
+            airTime->rxTxAllActivitiesCount++;
         }
-
+ 
         currentBucketCount = 0;
         bucketStartMs = nowMs;
     }
 
-    moduleConfig.nodemodadmin.rx_avg_60_min = getAvgLast60Min();
+    airTime->rx_avg_60_min = getAvgLast60Min();
 }
 
 uint64_t PacketCounter::getMonotonicUptimeMs()
@@ -50,14 +50,14 @@ uint64_t PacketCounter::getMonotonicUptimeMs()
 
 uint32_t PacketCounter::getAvgLast60Min()
 {
-    int count = moduleConfig.nodemodadmin.rx_packet_history_count;
+    int count = airTime->rxTxAllActivitiesCount;
     if (count == 0) {
         return 0; 
     }
 
     uint32_t sum = 0;
     for (int i = 0; i < count; i++) {
-        sum += moduleConfig.nodemodadmin.rx_packet_history[i];
+        sum += airTime->rxTxAllActivities[i].rxTxAll_counter;
     }
     uint32_t avg = sum / count;
     return avg;

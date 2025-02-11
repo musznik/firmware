@@ -222,15 +222,13 @@ meshtastic_Telemetry DeviceTelemetryModule::getLocalStatsExtendedTelemetry()
     #endif
 
     telemetry.variant.local_stats_extended.cpu_usage_percent = CpuHwUsagePercent;
-
     // packet history stats
     telemetry.variant.local_stats_extended.rx_packet_history_count=6;
     for (int i = 0; i < 6; i++) {
-        telemetry.variant.local_stats_extended.rx_packet_history[i] = moduleConfig.nodemodadmin.rx_packet_history[i];
+        telemetry.variant.local_stats_extended.rx_packet_history[i] = airTime->rxTxAllActivities[i].rxTxAll_counter;
     }
  
-    telemetry.variant.local_stats_extended.rx_avg_60_min = moduleConfig.nodemodadmin.rx_avg_60_min;
-
+   telemetry.variant.local_stats_extended.rx_avg_60_min = airTime->rx_avg_60_min;
     return telemetry;
 }
 

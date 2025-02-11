@@ -40,6 +40,9 @@ void AirTime::logAirtime(reportTypes reportType, uint32_t airtime_ms)
     } else if (reportType == RX_ALL_LOG) {
         LOG_DEBUG("Packet RX (noise?) : %ums", airtime_ms);
         this->airtimes.periodRX_ALL[0] = this->airtimes.periodRX_ALL[0] + airtime_ms;
+        currentRxWindowSum += airtime_ms;
+        currentRxWindowCount++; //fw+
+        rxBadAccum10 += airtime_ms; //fw+ 
     }
 
     // Log all airtime type for channel utilization
@@ -225,14 +228,18 @@ int32_t AirTime::runOnce()
 
         uint32_t delta_tx = txAccum10;
         uint32_t delta_rx = rxAccum10;
+        uint32_t delta_rxBad = rxBadAccum10;
 
-        uint32_t current_idle = (window_ms > (delta_tx + delta_rx)) ? (window_ms - (delta_tx + delta_rx)) : 0;
+        uint32_t usedTime = delta_tx + delta_rx + delta_rxBad;
+        uint32_t current_idle = (window_ms > usedTime) ? (window_ms - usedTime) : 0;
 
-        ActivityTime newActivity = { delta_rx, delta_tx, current_idle };
+        ActivityTime newActivity = { delta_rx, delta_tx, current_idle, delta_rxBad };
+        LOG_WARN("10 ACTIVITY UPDATE");
         updateActivityWindow(newActivity);
 
         txAccum10 = 0;
         rxAccum10 = 0;
+        rxBadAccum10 = 0;
 
         uint32_t average = (currentRxWindowCount > 0 ? currentRxWindowSum / currentRxWindowCount : 0);
         pushNewRxWindowAverage(average);
