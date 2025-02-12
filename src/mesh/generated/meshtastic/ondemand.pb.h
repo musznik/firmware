@@ -25,10 +25,67 @@ typedef enum _meshtastic_OnDemandType {
     meshtastic_OnDemandType_REQUEST_PACKET_EXCHANGE_HISTORY = 11,
     meshtastic_OnDemandType_RESPONSE_PACKET_EXCHANGE_HISTORY = 12,
     meshtastic_OnDemandType_REQUEST_AIR_ACTIVITY_HISTORY = 13,
-    meshtastic_OnDemandType_RESPONSE_AIR_ACTIVITY_HISTORY = 14
+    meshtastic_OnDemandType_RESPONSE_AIR_ACTIVITY_HISTORY = 14,
+    meshtastic_OnDemandType_REQUEST_NODE_STATS = 15,
+    meshtastic_OnDemandType_RESPONSE_NODE_STATS = 16,
+    meshtastic_OnDemandType_REQUEST_FW_PLUS_VERSION = 17,
+    meshtastic_OnDemandType_RESPONSE_FW_PLUS_VERSION = 18
 } meshtastic_OnDemandType;
 
 /* Struct definitions */
+typedef struct _meshtastic_FwPlusVersion {
+    uint32_t version_number;
+} meshtastic_FwPlusVersion;
+
+typedef struct _meshtastic_NodeStats {
+    bool has_battery_level;
+    uint32_t battery_level;
+    bool has_voltage;
+    float voltage;
+    bool has_channel_utilization;
+    float channel_utilization;
+    bool has_air_util_tx;
+    float air_util_tx;
+    bool has_uptime_seconds;
+    uint32_t uptime_seconds;
+    bool has_num_packets_tx;
+    uint32_t num_packets_tx;
+    bool has_num_packets_rx;
+    uint32_t num_packets_rx;
+    bool has_num_packets_rx_bad;
+    uint32_t num_packets_rx_bad;
+    bool has_num_online_nodes;
+    uint32_t num_online_nodes;
+    bool has_num_total_nodes;
+    uint32_t num_total_nodes;
+    bool has_num_rx_dupe;
+    uint32_t num_rx_dupe;
+    bool has_num_tx_relay;
+    uint32_t num_tx_relay;
+    bool has_num_tx_relay_canceled;
+    uint32_t num_tx_relay_canceled;
+    bool has_reboots;
+    uint32_t reboots;
+    bool has_memory_free_cheap;
+    uint32_t memory_free_cheap;
+    bool has_memory_total;
+    uint32_t memory_total;
+    bool has_cpu_usage_percent;
+    uint32_t cpu_usage_percent;
+    bool has_flash_used_bytes;
+    uint32_t flash_used_bytes;
+    bool has_flash_total_bytes;
+    uint32_t flash_total_bytes;
+    bool has_memory_psram_free;
+    uint32_t memory_psram_free;
+    bool has_memory_psram_total;
+    uint32_t memory_psram_total;
+    bool has_rx_total_bytes;
+    uint32_t rx_total_bytes;
+    bool has_tx_total_bytes;
+    uint32_t tx_total_bytes;
+} meshtastic_NodeStats;
+
 typedef struct _meshtastic_RxPacketHistory {
     pb_size_t rx_packet_history_count;
     uint32_t rx_packet_history[40];
@@ -104,6 +161,8 @@ typedef struct _meshtastic_OnDemandResponse {
         meshtastic_PortCountersHistory port_counter_history;
         meshtastic_ExchangeList exchange_packet_log;
         meshtastic_AirActivityHistory air_activity_history;
+        meshtastic_NodeStats node_stats;
+        meshtastic_FwPlusVersion fw_plus_version;
     } response_data;
 } meshtastic_OnDemandResponse;
 
@@ -126,8 +185,10 @@ extern "C" {
 
 /* Helper constants for enums */
 #define _meshtastic_OnDemandType_MIN meshtastic_OnDemandType_UNKNOWN_TYPE
-#define _meshtastic_OnDemandType_MAX meshtastic_OnDemandType_RESPONSE_AIR_ACTIVITY_HISTORY
-#define _meshtastic_OnDemandType_ARRAYSIZE ((meshtastic_OnDemandType)(meshtastic_OnDemandType_RESPONSE_AIR_ACTIVITY_HISTORY+1))
+#define _meshtastic_OnDemandType_MAX meshtastic_OnDemandType_RESPONSE_FW_PLUS_VERSION
+#define _meshtastic_OnDemandType_ARRAYSIZE ((meshtastic_OnDemandType)(meshtastic_OnDemandType_RESPONSE_FW_PLUS_VERSION+1))
+
+
 
 
 
@@ -147,6 +208,8 @@ extern "C" {
 
 
 /* Initializer values for message structs */
+#define meshtastic_FwPlusVersion_init_default    {0}
+#define meshtastic_NodeStats_init_default        {false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0}
 #define meshtastic_RxPacketHistory_init_default  {0, {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}}
 #define meshtastic_RxAvgTimeHistory_init_default {0, {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}}
 #define meshtastic_PortCounterEntry_init_default {0, 0}
@@ -161,6 +224,8 @@ extern "C" {
 #define meshtastic_OnDemandRequest_init_default  {_meshtastic_OnDemandType_MIN}
 #define meshtastic_OnDemandResponse_init_default {_meshtastic_OnDemandType_MIN, 0, {meshtastic_RxPacketHistory_init_default}}
 #define meshtastic_OnDemand_init_default         {false, 0, false, 0, 0, {meshtastic_OnDemandRequest_init_default}}
+#define meshtastic_FwPlusVersion_init_zero       {0}
+#define meshtastic_NodeStats_init_zero           {false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0}
 #define meshtastic_RxPacketHistory_init_zero     {0, {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}}
 #define meshtastic_RxAvgTimeHistory_init_zero    {0, {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}}
 #define meshtastic_PortCounterEntry_init_zero    {0, 0}
@@ -177,6 +242,30 @@ extern "C" {
 #define meshtastic_OnDemand_init_zero            {false, 0, false, 0, 0, {meshtastic_OnDemandRequest_init_zero}}
 
 /* Field tags (for use in manual encoding/decoding) */
+#define meshtastic_FwPlusVersion_version_number_tag 1
+#define meshtastic_NodeStats_battery_level_tag   1
+#define meshtastic_NodeStats_voltage_tag         2
+#define meshtastic_NodeStats_channel_utilization_tag 3
+#define meshtastic_NodeStats_air_util_tx_tag     4
+#define meshtastic_NodeStats_uptime_seconds_tag  5
+#define meshtastic_NodeStats_num_packets_tx_tag  6
+#define meshtastic_NodeStats_num_packets_rx_tag  7
+#define meshtastic_NodeStats_num_packets_rx_bad_tag 8
+#define meshtastic_NodeStats_num_online_nodes_tag 9
+#define meshtastic_NodeStats_num_total_nodes_tag 10
+#define meshtastic_NodeStats_num_rx_dupe_tag     11
+#define meshtastic_NodeStats_num_tx_relay_tag    12
+#define meshtastic_NodeStats_num_tx_relay_canceled_tag 13
+#define meshtastic_NodeStats_reboots_tag         14
+#define meshtastic_NodeStats_memory_free_cheap_tag 15
+#define meshtastic_NodeStats_memory_total_tag    16
+#define meshtastic_NodeStats_cpu_usage_percent_tag 17
+#define meshtastic_NodeStats_flash_used_bytes_tag 18
+#define meshtastic_NodeStats_flash_total_bytes_tag 19
+#define meshtastic_NodeStats_memory_psram_free_tag 20
+#define meshtastic_NodeStats_memory_psram_total_tag 21
+#define meshtastic_NodeStats_rx_total_bytes_tag  22
+#define meshtastic_NodeStats_tx_total_bytes_tag  23
 #define meshtastic_RxPacketHistory_rx_packet_history_tag 1
 #define meshtastic_RxAvgTimeHistory_rx_avg_history_tag 1
 #define meshtastic_PortCounterEntry_port_tag     1
@@ -206,12 +295,46 @@ extern "C" {
 #define meshtastic_OnDemandResponse_port_counter_history_tag 6
 #define meshtastic_OnDemandResponse_exchange_packet_log_tag 7
 #define meshtastic_OnDemandResponse_air_activity_history_tag 8
+#define meshtastic_OnDemandResponse_node_stats_tag 9
+#define meshtastic_OnDemandResponse_fw_plus_version_tag 10
 #define meshtastic_OnDemand_packet_index_tag     1
 #define meshtastic_OnDemand_packet_total_tag     2
 #define meshtastic_OnDemand_request_tag          3
 #define meshtastic_OnDemand_response_tag         4
 
 /* Struct field encoding specification for nanopb */
+#define meshtastic_FwPlusVersion_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, UINT32,   version_number,    1)
+#define meshtastic_FwPlusVersion_CALLBACK NULL
+#define meshtastic_FwPlusVersion_DEFAULT NULL
+
+#define meshtastic_NodeStats_FIELDLIST(X, a) \
+X(a, STATIC,   OPTIONAL, UINT32,   battery_level,     1) \
+X(a, STATIC,   OPTIONAL, FLOAT,    voltage,           2) \
+X(a, STATIC,   OPTIONAL, FLOAT,    channel_utilization,   3) \
+X(a, STATIC,   OPTIONAL, FLOAT,    air_util_tx,       4) \
+X(a, STATIC,   OPTIONAL, UINT32,   uptime_seconds,    5) \
+X(a, STATIC,   OPTIONAL, UINT32,   num_packets_tx,    6) \
+X(a, STATIC,   OPTIONAL, UINT32,   num_packets_rx,    7) \
+X(a, STATIC,   OPTIONAL, UINT32,   num_packets_rx_bad,   8) \
+X(a, STATIC,   OPTIONAL, UINT32,   num_online_nodes,   9) \
+X(a, STATIC,   OPTIONAL, UINT32,   num_total_nodes,  10) \
+X(a, STATIC,   OPTIONAL, UINT32,   num_rx_dupe,      11) \
+X(a, STATIC,   OPTIONAL, UINT32,   num_tx_relay,     12) \
+X(a, STATIC,   OPTIONAL, UINT32,   num_tx_relay_canceled,  13) \
+X(a, STATIC,   OPTIONAL, UINT32,   reboots,          14) \
+X(a, STATIC,   OPTIONAL, UINT32,   memory_free_cheap,  15) \
+X(a, STATIC,   OPTIONAL, UINT32,   memory_total,     16) \
+X(a, STATIC,   OPTIONAL, UINT32,   cpu_usage_percent,  17) \
+X(a, STATIC,   OPTIONAL, UINT32,   flash_used_bytes,  18) \
+X(a, STATIC,   OPTIONAL, UINT32,   flash_total_bytes,  19) \
+X(a, STATIC,   OPTIONAL, UINT32,   memory_psram_free,  20) \
+X(a, STATIC,   OPTIONAL, UINT32,   memory_psram_total,  21) \
+X(a, STATIC,   OPTIONAL, UINT32,   rx_total_bytes,   22) \
+X(a, STATIC,   OPTIONAL, UINT32,   tx_total_bytes,   23)
+#define meshtastic_NodeStats_CALLBACK NULL
+#define meshtastic_NodeStats_DEFAULT NULL
+
 #define meshtastic_RxPacketHistory_FIELDLIST(X, a) \
 X(a, STATIC,   REPEATED, UINT32,   rx_packet_history,   1)
 #define meshtastic_RxPacketHistory_CALLBACK NULL
@@ -294,7 +417,9 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (response_data,ping,response_data.ping),   4)
 X(a, STATIC,   ONEOF,    MESSAGE,  (response_data,rx_avg_time_history,response_data.rx_avg_time_history),   5) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (response_data,port_counter_history,response_data.port_counter_history),   6) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (response_data,exchange_packet_log,response_data.exchange_packet_log),   7) \
-X(a, STATIC,   ONEOF,    MESSAGE,  (response_data,air_activity_history,response_data.air_activity_history),   8)
+X(a, STATIC,   ONEOF,    MESSAGE,  (response_data,air_activity_history,response_data.air_activity_history),   8) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (response_data,node_stats,response_data.node_stats),   9) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (response_data,fw_plus_version,response_data.fw_plus_version),  10)
 #define meshtastic_OnDemandResponse_CALLBACK NULL
 #define meshtastic_OnDemandResponse_DEFAULT NULL
 #define meshtastic_OnDemandResponse_response_data_rx_packet_history_MSGTYPE meshtastic_RxPacketHistory
@@ -304,6 +429,8 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (response_data,air_activity_history,response_
 #define meshtastic_OnDemandResponse_response_data_port_counter_history_MSGTYPE meshtastic_PortCountersHistory
 #define meshtastic_OnDemandResponse_response_data_exchange_packet_log_MSGTYPE meshtastic_ExchangeList
 #define meshtastic_OnDemandResponse_response_data_air_activity_history_MSGTYPE meshtastic_AirActivityHistory
+#define meshtastic_OnDemandResponse_response_data_node_stats_MSGTYPE meshtastic_NodeStats
+#define meshtastic_OnDemandResponse_response_data_fw_plus_version_MSGTYPE meshtastic_FwPlusVersion
 
 #define meshtastic_OnDemand_FIELDLIST(X, a) \
 X(a, STATIC,   OPTIONAL, UINT32,   packet_index,      1) \
@@ -315,6 +442,8 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (variant,response,variant.response),   4)
 #define meshtastic_OnDemand_variant_request_MSGTYPE meshtastic_OnDemandRequest
 #define meshtastic_OnDemand_variant_response_MSGTYPE meshtastic_OnDemandResponse
 
+extern const pb_msgdesc_t meshtastic_FwPlusVersion_msg;
+extern const pb_msgdesc_t meshtastic_NodeStats_msg;
 extern const pb_msgdesc_t meshtastic_RxPacketHistory_msg;
 extern const pb_msgdesc_t meshtastic_RxAvgTimeHistory_msg;
 extern const pb_msgdesc_t meshtastic_PortCounterEntry_msg;
@@ -331,6 +460,8 @@ extern const pb_msgdesc_t meshtastic_OnDemandResponse_msg;
 extern const pb_msgdesc_t meshtastic_OnDemand_msg;
 
 /* Defines for backwards compatibility with code written before nanopb-0.4.0 */
+#define meshtastic_FwPlusVersion_fields &meshtastic_FwPlusVersion_msg
+#define meshtastic_NodeStats_fields &meshtastic_NodeStats_msg
 #define meshtastic_RxPacketHistory_fields &meshtastic_RxPacketHistory_msg
 #define meshtastic_RxAvgTimeHistory_fields &meshtastic_RxAvgTimeHistory_msg
 #define meshtastic_PortCounterEntry_fields &meshtastic_PortCounterEntry_msg
@@ -352,7 +483,9 @@ extern const pb_msgdesc_t meshtastic_OnDemand_msg;
 #define meshtastic_AirActivityHistory_size       200
 #define meshtastic_ExchangeEntry_size            18
 #define meshtastic_ExchangeList_size             240
+#define meshtastic_FwPlusVersion_size            6
 #define meshtastic_NodeEntry_size                69
+#define meshtastic_NodeStats_size                143
 #define meshtastic_NodesList_size                710
 #define meshtastic_OnDemandRequest_size          2
 #define meshtastic_OnDemandResponse_size         715

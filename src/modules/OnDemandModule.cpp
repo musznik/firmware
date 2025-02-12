@@ -11,11 +11,15 @@
 #include <meshUtils.h>
 #include <pb_encode.h>
 #include "ProtobufModule.h"
+#include "SPILock.h"
+#include "FSCommon.h"
+
 
 OnDemandModule *onDemandModule;
 static const int MAX_NODES_PER_PACKET = 10;
 static const int MAX_PACKET_SIZE = 160;
 #define NUM_ONLINE_SECS (60 * 60 * 2) 
+#define MAGIC_USB_BATTERY_LEVEL 101
 
 int32_t OnDemandModule::runOnce()
 {
@@ -26,6 +30,17 @@ bool OnDemandModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, mes
 {
     if (t->which_variant == meshtastic_OnDemand_request_tag) 
     {
+        if(t->variant.request.request_type == meshtastic_OnDemandType_REQUEST_FW_PLUS_VERSION)
+        {
+            meshtastic_OnDemand od = prepareFwPlusVersion();
+            sendPacketToRequester(od,mp.from);
+        }
+
+        if(t->variant.request.request_type == meshtastic_OnDemandType_REQUEST_NODE_STATS)
+        {
+            meshtastic_OnDemand od = prepareNodeStats();
+            sendPacketToRequester(od,mp.from);
+        }
 
         if(t->variant.request.request_type == meshtastic_OnDemandType_REQUEST_AIR_ACTIVITY_HISTORY)
         {
@@ -208,6 +223,87 @@ meshtastic_OnDemand OnDemandModule::prepareRxAvgTimeHistory()
     return onDemand;
 }
 
+meshtastic_OnDemand OnDemandModule::prepareFwPlusVersion()
+{   
+    meshtastic_OnDemand onDemand = meshtastic_OnDemand_init_zero;
+    onDemand.which_variant = meshtastic_OnDemand_response_tag;
+    onDemand.variant.response.response_type = meshtastic_OnDemandType_RESPONSE_FW_PLUS_VERSION;
+    onDemand.variant.response.which_response_data = meshtastic_OnDemandResponse_fw_plus_version_tag;
+    onDemand.variant.response.response_data.fw_plus_version.version_number = 1;
+   
+    return onDemand;
+}
+
+
+meshtastic_OnDemand OnDemandModule::prepareNodeStats()
+{   
+    refreshUptime();
+    meshtastic_OnDemand onDemand = meshtastic_OnDemand_init_zero;
+    onDemand.which_variant = meshtastic_OnDemand_response_tag;
+    onDemand.variant.response.response_type = meshtastic_OnDemandType_RESPONSE_NODE_STATS;
+    onDemand.variant.response.which_response_data = meshtastic_OnDemandResponse_node_stats_tag;
+
+    onDemand.variant.response.response_data.node_stats.has_battery_level = true;
+    onDemand.variant.response.response_data.node_stats.has_voltage = true;
+    onDemand.variant.response.response_data.node_stats.has_channel_utilization= true;
+    onDemand.variant.response.response_data.node_stats.has_air_util_tx= true;
+    onDemand.variant.response.response_data.node_stats.has_uptime_seconds = true;
+    onDemand.variant.response.response_data.node_stats.has_num_packets_tx = true;
+    onDemand.variant.response.response_data.node_stats.has_num_packets_rx= true;
+    onDemand.variant.response.response_data.node_stats.has_num_packets_rx_bad = true;
+    onDemand.variant.response.response_data.node_stats.has_num_online_nodes = true;
+    onDemand.variant.response.response_data.node_stats.has_num_total_nodes = true;
+    onDemand.variant.response.response_data.node_stats.has_num_rx_dupe = true;
+    onDemand.variant.response.response_data.node_stats.has_num_tx_relay_canceled = true;
+    onDemand.variant.response.response_data.node_stats.has_num_tx_relay = true;
+    onDemand.variant.response.response_data.node_stats.has_reboots = true;
+    onDemand.variant.response.response_data.node_stats.has_memory_free_cheap = true;
+    onDemand.variant.response.response_data.node_stats.has_memory_total = true;
+    onDemand.variant.response.response_data.node_stats.has_cpu_usage_percent = true;
+
+    onDemand.variant.response.response_data.node_stats.battery_level = (!powerStatus->getHasBattery() || powerStatus->getIsCharging()) ? MAGIC_USB_BATTERY_LEVEL : powerStatus->getBatteryChargePercent();
+    onDemand.variant.response.response_data.node_stats.voltage = powerStatus->getBatteryVoltageMv() / 1000.0;
+    onDemand.variant.response.response_data.node_stats.channel_utilization = airTime->channelUtilizationPercent();
+    onDemand.variant.response.response_data.node_stats.air_util_tx = airTime->utilizationTXPercent();
+    onDemand.variant.response.response_data.node_stats.uptime_seconds = getUptimeSeconds();
+    onDemand.variant.response.response_data.node_stats.num_packets_tx = RadioLibInterface::instance->txGood;
+    onDemand.variant.response.response_data.node_stats.num_packets_rx = RadioLibInterface::instance->rxGood + RadioLibInterface::instance->rxBad;
+    onDemand.variant.response.response_data.node_stats.num_packets_rx_bad = RadioLibInterface::instance->rxBad;
+    onDemand.variant.response.response_data.node_stats.num_online_nodes = nodeDB->getNumOnlineMeshNodes(true);
+    onDemand.variant.response.response_data.node_stats.num_total_nodes = nodeDB->getNumMeshNodes();
+    onDemand.variant.response.response_data.node_stats.num_rx_dupe = router->rxDupe;
+    onDemand.variant.response.response_data.node_stats.num_tx_relay_canceled = router->txRelayCanceled;
+    onDemand.variant.response.response_data.node_stats.num_tx_relay = router->txRelayCanceled;
+    onDemand.variant.response.response_data.node_stats.reboots = myNodeInfo.reboot_count;
+    onDemand.variant.response.response_data.node_stats.memory_free_cheap = memGet.getFreeHeap();
+    onDemand.variant.response.response_data.node_stats.memory_total = memGet.getHeapSize();
+    onDemand.variant.response.response_data.node_stats.cpu_usage_percent = CpuHwUsagePercent;
+
+#if defined(ARCH_ESP32)
+    onDemand.variant.response.response_data.node_stats.has_flash_used_bytes = true;
+    onDemand.variant.response.response_data.node_stats.has_flash_total_bytes = true;
+    onDemand.variant.response.response_data.node_stats.has_memory_psram_free = true;
+    onDemand.variant.response.response_data.node_stats.has_memory_psram_total = true;
+
+    spiLock->lock();
+    onDemand.variant.response.response_data.node_stats.flash_used_bytes = FSCom.usedBytes();
+    onDemand.variant.response.response_data.node_stats.flash_total_bytes = FSCom.totalBytes(); 
+    spiLock->unlock();
+
+    onDemand.variant.response.response_data.node_stats.memory_psram_free = memGet.getFreePsram();
+    onDemand.variant.response.response_data.node_stats.memory_psram_total = memGet.getPsramSize();     
+#endif
+
+#if defined(ARCH_NRF52)
+    onDemand.variant.response.response_data.node_stats.has_flash_used_bytes = true;
+    onDemand.variant.response.response_data.node_stats.has_flash_total_bytes = true;
+    onDemand.variant.response.response_data.node_stats.flash_used_bytes = calculateNRF5xUsedBytes(); 
+    onDemand.variant.response.response_data.node_stats.flash_total_bytes =  getNRF5xTotalBytes(); 
+#endif
+        
+    return onDemand;
+}
+
 meshtastic_OnDemand OnDemandModule::prepareAirActivityHistoryLog()
 {   
     meshtastic_OnDemand onDemand = meshtastic_OnDemand_init_zero;
@@ -217,7 +313,6 @@ meshtastic_OnDemand OnDemandModule::prepareAirActivityHistoryLog()
 
     onDemand.variant.response.response_data.air_activity_history.air_activity_history_count=10;
     for (uint16_t i = 0; i < 10; i++) {
-            LOG_WARN("rx_time %d tx_time %d rxBad_time %d", airTime->activityWindow[i].rx_time,airTime->activityWindow[i].tx_time,airTime->activityWindow[i].rx_bad_time);
             onDemand.variant.response.response_data.air_activity_history.air_activity_history[i].rx_time = airTime->activityWindow[i].rx_time;
             onDemand.variant.response.response_data.air_activity_history.air_activity_history[i].tx_time = airTime->activityWindow[i].tx_time;
             onDemand.variant.response.response_data.air_activity_history.air_activity_history[i].rxBad_time = airTime->activityWindow[i].rx_bad_time;

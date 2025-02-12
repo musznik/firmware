@@ -6,6 +6,12 @@
 #error Regenerate this file with the current version of nanopb generator.
 #endif
 
+PB_BIND(meshtastic_FwPlusVersion, meshtastic_FwPlusVersion, AUTO)
+
+
+PB_BIND(meshtastic_NodeStats, meshtastic_NodeStats, AUTO)
+
+
 PB_BIND(meshtastic_RxPacketHistory, meshtastic_RxPacketHistory, AUTO)
 
 
