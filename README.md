@@ -20,6 +20,9 @@
 - Neighbor Info enabled again on primary channel (LongFast, MediumFast, etc.), enabled by default.
 - Node status custom text transmitted over mesh (as new protobuf, port: 278), requires custom APK like "Meshtastic Android APK+ (loranet version)" for operations.
 - Handling of OnDemand packages, the ability to retrieve packet reception statistics from a node in 10-minute intervals for 40 measurements (6 hours). The ability to request a list of nodes seen by the node (2 hours). Supported in APK+. Port 354.
+- Transmitting the average number of received packets along with 6 measurements (1 hour) for every 10 minutes over the mesh.
+- AutoResponder with user defined text
+- AutoRedirector for message redirection to another node
 - OnDemand request lists (remote over mesh and local)
 <ol>
 <li>total number of reads and writes (RX/RX) for a 10-minute window across 40 measurements (6h~)</li>
@@ -30,7 +33,8 @@
 <li>air activity for tx/rx/idle (10min window) in 10 measurments</li>
 <li>simple ping request</li>
 </ol>
-- Transmitting the average number of received packets along with 6 measurements (1 hour) for every 10 minutes over the mesh.
+
+
 
 ## Overview
 
