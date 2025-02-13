@@ -37,6 +37,14 @@ typedef struct _meshtastic_NodeModAdmin {
     uint8_t current_polite_channel_util_percent;
     /* current polite duty cycle percent */
     uint8_t current_polite_duty_cycle_percent;
+    /* auto responder */
+    bool auto_responder_enabled;
+    /* auto responder text */
+    char auto_responder_text[60];
+    /* auto responder */
+    bool auto_redirect_messages;
+    /* auto responder text */
+    uint32_t auto_redirect_target_node_id;
 } meshtastic_NodeModAdmin;
 
 
@@ -45,8 +53,8 @@ extern "C" {
 #endif
 
 /* Initializer values for message structs */
-#define meshtastic_NodeModAdmin_init_default     {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
-#define meshtastic_NodeModAdmin_init_zero        {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+#define meshtastic_NodeModAdmin_init_default     {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "", 0, 0}
+#define meshtastic_NodeModAdmin_init_zero        {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "", 0, 0}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define meshtastic_NodeModAdmin_sniffer_enabled_tag 1
@@ -62,6 +70,10 @@ extern "C" {
 #define meshtastic_NodeModAdmin_current_max_channel_util_percent_tag 11
 #define meshtastic_NodeModAdmin_current_polite_channel_util_percent_tag 12
 #define meshtastic_NodeModAdmin_current_polite_duty_cycle_percent_tag 13
+#define meshtastic_NodeModAdmin_auto_responder_enabled_tag 14
+#define meshtastic_NodeModAdmin_auto_responder_text_tag 15
+#define meshtastic_NodeModAdmin_auto_redirect_messages_tag 16
+#define meshtastic_NodeModAdmin_auto_redirect_target_node_id_tag 17
 
 /* Struct field encoding specification for nanopb */
 #define meshtastic_NodeModAdmin_FIELDLIST(X, a) \
@@ -77,7 +89,11 @@ X(a, STATIC,   SINGULAR, UINT32,   additional_polite_duty_cycle_percent,   9) \
 X(a, STATIC,   SINGULAR, FLOAT,    current_tx_util_limit,  10) \
 X(a, STATIC,   SINGULAR, UINT32,   current_max_channel_util_percent,  11) \
 X(a, STATIC,   SINGULAR, UINT32,   current_polite_channel_util_percent,  12) \
-X(a, STATIC,   SINGULAR, UINT32,   current_polite_duty_cycle_percent,  13)
+X(a, STATIC,   SINGULAR, UINT32,   current_polite_duty_cycle_percent,  13) \
+X(a, STATIC,   SINGULAR, BOOL,     auto_responder_enabled,  14) \
+X(a, STATIC,   SINGULAR, STRING,   auto_responder_text,  15) \
+X(a, STATIC,   SINGULAR, BOOL,     auto_redirect_messages,  16) \
+X(a, STATIC,   SINGULAR, UINT32,   auto_redirect_target_node_id,  17)
 #define meshtastic_NodeModAdmin_CALLBACK NULL
 #define meshtastic_NodeModAdmin_DEFAULT NULL
 
@@ -88,7 +104,7 @@ extern const pb_msgdesc_t meshtastic_NodeModAdmin_msg;
 
 /* Maximum encoded size of messages (where known) */
 #define MESHTASTIC_MESHTASTIC_NODE_MOD_ADMIN_PB_H_MAX_SIZE meshtastic_NodeModAdmin_size
-#define meshtastic_NodeModAdmin_size             38
+#define meshtastic_NodeModAdmin_size             111
 
 #ifdef __cplusplus
 } /* extern "C" */

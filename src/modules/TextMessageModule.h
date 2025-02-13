@@ -22,7 +22,7 @@ class TextMessageModule : public SinglePortModule, public Observable<const mesht
     */
     virtual ProcessMessage handleReceived(const meshtastic_MeshPacket &mp) override;
     virtual bool wantPacket(const meshtastic_MeshPacket *p) override;
-    virtual void sendTextMessage(const std::string &message, const meshtastic_MeshPacket mp);
+    virtual void sendTextMessage(const std::string &message, const meshtastic_MeshPacket mp, uint32_t targetId);
     std::string formatFloatToOneDecimal(float value);
 };
 

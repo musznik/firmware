@@ -415,21 +415,29 @@ typedef struct _meshtastic_ModuleConfig_NodeModAdminConfig {
     /* idlegame enabled */
     bool idlegame_enabled;
     /* base ch util + additional chan utilization defined by user */
-    uint32_t additional_chutil;
+    uint8_t additional_chutil;
     /* base tx util + additional tx chan utilization defined by user */
     float additional_txutil;
     /* additional chutil polite percent defined by user */
-    uint32_t additional_polite_channel_percent;
+    uint8_t additional_polite_channel_percent;
     /* additional chutil polite percent defined by user */
-    uint32_t additional_polite_duty_cycle_percent;
+    uint8_t additional_polite_duty_cycle_percent;
     /* current tx util limit */
     float current_tx_util_limit;
     /* current nmax channel util percent */
-    uint32_t current_max_channel_util_percent;
+    uint8_t current_max_channel_util_percent;
     /* current polite channel util percent */
-    uint32_t current_polite_channel_util_percent;
+    uint8_t current_polite_channel_util_percent;
     /* current polite duty cycle percent */
-    uint32_t current_polite_duty_cycle_percent;
+    uint8_t current_polite_duty_cycle_percent;
+    /* auto responder */
+    bool auto_responder_enabled;
+    /* auto responder text */
+    char auto_responder_text[60];
+    /* auto responder */
+    bool auto_redirect_messages;
+    /* auto responder text */
+    uint32_t auto_redirect_target_node_id;
 } meshtastic_ModuleConfig_NodeModAdminConfig;
 
 typedef PB_BYTES_ARRAY_T(1) meshtastic_ModuleConfig_IdleGameAlliance_morale_bonus_t;
@@ -627,7 +635,7 @@ extern "C" {
 #define meshtastic_ModuleConfig_CannedMessageConfig_init_default {0, 0, 0, 0, _meshtastic_ModuleConfig_CannedMessageConfig_InputEventChar_MIN, _meshtastic_ModuleConfig_CannedMessageConfig_InputEventChar_MIN, _meshtastic_ModuleConfig_CannedMessageConfig_InputEventChar_MIN, 0, 0, "", 0}
 #define meshtastic_ModuleConfig_AmbientLightingConfig_init_default {0, 0, 0, 0, 0}
 #define meshtastic_ModuleConfig_NodeModConfig_init_default {""}
-#define meshtastic_ModuleConfig_NodeModAdminConfig_init_default {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+#define meshtastic_ModuleConfig_NodeModAdminConfig_init_default {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "", 0, 0}
 #define meshtastic_ModuleConfig_IdleGameKnownVillages_init_default {0, {meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default}}
 #define meshtastic_ModuleConfig_IdleGameAlliance_init_default {0, 0, {0, {0}}}
 #define meshtastic_ModuleConfig_IdleGamePatron_init_default {0, 0}
@@ -652,7 +660,7 @@ extern "C" {
 #define meshtastic_ModuleConfig_CannedMessageConfig_init_zero {0, 0, 0, 0, _meshtastic_ModuleConfig_CannedMessageConfig_InputEventChar_MIN, _meshtastic_ModuleConfig_CannedMessageConfig_InputEventChar_MIN, _meshtastic_ModuleConfig_CannedMessageConfig_InputEventChar_MIN, 0, 0, "", 0}
 #define meshtastic_ModuleConfig_AmbientLightingConfig_init_zero {0, 0, 0, 0, 0}
 #define meshtastic_ModuleConfig_NodeModConfig_init_zero {""}
-#define meshtastic_ModuleConfig_NodeModAdminConfig_init_zero {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+#define meshtastic_ModuleConfig_NodeModAdminConfig_init_zero {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "", 0, 0}
 #define meshtastic_ModuleConfig_IdleGameKnownVillages_init_zero {0, {meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero}}
 #define meshtastic_ModuleConfig_IdleGameAlliance_init_zero {0, 0, {0, {0}}}
 #define meshtastic_ModuleConfig_IdleGamePatron_init_zero {0, 0}
@@ -773,6 +781,10 @@ extern "C" {
 #define meshtastic_ModuleConfig_NodeModAdminConfig_current_max_channel_util_percent_tag 11
 #define meshtastic_ModuleConfig_NodeModAdminConfig_current_polite_channel_util_percent_tag 12
 #define meshtastic_ModuleConfig_NodeModAdminConfig_current_polite_duty_cycle_percent_tag 13
+#define meshtastic_ModuleConfig_NodeModAdminConfig_auto_responder_enabled_tag 14
+#define meshtastic_ModuleConfig_NodeModAdminConfig_auto_responder_text_tag 15
+#define meshtastic_ModuleConfig_NodeModAdminConfig_auto_redirect_messages_tag 16
+#define meshtastic_ModuleConfig_NodeModAdminConfig_auto_redirect_target_node_id_tag 17
 #define meshtastic_ModuleConfig_IdleGameAlliance_node_id_tag 1
 #define meshtastic_ModuleConfig_IdleGameAlliance_started_at_tag 2
 #define meshtastic_ModuleConfig_IdleGameAlliance_morale_bonus_tag 3
@@ -1032,7 +1044,11 @@ X(a, STATIC,   SINGULAR, UINT32,   additional_polite_duty_cycle_percent,   9) \
 X(a, STATIC,   SINGULAR, FLOAT,    current_tx_util_limit,  10) \
 X(a, STATIC,   SINGULAR, UINT32,   current_max_channel_util_percent,  11) \
 X(a, STATIC,   SINGULAR, UINT32,   current_polite_channel_util_percent,  12) \
-X(a, STATIC,   SINGULAR, UINT32,   current_polite_duty_cycle_percent,  13)
+X(a, STATIC,   SINGULAR, UINT32,   current_polite_duty_cycle_percent,  13) \
+X(a, STATIC,   SINGULAR, BOOL,     auto_responder_enabled,  14) \
+X(a, STATIC,   SINGULAR, STRING,   auto_responder_text,  15) \
+X(a, STATIC,   SINGULAR, BOOL,     auto_redirect_messages,  16) \
+X(a, STATIC,   SINGULAR, UINT32,   auto_redirect_target_node_id,  17)
 #define meshtastic_ModuleConfig_NodeModAdminConfig_CALLBACK NULL
 #define meshtastic_ModuleConfig_NodeModAdminConfig_DEFAULT NULL
 
@@ -1172,7 +1188,7 @@ extern const pb_msgdesc_t meshtastic_RemoteHardwarePin_msg;
 #define meshtastic_ModuleConfig_MQTTConfig_size  254
 #define meshtastic_ModuleConfig_MapReportSettings_size 12
 #define meshtastic_ModuleConfig_NeighborInfoConfig_size 10
-#define meshtastic_ModuleConfig_NodeModAdminConfig_size 56
+#define meshtastic_ModuleConfig_NodeModAdminConfig_size 111
 #define meshtastic_ModuleConfig_NodeModConfig_size 202
 #define meshtastic_ModuleConfig_PaxcounterConfig_size 30
 #define meshtastic_ModuleConfig_RangeTestConfig_size 10

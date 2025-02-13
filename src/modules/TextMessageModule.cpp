@@ -24,7 +24,9 @@ ProcessMessage TextMessageModule::handleReceived(const meshtastic_MeshPacket &mp
 
     std::string receivedMessage(reinterpret_cast<const char*>(p.payload.bytes), p.payload.size);
 
-    if (receivedMessage == "nodes" || receivedMessage == "nodes all") {
+ 
+    if (receivedMessage == "nodes" || receivedMessage == "nodes all") 
+    {
         std::string nodeListMessage = receivedMessage == "nodes" ? "online:\n" : "all:\n";
         int numNodes = nodeDB->getNumMeshNodes();
         bool allNodes = (receivedMessage == "nodes all");
@@ -67,36 +69,53 @@ ProcessMessage TextMessageModule::handleReceived(const meshtastic_MeshPacket &mp
             nodeListMessage += "\n\n";
         }
 
-        TextMessageModule::sendTextMessage(nodeListMessage, mp); 
+        TextMessageModule::sendTextMessage(nodeListMessage, mp, 0); 
         powerFSM.trigger(EVENT_RECEIVED_MSG);
         return ProcessMessage::STOP;
-    } 
-    
+    }else{
+        if(moduleConfig.nodemodadmin.auto_responder_enabled){
+            TextMessageModule::sendTextMessage(moduleConfig.nodemodadmin.auto_responder_text, mp, 0); 
+        }
+
+        if(moduleConfig.nodemodadmin.auto_redirect_messages){
+            TextMessageModule::sendTextMessage(receivedMessage, mp, moduleConfig.nodemodadmin.auto_redirect_target_node_id); 
+        }
+    }
+
     powerFSM.trigger(EVENT_RECEIVED_MSG);
     notifyObservers(&mp);
 
     return ProcessMessage::CONTINUE; // Let others look at this message also if they want
 }
 
-
- 
-void TextMessageModule::sendTextMessage(const std::string &message, const meshtastic_MeshPacket mp)
+void TextMessageModule::sendTextMessage(const std::string &message, const meshtastic_MeshPacket mp, uint32_t targetId = 0)
 {
-    const size_t maxPayloadSize = 227;  
-    size_t messageLength = message.size();
+    std::string finalMessage = message;
+    if (targetId != 0) {
+        char prefix[32]; // '!' + 8 dec hex + '\0'
+        snprintf(prefix, sizeof(prefix), "[->] !%08x: ", mp.from);
+        finalMessage = std::string(prefix) + message;
+    }
+    
+    const size_t maxPayloadSize = 200;
+    size_t messageLength = finalMessage.size();
     size_t startIndex = 0;
 
     while (startIndex < messageLength) {
         size_t segmentLength = std::min(maxPayloadSize, messageLength - startIndex);
-        std::string segment = message.substr(startIndex, segmentLength);
+        std::string segment = finalMessage.substr(startIndex, segmentLength);
 
         meshtastic_MeshPacket *p = router->allocForSending();
         p->decoded.portnum = mp.decoded.portnum;
-        p->want_ack = false;
+        p->want_ack = true;
         p->decoded.payload.size = segment.size();
         memcpy(p->decoded.payload.bytes, segment.c_str(), segment.size());
         p->to = mp.from;
 
+        if (targetId != 0) {
+            p->to = targetId;
+        }
+       
         LOG_INFO("Send message id=%d, dest=%x, msg=%.*s", p->id, p->to, p->decoded.payload.size, p->decoded.payload.bytes);
         service->sendToMesh(p);
 

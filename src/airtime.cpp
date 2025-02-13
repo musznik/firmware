@@ -224,7 +224,7 @@ int32_t AirTime::runOnce()
 
     //fw+ 10m window
     if (secSinceBoot != 0 && secSinceBoot % RX_WINDOW_INTERVAL_SECONDS == 0) {
-        uint32_t window_ms = RX_WINDOW_INTERVAL_SECONDS * 1000; // 600000 ms
+        uint32_t window_ms = RX_WINDOW_INTERVAL_SECONDS * 1000;  
 
         uint32_t delta_tx = txAccum10;
         uint32_t delta_rx = rxAccum10;
@@ -234,7 +234,6 @@ int32_t AirTime::runOnce()
         uint32_t current_idle = (window_ms > usedTime) ? (window_ms - usedTime) : 0;
 
         ActivityTime newActivity = { delta_rx, delta_tx, current_idle, delta_rxBad };
-        LOG_WARN("10 ACTIVITY UPDATE");
         updateActivityWindow(newActivity);
 
         txAccum10 = 0;

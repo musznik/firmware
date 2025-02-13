@@ -34,6 +34,8 @@
 #define default_idlegame_enabled false
 #define default_chanutil_user_additional 10
 #define default_chantxutil_user_additional 5
+#define default_autoresponder_enabled false
+#define default_autoredirect_messages_enabled false
 
 #define IF_ROUTER(routerVal, normalVal)                                                                                          \
     ((config.device.role == meshtastic_Config_DeviceConfig_Role_ROUTER) ? (routerVal) : (normalVal))

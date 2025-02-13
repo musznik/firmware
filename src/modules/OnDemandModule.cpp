@@ -14,10 +14,9 @@
 #include "SPILock.h"
 #include "FSCommon.h"
 
-
 OnDemandModule *onDemandModule;
 static const int MAX_NODES_PER_PACKET = 10;
-static const int MAX_PACKET_SIZE = 160;
+static const int MAX_PACKET_SIZE = 190;
 #define NUM_ONLINE_SECS (60 * 60 * 2) 
 #define MAGIC_USB_BATTERY_LEVEL 101
 
@@ -30,65 +29,59 @@ bool OnDemandModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, mes
 {
     if (t->which_variant == meshtastic_OnDemand_request_tag) 
     {
-        if(t->variant.request.request_type == meshtastic_OnDemandType_REQUEST_FW_PLUS_VERSION)
+        switch(t->variant.request.request_type) 
         {
-            meshtastic_OnDemand od = prepareFwPlusVersion();
-            sendPacketToRequester(od,mp.from);
-        }
-
-        if(t->variant.request.request_type == meshtastic_OnDemandType_REQUEST_NODE_STATS)
-        {
-            meshtastic_OnDemand od = prepareNodeStats();
-            sendPacketToRequester(od,mp.from);
-        }
-
-        if(t->variant.request.request_type == meshtastic_OnDemandType_REQUEST_AIR_ACTIVITY_HISTORY)
-        {
-            meshtastic_OnDemand od = prepareAirActivityHistoryLog();
-            sendPacketToRequester(od,mp.from);
-        }
-
-        if(t->variant.request.request_type == meshtastic_OnDemandType_REQUEST_PACKET_EXCHANGE_HISTORY)
-        {
-            meshtastic_OnDemand od = preparePacketHistoryLog();
-            sendPacketToRequester(od,mp.from);
-        }
-
-        if(t->variant.request.request_type == meshtastic_OnDemandType_REQUEST_PORT_COUNTER_HISTORY)
-        {
-            meshtastic_OnDemand od = preparePortCounterHistory();
-            sendPacketToRequester(od,mp.from);
-        }
-
-        if(t->variant.request.request_type == meshtastic_OnDemandType_REQUEST_PACKET_RX_HISTORY)
-        {
-            meshtastic_OnDemand od = prepareRxPacketHistory();
-            sendPacketToRequester(od,mp.from);
-        }
-
-        if(t->variant.request.request_type == meshtastic_OnDemandType_REQUEST_RX_AVG_TIME)
-        {
-            meshtastic_OnDemand od = prepareRxAvgTimeHistory();
-            sendPacketToRequester(od,mp.from);
-        }
-
-        if(t->variant.request.request_type == meshtastic_OnDemandType_REQUEST_NODES_ONLINE)
-        {
-            auto packets = createSegmentedNodeList();
-
-            for (auto &pkt : packets)
-            {
-                sendPacketToRequester(*pkt, mp.from);
-                vTaskDelay(5000 / portTICK_PERIOD_MS);
+            case meshtastic_OnDemandType_REQUEST_FW_PLUS_VERSION: {
+                meshtastic_OnDemand od = prepareFwPlusVersion();
+                sendPacketToRequester(od,mp.from);
+                break;
             }
-            return true;
-        }
-
-        if(t->variant.request.request_type == meshtastic_OnDemandType_REQUEST_PING)
-        {
-            meshtastic_OnDemand od = preparePingResponse();
-            sendPacketToRequester(od, mp.from);
-        }
+            case meshtastic_OnDemandType_REQUEST_NODE_STATS: {
+                meshtastic_OnDemand od = prepareNodeStats();
+                sendPacketToRequester(od,mp.from);
+                break;
+            }
+            case meshtastic_OnDemandType_REQUEST_AIR_ACTIVITY_HISTORY: {
+                meshtastic_OnDemand od = prepareAirActivityHistoryLog();
+                sendPacketToRequester(od,mp.from);
+                break;
+            }
+            case meshtastic_OnDemandType_REQUEST_PACKET_EXCHANGE_HISTORY: {
+                meshtastic_OnDemand od = preparePacketHistoryLog();
+                sendPacketToRequester(od,mp.from);
+                break;
+            }
+            case meshtastic_OnDemandType_REQUEST_PORT_COUNTER_HISTORY: {
+                meshtastic_OnDemand od = preparePortCounterHistory();
+                sendPacketToRequester(od,mp.from);
+                break;
+            }
+            case meshtastic_OnDemandType_REQUEST_PACKET_RX_HISTORY: {
+                meshtastic_OnDemand od = prepareRxPacketHistory();
+                sendPacketToRequester(od,mp.from);
+                break;
+            }
+            case meshtastic_OnDemandType_REQUEST_RX_AVG_TIME: {
+                meshtastic_OnDemand od = prepareRxAvgTimeHistory();
+                sendPacketToRequester(od,mp.from);
+                break;
+            }
+            case meshtastic_OnDemandType_REQUEST_NODES_ONLINE: {
+                auto packets = createSegmentedNodeList();
+                for (auto &pkt : packets)
+                {
+                    sendPacketToRequester(*pkt, mp.from);
+                } 
+                break;
+            }
+            case meshtastic_OnDemandType_REQUEST_PING: {
+                meshtastic_OnDemand od = preparePingResponse();
+                sendPacketToRequester(od, mp.from);
+                break;
+            }
+            default:
+                break;
+          }
     }
 
     return false; // Let others look at this message also if they want
@@ -229,7 +222,7 @@ meshtastic_OnDemand OnDemandModule::prepareFwPlusVersion()
     onDemand.which_variant = meshtastic_OnDemand_response_tag;
     onDemand.variant.response.response_type = meshtastic_OnDemandType_RESPONSE_FW_PLUS_VERSION;
     onDemand.variant.response.which_response_data = meshtastic_OnDemandResponse_fw_plus_version_tag;
-    onDemand.variant.response.response_data.fw_plus_version.version_number = 1;
+    onDemand.variant.response.response_data.fw_plus_version.version_number = 2;
    
     return onDemand;
 }
@@ -385,7 +378,6 @@ void OnDemandModule::sendPacketToRequester(meshtastic_OnDemand demand_packet,u_i
     }else{
         service->sendToMesh(p, RX_SRC_LOCAL, false);
     }
-    
 }
 
 meshtastic_MeshPacket *OnDemandModule::allocReply()

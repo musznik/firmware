@@ -698,6 +698,8 @@ void NodeDB::installDefaultModuleConfig()
     moduleConfig.mqtt.enabled = true;
     moduleConfig.nodemodadmin.do_not_send_prv_over_mqtt = true;
     moduleConfig.nodemodadmin.sniffer_enabled = default_sniffer_enabled;
+    moduleConfig.nodemodadmin.auto_responder_enabled = default_autoresponder_enabled;
+    moduleConfig.nodemodadmin.auto_redirect_messages = default_autoredirect_messages_enabled;
     moduleConfig.nodemodadmin.local_stats_over_mesh_enabled = default_local_stats_over_mesh_enabled;
     moduleConfig.nodemodadmin.local_stats_extended_over_mesh_enabled = default_local_stats_extended_over_mesh_enabled;
     moduleConfig.nodemodadmin.additional_chutil = default_chanutil_user_additional;
