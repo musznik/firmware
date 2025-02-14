@@ -222,7 +222,7 @@ meshtastic_OnDemand OnDemandModule::prepareFwPlusVersion()
     onDemand.which_variant = meshtastic_OnDemand_response_tag;
     onDemand.variant.response.response_type = meshtastic_OnDemandType_RESPONSE_FW_PLUS_VERSION;
     onDemand.variant.response.which_response_data = meshtastic_OnDemandResponse_fw_plus_version_tag;
-    onDemand.variant.response.response_data.fw_plus_version.version_number = 2;
+    onDemand.variant.response.response_data.fw_plus_version.version_number = 3;
    
     return onDemand;
 }
