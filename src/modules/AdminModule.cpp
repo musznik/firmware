@@ -165,7 +165,9 @@ bool AdminModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, meshta
 
     case meshtastic_AdminMessage_set_module_config_tag:
         LOG_INFO("Client set module config");
-        handleSetModuleConfig(r->set_module_config);
+        if (!handleSetModuleConfig(r->set_module_config)) {
+            myReply = allocErrorResponse(meshtastic_Routing_Error_BAD_REQUEST, &mp);
+        }
         break;
 
     case meshtastic_AdminMessage_set_channel_tag:
@@ -652,7 +654,7 @@ void AdminModule::handleSetConfig(const meshtastic_Config &c)
     saveChanges(changes, requiresReboot);
 }
 
-void AdminModule::handleSetModuleConfig(const meshtastic_ModuleConfig &c)
+bool AdminModule::handleSetModuleConfig(const meshtastic_ModuleConfig &c)
 {
     bool do_reboot=true;
     
@@ -660,9 +662,17 @@ void AdminModule::handleSetModuleConfig(const meshtastic_ModuleConfig &c)
         disableBluetooth();
     switch (c.which_payload_variant) {
     case meshtastic_ModuleConfig_mqtt_tag:
+#if MESHTASTIC_EXCLUDE_MQTT
+        LOG_WARN("Set module config: MESHTASTIC_EXCLUDE_MQTT is defined. Not setting MQTT config");
+        return false;
+#else
         LOG_INFO("Set module config: MQTT");
+        if (!MQTT::isValidConfig(c.payload_variant.mqtt)) {
+            return false;
+        }
         moduleConfig.has_mqtt = true;
         moduleConfig.mqtt = c.payload_variant.mqtt;
+#endif
         break;
     case meshtastic_ModuleConfig_serial_tag:
         LOG_INFO("Set module config: Serial");
@@ -744,6 +754,7 @@ void AdminModule::handleSetModuleConfig(const meshtastic_ModuleConfig &c)
     }
 
     saveChanges(SEGMENT_MODULECONFIG,do_reboot);
+    return true;
 }
 
 void AdminModule::handleSetChannel(const meshtastic_Channel &cc)
