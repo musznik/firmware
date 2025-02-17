@@ -14,6 +14,7 @@ FloodingRouter::FloodingRouter() {}
  */
 ErrorCode FloodingRouter::send(meshtastic_MeshPacket *p)
 {
+    flood_counter++;
     // Add any messages _we_ send to the seen message list (so we will ignore all retransmissions we see)
     p->relay_node = nodeDB->getLastByteOfNodeNum(getNodeNum()); // First set the relayer to us
     wasSeenRecently(p);                                         // FIXME, move this to a sniffSent method

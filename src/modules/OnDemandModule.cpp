@@ -85,7 +85,7 @@ bool OnDemandModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, mes
             default:
                 meshtastic_OnDemand unknown_ondemand = meshtastic_OnDemand_init_zero;
                 unknown_ondemand.which_variant = meshtastic_OnDemand_response_tag;
-                unknown_ondemand.variant.response.response_type = meshtastic_OnDemandType_UNKNOWN_ONDEMAND;
+                unknown_ondemand.variant.response.response_type = meshtastic_OnDemandType_UNKNOWN_TYPE;
                 sendPacketToRequester(unknown_ondemand, mp.from);
             break;
           }

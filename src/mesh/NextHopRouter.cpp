@@ -13,6 +13,7 @@ PendingPacket::PendingPacket(meshtastic_MeshPacket *p, uint8_t numRetransmission
  */
 ErrorCode NextHopRouter::send(meshtastic_MeshPacket *p)
 {
+    nexthop_counter++;
     // Add any messages _we_ send to the seen message list (so we will ignore all retransmissions we see)
     p->relay_node = nodeDB->getLastByteOfNodeNum(getNodeNum()); // First set the relayer to us
     wasSeenRecently(p);                                         // FIXME, move this to a sniffSent method
@@ -105,7 +106,7 @@ bool NextHopRouter::perhapsRelay(const meshtastic_MeshPacket *p)
                 meshtastic_MeshPacket *tosend = packetPool.allocCopy(*p); // keep a copy because we will be sending it
                 LOG_INFO("Relaying received message coming from %x", p->relay_node);
 
-                tosend->hop_limit--; // bump down the hop count
+                tosend->hop_limit--; // bump down the hop count 
                 NextHopRouter::send(tosend);
 
                 return true;
@@ -235,16 +236,13 @@ int32_t NextHopRouter::doRetransmissions()
                             LOG_INFO("Resetting next hop for packet with dest 0x%x\n", p.packet->to);
                             sentTo->next_hop = NO_NEXT_HOP_PREFERENCE;
                         }
-                        flood_counter++;
                         FloodingRouter::send(packetPool.allocCopy(*p.packet));
                     } else {
-                        nexthop_counter++;
                         NextHopRouter::send(packetPool.allocCopy(*p.packet));
                     }
                 } else {
                     // Note: we call the superclass version because we don't want to have our version of send() add a new
                     // retransmission record
-                    flood_counter++;
                     FloodingRouter::send(packetPool.allocCopy(*p.packet));
                 }
 

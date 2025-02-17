@@ -29,8 +29,7 @@ typedef enum _meshtastic_OnDemandType {
     meshtastic_OnDemandType_REQUEST_NODE_STATS = 15,
     meshtastic_OnDemandType_RESPONSE_NODE_STATS = 16,
     meshtastic_OnDemandType_REQUEST_FW_PLUS_VERSION = 17,
-    meshtastic_OnDemandType_RESPONSE_FW_PLUS_VERSION = 18,
-    meshtastic_OnDemandType_UNKNOWN_ONDEMAND = 19
+    meshtastic_OnDemandType_RESPONSE_FW_PLUS_VERSION = 18
 } meshtastic_OnDemandType;
 
 /* Struct definitions */
@@ -202,8 +201,8 @@ extern "C" {
 
 /* Helper constants for enums */
 #define _meshtastic_OnDemandType_MIN meshtastic_OnDemandType_UNKNOWN_TYPE
-#define _meshtastic_OnDemandType_MAX meshtastic_OnDemandType_UNKNOWN_ONDEMAND
-#define _meshtastic_OnDemandType_ARRAYSIZE ((meshtastic_OnDemandType)(meshtastic_OnDemandType_UNKNOWN_ONDEMAND+1))
+#define _meshtastic_OnDemandType_MAX meshtastic_OnDemandType_RESPONSE_FW_PLUS_VERSION
+#define _meshtastic_OnDemandType_ARRAYSIZE ((meshtastic_OnDemandType)(meshtastic_OnDemandType_RESPONSE_FW_PLUS_VERSION+1))
 
 
 
