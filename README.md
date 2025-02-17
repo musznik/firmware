@@ -24,14 +24,16 @@
 - AutoResponder with user defined text
 - AutoRedirector for message redirection to another node
 - OnDemand request lists (remote over mesh and local)
+- NextHopRouter
 <ol>
 <li>total number of reads and writes (RX/RX) for a 10-minute window across 40 measurements (6h~)</li>
 <li>average time spent reading (RX) a packet by LoRA</li>
 <li>usage counter of a given protobuf (port) since the node was started</li>
 <li>remote node list request</li>
 <li>last 10 routing logs (from,to,type)</li>
-<li>air activity for tx/rx/idle (10min window) in 10 measurments</li>
+<li>air activity for tx/rx/idle/rxnoise (10min window) in 10 measurments</li>
 <li>simple ping request</li>
+<li>request node stats (local stats, telemetry, additional stats)</li>
 </ol>
 
 
