@@ -1,23 +1,23 @@
 #include "PacketCounter.h"
 #include "NodeDB.h"
 #include "AirTime.h"
+uint64_t max_entries = 39;
 
 void PacketCounter::onPacketReceived(const meshtastic_MeshPacket *p)
 {
     //echange packet history 
     nodeDB->packetHistoryLog.addEntry({p->from, p->to, p->decoded.portnum});
-
-    //counters rxhistory
-    uint64_t max_entries = 39;
-    currentBucketCount++;
     
+    currentBucketCount++;
     uint64_t nowMs = getMonotonicUptimeMs();
-    if (nowMs - bucketStartMs >= 600000ULL) { // 600000 ms = 10 min
+    if (nowMs - bucketStartMs >= 600000ULL) // 600000 ms = 10 min
+    { 
         for (int i = max_entries; i > 0; i--) {
             airTime->rxTxAllActivities[i]=airTime->rxTxAllActivities[i - 1];
         }
 
         airTime->rxTxAllActivities[0].rxTxAll_counter=currentBucketCount;
+        
         if (airTime->rxTxAllActivitiesCount < RXTXALL_ACTIVITY_COUNT) {
             airTime->rxTxAllActivitiesCount++;
         }

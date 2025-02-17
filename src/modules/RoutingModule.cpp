@@ -29,7 +29,7 @@ bool RoutingModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, mesh
     router->sniffReceived(&mp, r);
 
     if (mp.which_payload_variant == meshtastic_MeshPacket_decoded_tag){
-        int port = mp.decoded.portnum;
+        meshtastic_PortNum port = mp.decoded.portnum;
         if (port >= 0 && port < MAX_PORTS) {
             ++portCounters[port];
         }

@@ -60,19 +60,17 @@ enum LoadFileResult {
 struct ExchangeEntry {
     uint32_t from_node;
     uint32_t to_node;
-    uint32_t port_num;
+    meshtastic_PortNum port_num;
 };
 struct ExchangeList {
-    std::array<ExchangeEntry, 40> entries; 
+    std::array<ExchangeEntry, 20> entries; 
     size_t count = 0; 
 
     void addEntry(const ExchangeEntry &entry) {
-
-        if(entry.port_num==-1 || entry.from_node == entry.to_node){
+        if(entry.from_node == entry.to_node){
             return;
         }
         
-
         if (count < entries.size()) {
             for (size_t i = count; i > 0; --i) {
                 entries[i] = entries[i - 1];

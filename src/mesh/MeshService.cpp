@@ -121,7 +121,7 @@ void MeshService::sendPacketToPhoneRaw(meshtastic_MeshPacket *p)
 #ifdef ARCH_ESP32
 #if !MESHTASTIC_EXCLUDE_STOREFORWARD
     if (moduleConfig.store_forward.enabled && storeForwardModule->isServer() &&
-        p->decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP && !p->encrypted.size) {
+        p->decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP && !p->pki_encrypted) {
         releaseToPool(p); // Copy is already stored in StoreForward history
         fromNum++;        // Notify observers for packet from radio
         return;
@@ -144,8 +144,6 @@ void MeshService::sendPacketToPhoneRaw(meshtastic_MeshPacket *p)
         }
     }
 
-    //hack, detect redirection/from phone
-    //p->priority=static_cast<meshtastic_MeshPacket_Priority>(22);
     assert(toPhoneQueue.enqueue(p, 0));
     fromNum++;
 }
@@ -323,7 +321,6 @@ void MeshService::sendToPhone(meshtastic_MeshPacket *p)
 #endif
 #endif
 
-    
     if (toPhoneQueue.numFree() == 0) {
         if (p->decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP ||
             p->decoded.portnum == meshtastic_PortNum_RANGE_TEST_APP) {
