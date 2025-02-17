@@ -39,6 +39,7 @@ bool NextHopRouter::shouldFilterReceived(const meshtastic_MeshPacket *p)
 
         // If it was a fallback to flooding, try to relay again
         if (wasFallback) {
+             
             LOG_INFO("Fallback to flooding from relay_node=0x%x", p->relay_node);
             // Check if it's still in the Tx queue, if not, we have to relay it again
             if (!findInTxQueue(p->from, p->id))
@@ -131,7 +132,7 @@ uint8_t NextHopRouter::getNextHop(NodeNum to, uint8_t relay_node)
     if (node && node->next_hop) {
         // We are careful not to return the relay node as the next hop
         if (node->next_hop != relay_node) {
-            // LOG_DEBUG("Next hop for 0x%x is 0x%x", to, node->next_hop);
+            LOG_DEBUG("Next hop for 0x%x is 0x%x", to, node->next_hop);
             return node->next_hop;
         } else
             LOG_WARN("Next hop for 0x%x is 0x%x, same as relayer; set no pref", to, node->next_hop);
@@ -234,13 +235,16 @@ int32_t NextHopRouter::doRetransmissions()
                             LOG_INFO("Resetting next hop for packet with dest 0x%x\n", p.packet->to);
                             sentTo->next_hop = NO_NEXT_HOP_PREFERENCE;
                         }
+                        flood_counter++;
                         FloodingRouter::send(packetPool.allocCopy(*p.packet));
                     } else {
+                        nexthop_counter++;
                         NextHopRouter::send(packetPool.allocCopy(*p.packet));
                     }
                 } else {
                     // Note: we call the superclass version because we don't want to have our version of send() add a new
                     // retransmission record
+                    flood_counter++;
                     FloodingRouter::send(packetPool.allocCopy(*p.packet));
                 }
 

@@ -29,7 +29,8 @@ typedef enum _meshtastic_OnDemandType {
     meshtastic_OnDemandType_REQUEST_NODE_STATS = 15,
     meshtastic_OnDemandType_RESPONSE_NODE_STATS = 16,
     meshtastic_OnDemandType_REQUEST_FW_PLUS_VERSION = 17,
-    meshtastic_OnDemandType_RESPONSE_FW_PLUS_VERSION = 18
+    meshtastic_OnDemandType_RESPONSE_FW_PLUS_VERSION = 18,
+    meshtastic_OnDemandType_UNKNOWN_ONDEMAND = 19
 } meshtastic_OnDemandType;
 
 /* Struct definitions */
@@ -84,6 +85,22 @@ typedef struct _meshtastic_NodeStats {
     uint32_t rx_total_bytes;
     bool has_tx_total_bytes;
     uint32_t tx_total_bytes;
+    bool has_ch1_voltage;
+    float ch1_voltage;
+    bool has_ch1_current;
+    float ch1_current;
+    bool has_ch2_voltage;
+    float ch2_voltage;
+    bool has_ch2_current;
+    float ch2_current;
+    bool has_ch3_voltage;
+    float ch3_voltage;
+    bool has_ch3_current;
+    float ch3_current;
+    bool has_flood_counter;
+    uint32_t flood_counter;
+    bool has_nexthop_counter;
+    uint32_t nexthop_counter;
 } meshtastic_NodeStats;
 
 typedef struct _meshtastic_RxPacketHistory {
@@ -185,8 +202,8 @@ extern "C" {
 
 /* Helper constants for enums */
 #define _meshtastic_OnDemandType_MIN meshtastic_OnDemandType_UNKNOWN_TYPE
-#define _meshtastic_OnDemandType_MAX meshtastic_OnDemandType_RESPONSE_FW_PLUS_VERSION
-#define _meshtastic_OnDemandType_ARRAYSIZE ((meshtastic_OnDemandType)(meshtastic_OnDemandType_RESPONSE_FW_PLUS_VERSION+1))
+#define _meshtastic_OnDemandType_MAX meshtastic_OnDemandType_UNKNOWN_ONDEMAND
+#define _meshtastic_OnDemandType_ARRAYSIZE ((meshtastic_OnDemandType)(meshtastic_OnDemandType_UNKNOWN_ONDEMAND+1))
 
 
 
@@ -209,7 +226,7 @@ extern "C" {
 
 /* Initializer values for message structs */
 #define meshtastic_FwPlusVersion_init_default    {0}
-#define meshtastic_NodeStats_init_default        {false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0}
+#define meshtastic_NodeStats_init_default        {false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0}
 #define meshtastic_RxPacketHistory_init_default  {0, {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}}
 #define meshtastic_RxAvgTimeHistory_init_default {0, {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}}
 #define meshtastic_PortCounterEntry_init_default {0, 0}
@@ -225,7 +242,7 @@ extern "C" {
 #define meshtastic_OnDemandResponse_init_default {_meshtastic_OnDemandType_MIN, 0, {meshtastic_RxPacketHistory_init_default}}
 #define meshtastic_OnDemand_init_default         {false, 0, false, 0, 0, {meshtastic_OnDemandRequest_init_default}}
 #define meshtastic_FwPlusVersion_init_zero       {0}
-#define meshtastic_NodeStats_init_zero           {false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0}
+#define meshtastic_NodeStats_init_zero           {false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0}
 #define meshtastic_RxPacketHistory_init_zero     {0, {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}}
 #define meshtastic_RxAvgTimeHistory_init_zero    {0, {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}}
 #define meshtastic_PortCounterEntry_init_zero    {0, 0}
@@ -266,6 +283,14 @@ extern "C" {
 #define meshtastic_NodeStats_memory_psram_total_tag 21
 #define meshtastic_NodeStats_rx_total_bytes_tag  22
 #define meshtastic_NodeStats_tx_total_bytes_tag  23
+#define meshtastic_NodeStats_ch1_voltage_tag     24
+#define meshtastic_NodeStats_ch1_current_tag     25
+#define meshtastic_NodeStats_ch2_voltage_tag     26
+#define meshtastic_NodeStats_ch2_current_tag     27
+#define meshtastic_NodeStats_ch3_voltage_tag     28
+#define meshtastic_NodeStats_ch3_current_tag     29
+#define meshtastic_NodeStats_flood_counter_tag   30
+#define meshtastic_NodeStats_nexthop_counter_tag 31
 #define meshtastic_RxPacketHistory_rx_packet_history_tag 1
 #define meshtastic_RxAvgTimeHistory_rx_avg_history_tag 1
 #define meshtastic_PortCounterEntry_port_tag     1
@@ -331,7 +356,15 @@ X(a, STATIC,   OPTIONAL, UINT32,   flash_total_bytes,  19) \
 X(a, STATIC,   OPTIONAL, UINT32,   memory_psram_free,  20) \
 X(a, STATIC,   OPTIONAL, UINT32,   memory_psram_total,  21) \
 X(a, STATIC,   OPTIONAL, UINT32,   rx_total_bytes,   22) \
-X(a, STATIC,   OPTIONAL, UINT32,   tx_total_bytes,   23)
+X(a, STATIC,   OPTIONAL, UINT32,   tx_total_bytes,   23) \
+X(a, STATIC,   OPTIONAL, FLOAT,    ch1_voltage,      24) \
+X(a, STATIC,   OPTIONAL, FLOAT,    ch1_current,      25) \
+X(a, STATIC,   OPTIONAL, FLOAT,    ch2_voltage,      26) \
+X(a, STATIC,   OPTIONAL, FLOAT,    ch2_current,      27) \
+X(a, STATIC,   OPTIONAL, FLOAT,    ch3_voltage,      28) \
+X(a, STATIC,   OPTIONAL, FLOAT,    ch3_current,      29) \
+X(a, STATIC,   OPTIONAL, UINT32,   flood_counter,    30) \
+X(a, STATIC,   OPTIONAL, UINT32,   nexthop_counter,  31)
 #define meshtastic_NodeStats_CALLBACK NULL
 #define meshtastic_NodeStats_DEFAULT NULL
 
@@ -485,7 +518,7 @@ extern const pb_msgdesc_t meshtastic_OnDemand_msg;
 #define meshtastic_ExchangeList_size             240
 #define meshtastic_FwPlusVersion_size            6
 #define meshtastic_NodeEntry_size                69
-#define meshtastic_NodeStats_size                143
+#define meshtastic_NodeStats_size                193
 #define meshtastic_NodesList_size                710
 #define meshtastic_OnDemandRequest_size          2
 #define meshtastic_OnDemandResponse_size         715

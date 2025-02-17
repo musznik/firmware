@@ -2,7 +2,6 @@
 #include "../mesh/generated/meshtastic/ondemand.pb.h"
 #include "NodeDB.h"
 #include "ProtobufModule.h"
-
 class OnDemandModule : private concurrency::OSThread, public ProtobufModule<meshtastic_OnDemand>
 {
 

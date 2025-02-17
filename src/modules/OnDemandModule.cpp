@@ -13,12 +13,15 @@
 #include "ProtobufModule.h"
 #include "SPILock.h"
 #include "FSCommon.h"
+ 
 
 OnDemandModule *onDemandModule;
 static const int MAX_NODES_PER_PACKET = 10;
 static const int MAX_PACKET_SIZE = 190;
 #define NUM_ONLINE_SECS (60 * 60 * 2) 
 #define MAGIC_USB_BATTERY_LEVEL 101
+
+#define FW_PLUS_VERSION 6
 
 int32_t OnDemandModule::runOnce()
 {
@@ -80,7 +83,11 @@ bool OnDemandModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, mes
                 break;
             }
             default:
-                break;
+                meshtastic_OnDemand unknown_ondemand = meshtastic_OnDemand_init_zero;
+                unknown_ondemand.which_variant = meshtastic_OnDemand_response_tag;
+                unknown_ondemand.variant.response.response_type = meshtastic_OnDemandType_UNKNOWN_ONDEMAND;
+                sendPacketToRequester(unknown_ondemand, mp.from);
+            break;
           }
     }
 
@@ -222,11 +229,9 @@ meshtastic_OnDemand OnDemandModule::prepareFwPlusVersion()
     onDemand.which_variant = meshtastic_OnDemand_response_tag;
     onDemand.variant.response.response_type = meshtastic_OnDemandType_RESPONSE_FW_PLUS_VERSION;
     onDemand.variant.response.which_response_data = meshtastic_OnDemandResponse_fw_plus_version_tag;
-    onDemand.variant.response.response_data.fw_plus_version.version_number = 3;
-   
+    onDemand.variant.response.response_data.fw_plus_version.version_number = FW_PLUS_VERSION;
     return onDemand;
 }
-
 
 meshtastic_OnDemand OnDemandModule::prepareNodeStats()
 {   
@@ -253,6 +258,8 @@ meshtastic_OnDemand OnDemandModule::prepareNodeStats()
     onDemand.variant.response.response_data.node_stats.has_memory_free_cheap = true;
     onDemand.variant.response.response_data.node_stats.has_memory_total = true;
     onDemand.variant.response.response_data.node_stats.has_cpu_usage_percent = true;
+    onDemand.variant.response.response_data.node_stats.has_flood_counter = true;
+    onDemand.variant.response.response_data.node_stats.has_nexthop_counter = true;
 
     onDemand.variant.response.response_data.node_stats.battery_level = (!powerStatus->getHasBattery() || powerStatus->getIsCharging()) ? MAGIC_USB_BATTERY_LEVEL : powerStatus->getBatteryChargePercent();
     onDemand.variant.response.response_data.node_stats.voltage = powerStatus->getBatteryVoltageMv() / 1000.0;
@@ -271,6 +278,48 @@ meshtastic_OnDemand OnDemandModule::prepareNodeStats()
     onDemand.variant.response.response_data.node_stats.memory_free_cheap = memGet.getFreeHeap();
     onDemand.variant.response.response_data.node_stats.memory_total = memGet.getHeapSize();
     onDemand.variant.response.response_data.node_stats.cpu_usage_percent = CpuHwUsagePercent;
+    onDemand.variant.response.response_data.node_stats.flood_counter = router->flood_counter;
+    onDemand.variant.response.response_data.node_stats.nexthop_counter = router->nexthop_counter;
+    
+    bool valid = false;
+    meshtastic_Telemetry m = meshtastic_Telemetry_init_zero;
+    m.time = getTime();
+    m.which_variant = meshtastic_Telemetry_power_metrics_tag;
+    m.variant.power_metrics = meshtastic_PowerMetrics_init_zero;
+
+    if (ina219Sensor.hasSensor())
+        valid = ina219Sensor.getMetrics(&m);
+    if (ina226Sensor.hasSensor())
+        valid = ina226Sensor.getMetrics(&m);
+    if (ina260Sensor.hasSensor())
+        valid = ina260Sensor.getMetrics(&m);
+    if (ina3221Sensor.hasSensor())
+        valid = ina3221Sensor.getMetrics(&m);
+    if (max17048Sensor.hasSensor())
+        valid = max17048Sensor.getMetrics(&m);
+
+    if(valid){
+        if(m.variant.power_metrics.ch1_voltage != 0){
+            onDemand.variant.response.response_data.node_stats.has_ch1_voltage = true;
+            onDemand.variant.response.response_data.node_stats.has_ch1_current = true;
+            onDemand.variant.response.response_data.node_stats.ch1_voltage = m.variant.power_metrics.ch1_voltage;
+            onDemand.variant.response.response_data.node_stats.ch1_current = m.variant.power_metrics.ch1_current;
+        }
+    
+        if(m.variant.power_metrics.ch2_voltage != 0){
+            onDemand.variant.response.response_data.node_stats.has_ch2_voltage = true;
+            onDemand.variant.response.response_data.node_stats.has_ch2_current = true;
+            onDemand.variant.response.response_data.node_stats.ch2_voltage = m.variant.power_metrics.ch2_voltage;
+            onDemand.variant.response.response_data.node_stats.ch2_current = m.variant.power_metrics.ch2_current;
+        }
+    
+        if(m.variant.power_metrics.ch3_voltage != 0){
+            onDemand.variant.response.response_data.node_stats.has_ch3_voltage = true;
+            onDemand.variant.response.response_data.node_stats.has_ch3_current = true;
+            onDemand.variant.response.response_data.node_stats.ch3_voltage = m.variant.power_metrics.ch3_voltage;
+            onDemand.variant.response.response_data.node_stats.ch3_current = m.variant.power_metrics.ch3_current;
+        }  
+    }
 
 #if defined(ARCH_ESP32)
     onDemand.variant.response.response_data.node_stats.has_flash_used_bytes = true;

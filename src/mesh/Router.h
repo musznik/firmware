@@ -90,6 +90,7 @@ class Router : protected concurrency::OSThread, protected PacketHistory
     /* Statistics for the amount of duplicate received packets and the amount of times we cancel a relay because someone did it
         before us */
     uint32_t rxDupe = 0, txRelayCanceled = 0;
+    uint32_t flood_counter = 0, nexthop_counter = 0;
 
   protected:
     friend class RoutingModule;
