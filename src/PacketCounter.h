@@ -2,13 +2,8 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <deque>
-// #include "MeshService.h"
 #include "NodeDB.h"
-/**
- * Klasa zliczająca pakiety w "ruchomym oknie" 10 minut.
- * Za każdym razem, gdy przychodzi nowy pakiet, wywołujemy onPacketReceived().
- * Aby odczytać liczbę pakietów z ostatnich 10 min, wywołaj getCountLast10Min().
- */
+
 class PacketCounter
 {
 public:

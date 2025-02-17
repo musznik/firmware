@@ -5,9 +5,15 @@ uint64_t max_entries = 39;
 
 void PacketCounter::onPacketReceived(const meshtastic_MeshPacket *p)
 {
-    //echange packet history 
-    nodeDB->packetHistoryLog.addEntry({p->from, p->to, p->decoded.portnum});
-    
+    //exchange packet history
+ 
+    if(p->pki_encrypted){
+        meshtastic_PortNum portnum = meshtastic_PortNum_UNKNOWN_APP;
+        nodeDB->packetHistoryLog.addEntry({p->from, p->to, portnum});
+    }else{
+        nodeDB->packetHistoryLog.addEntry({p->from, p->to, p->decoded.portnum});    
+    }
+ 
     currentBucketCount++;
     uint64_t nowMs = getMonotonicUptimeMs();
     if (nowMs - bucketStartMs >= 600000ULL) // 600000 ms = 10 min
