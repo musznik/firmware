@@ -148,11 +148,11 @@ ScanI2C::DeviceAddress accelerometer_found = ScanI2C::ADDRESS_NONE;
 // The I2C address of the RGB LED (if found)
 ScanI2C::FoundDevice rgb_found = ScanI2C::FoundDevice(ScanI2C::DeviceType::NONE, ScanI2C::ADDRESS_NONE);
 
-uint64_t busyHistory[60] = {0};     // Każdy element: "ile µs busy w danej sekundzie"
-int      currentIndex    = 0;       // Wskaźnik na aktualną próbkę
-uint64_t lastBusyUs      = 0;       // Ostatni stan "total busy" (do obliczenia przyrostu)
-uint32_t lastCheckMs     = 0;       // Kiedy ostatnio próbkowaliśmy (ms)
-bool     initialized     = false;   // Czy zainicjowaliśmy pętlę próbkowania
+uint64_t busyHistory[60] = {0};
+int      currentIndex    = 0; 
+uint64_t lastBusyUs      = 0;
+uint32_t lastCheckMs     = 0;
+bool     initialized     = false;
 uint32_t CpuHwUsagePercent = 0;
 
 #ifdef T_WATCH_S3

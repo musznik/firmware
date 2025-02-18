@@ -13,6 +13,9 @@
 typedef struct _meshtastic_NodeMod {
     /* user text status */
     char text_status[220];
+    /* node emoji */
+    bool has_emoji;
+    char emoji[4];
 } meshtastic_NodeMod;
 
 
@@ -21,15 +24,17 @@ extern "C" {
 #endif
 
 /* Initializer values for message structs */
-#define meshtastic_NodeMod_init_default          {""}
-#define meshtastic_NodeMod_init_zero             {""}
+#define meshtastic_NodeMod_init_default          {"", false, ""}
+#define meshtastic_NodeMod_init_zero             {"", false, ""}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define meshtastic_NodeMod_text_status_tag       1
+#define meshtastic_NodeMod_emoji_tag             2
 
 /* Struct field encoding specification for nanopb */
 #define meshtastic_NodeMod_FIELDLIST(X, a) \
-X(a, STATIC,   SINGULAR, STRING,   text_status,       1)
+X(a, STATIC,   SINGULAR, STRING,   text_status,       1) \
+X(a, STATIC,   OPTIONAL, STRING,   emoji,             2)
 #define meshtastic_NodeMod_CALLBACK NULL
 #define meshtastic_NodeMod_DEFAULT NULL
 
@@ -40,7 +45,7 @@ extern const pb_msgdesc_t meshtastic_NodeMod_msg;
 
 /* Maximum encoded size of messages (where known) */
 #define MESHTASTIC_MESHTASTIC_NODE_MOD_PB_H_MAX_SIZE meshtastic_NodeMod_size
-#define meshtastic_NodeMod_size                  222
+#define meshtastic_NodeMod_size                  227
 
 #ifdef __cplusplus
 } /* extern "C" */

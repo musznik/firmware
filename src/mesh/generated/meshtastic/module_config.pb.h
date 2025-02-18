@@ -401,6 +401,8 @@ typedef struct _meshtastic_ModuleConfig_AmbientLightingConfig {
 typedef struct _meshtastic_ModuleConfig_NodeModConfig {
     /* user text status */
     char text_status[200];
+    /* node emoji */
+    char emoji[4];
 } meshtastic_ModuleConfig_NodeModConfig;
 
 typedef struct _meshtastic_ModuleConfig_NodeModAdminConfig {
@@ -634,7 +636,7 @@ extern "C" {
 #define meshtastic_ModuleConfig_TelemetryConfig_init_default {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 #define meshtastic_ModuleConfig_CannedMessageConfig_init_default {0, 0, 0, 0, _meshtastic_ModuleConfig_CannedMessageConfig_InputEventChar_MIN, _meshtastic_ModuleConfig_CannedMessageConfig_InputEventChar_MIN, _meshtastic_ModuleConfig_CannedMessageConfig_InputEventChar_MIN, 0, 0, "", 0}
 #define meshtastic_ModuleConfig_AmbientLightingConfig_init_default {0, 0, 0, 0, 0}
-#define meshtastic_ModuleConfig_NodeModConfig_init_default {""}
+#define meshtastic_ModuleConfig_NodeModConfig_init_default {"", ""}
 #define meshtastic_ModuleConfig_NodeModAdminConfig_init_default {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "", 0, 0}
 #define meshtastic_ModuleConfig_IdleGameKnownVillages_init_default {0, {meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default}}
 #define meshtastic_ModuleConfig_IdleGameAlliance_init_default {0, 0, {0, {0}}}
@@ -659,7 +661,7 @@ extern "C" {
 #define meshtastic_ModuleConfig_TelemetryConfig_init_zero {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 #define meshtastic_ModuleConfig_CannedMessageConfig_init_zero {0, 0, 0, 0, _meshtastic_ModuleConfig_CannedMessageConfig_InputEventChar_MIN, _meshtastic_ModuleConfig_CannedMessageConfig_InputEventChar_MIN, _meshtastic_ModuleConfig_CannedMessageConfig_InputEventChar_MIN, 0, 0, "", 0}
 #define meshtastic_ModuleConfig_AmbientLightingConfig_init_zero {0, 0, 0, 0, 0}
-#define meshtastic_ModuleConfig_NodeModConfig_init_zero {""}
+#define meshtastic_ModuleConfig_NodeModConfig_init_zero {"", ""}
 #define meshtastic_ModuleConfig_NodeModAdminConfig_init_zero {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "", 0, 0}
 #define meshtastic_ModuleConfig_IdleGameKnownVillages_init_zero {0, {meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero}}
 #define meshtastic_ModuleConfig_IdleGameAlliance_init_zero {0, 0, {0, {0}}}
@@ -768,6 +770,7 @@ extern "C" {
 #define meshtastic_ModuleConfig_AmbientLightingConfig_green_tag 4
 #define meshtastic_ModuleConfig_AmbientLightingConfig_blue_tag 5
 #define meshtastic_ModuleConfig_NodeModConfig_text_status_tag 1
+#define meshtastic_ModuleConfig_NodeModConfig_emoji_tag 2
 #define meshtastic_ModuleConfig_NodeModAdminConfig_sniffer_enabled_tag 1
 #define meshtastic_ModuleConfig_NodeModAdminConfig_do_not_send_prv_over_mqtt_tag 2
 #define meshtastic_ModuleConfig_NodeModAdminConfig_local_stats_over_mesh_enabled_tag 3
@@ -1027,7 +1030,8 @@ X(a, STATIC,   SINGULAR, UINT32,   blue,              5)
 #define meshtastic_ModuleConfig_AmbientLightingConfig_DEFAULT NULL
 
 #define meshtastic_ModuleConfig_NodeModConfig_FIELDLIST(X, a) \
-X(a, STATIC,   SINGULAR, STRING,   text_status,       1)
+X(a, STATIC,   SINGULAR, STRING,   text_status,       1) \
+X(a, STATIC,   SINGULAR, STRING,   emoji,             2)
 #define meshtastic_ModuleConfig_NodeModConfig_CALLBACK NULL
 #define meshtastic_ModuleConfig_NodeModConfig_DEFAULT NULL
 
@@ -1189,7 +1193,7 @@ extern const pb_msgdesc_t meshtastic_RemoteHardwarePin_msg;
 #define meshtastic_ModuleConfig_MapReportSettings_size 12
 #define meshtastic_ModuleConfig_NeighborInfoConfig_size 10
 #define meshtastic_ModuleConfig_NodeModAdminConfig_size 111
-#define meshtastic_ModuleConfig_NodeModConfig_size 202
+#define meshtastic_ModuleConfig_NodeModConfig_size 207
 #define meshtastic_ModuleConfig_PaxcounterConfig_size 30
 #define meshtastic_ModuleConfig_RangeTestConfig_size 10
 #define meshtastic_ModuleConfig_RemoteHardwareConfig_size 96
