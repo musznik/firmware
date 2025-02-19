@@ -345,7 +345,6 @@ bool perhapsDecode(meshtastic_MeshPacket *p)
 
     if (p->which_payload_variant == meshtastic_MeshPacket_decoded_tag)
         return true; // If packet was already decoded just return
-
     size_t rawSize = p->encrypted.size;
     if (rawSize > sizeof(bytes)) {
         LOG_ERROR("Packet too large to attempt decryption! (rawSize=%d > 256)", rawSize);

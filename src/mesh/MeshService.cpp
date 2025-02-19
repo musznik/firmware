@@ -132,12 +132,12 @@ void MeshService::sendPacketToPhoneRaw(meshtastic_MeshPacket *p)
     if (toPhoneQueue.numFree() == 0) {
         if (p->decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP ||
             p->decoded.portnum == meshtastic_PortNum_RANGE_TEST_APP) {
-            LOG_WARN("Sniff, ToPhone queue is full, discard oldest");
+            //LOG_WARN("Sniff, ToPhone queue is full, discard oldest");
             meshtastic_MeshPacket *d = toPhoneQueue.dequeuePtr(0);
             if (d)
                 releaseToPool(d);
         } else {
-            LOG_WARN("Sniff, ToPhone queue is full, drop packet");
+            //LOG_WARN("Sniff, ToPhone queue is full, drop packet");
             releaseToPool(p);
             fromNum++; // Make sure to notify observers in case they are reconnected so they can get the packets
             return;
@@ -324,12 +324,12 @@ void MeshService::sendToPhone(meshtastic_MeshPacket *p)
     if (toPhoneQueue.numFree() == 0) {
         if (p->decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP ||
             p->decoded.portnum == meshtastic_PortNum_RANGE_TEST_APP) {
-            LOG_WARN("ToPhone queue is full, discard oldest");
+            //LOG_WARN("ToPhone queue is full, discard oldest");
             meshtastic_MeshPacket *d = toPhoneQueue.dequeuePtr(0);
             if (d)
                 releaseToPool(d);
         } else {
-            LOG_WARN("ToPhone queue is full, drop packet");
+            //LOG_WARN("ToPhone queue is full, drop packet");
             releaseToPool(p);
             fromNum++; // Make sure to notify observers in case they are reconnected so they can get the packets
             return;

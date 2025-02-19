@@ -21,7 +21,7 @@ static const int MAX_PACKET_SIZE = 190;
 #define NUM_ONLINE_SECS (60 * 60 * 2) 
 #define MAGIC_USB_BATTERY_LEVEL 101
 
-#define FW_PLUS_VERSION 7
+#define FW_PLUS_VERSION 8
 
 int32_t OnDemandModule::runOnce()
 {
@@ -36,57 +36,57 @@ bool OnDemandModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, mes
         {
             case meshtastic_OnDemandType_REQUEST_FW_PLUS_VERSION: {
                 meshtastic_OnDemand od = prepareFwPlusVersion();
-                sendPacketToRequester(od,mp.from);
+                sendPacketToRequester(od,mp);
                 break;
             }
             case meshtastic_OnDemandType_REQUEST_NODE_STATS: {
                 meshtastic_OnDemand od = prepareNodeStats();
-                sendPacketToRequester(od,mp.from);
+                sendPacketToRequester(od,mp);
                 break;
             }
             case meshtastic_OnDemandType_REQUEST_AIR_ACTIVITY_HISTORY: {
                 meshtastic_OnDemand od = prepareAirActivityHistoryLog();
-                sendPacketToRequester(od,mp.from);
+                sendPacketToRequester(od,mp);
                 break;
             }
             case meshtastic_OnDemandType_REQUEST_PACKET_EXCHANGE_HISTORY: {
                 meshtastic_OnDemand od = preparePacketHistoryLog();
-                sendPacketToRequester(od,mp.from);
+                sendPacketToRequester(od,mp);
                 break;
             }
             case meshtastic_OnDemandType_REQUEST_PORT_COUNTER_HISTORY: {
                 meshtastic_OnDemand od = preparePortCounterHistory();
-                sendPacketToRequester(od,mp.from);
+                sendPacketToRequester(od,mp);
                 break;
             }
             case meshtastic_OnDemandType_REQUEST_PACKET_RX_HISTORY: {
                 meshtastic_OnDemand od = prepareRxPacketHistory();
-                sendPacketToRequester(od,mp.from);
+                sendPacketToRequester(od,mp);
                 break;
             }
             case meshtastic_OnDemandType_REQUEST_RX_AVG_TIME: {
                 meshtastic_OnDemand od = prepareRxAvgTimeHistory();
-                sendPacketToRequester(od,mp.from);
+                sendPacketToRequester(od,mp);
                 break;
             }
             case meshtastic_OnDemandType_REQUEST_NODES_ONLINE: {
                 auto packets = createSegmentedNodeList();
                 for (auto &pkt : packets)
                 {
-                    sendPacketToRequester(*pkt, mp.from);
+                    sendPacketToRequester(*pkt, mp);
                 } 
                 break;
             }
             case meshtastic_OnDemandType_REQUEST_PING: {
                 meshtastic_OnDemand od = preparePingResponse();
-                sendPacketToRequester(od, mp.from);
+                sendPacketToRequester(od, mp);
                 break;
             }
             default:
                 meshtastic_OnDemand unknown_ondemand = meshtastic_OnDemand_init_zero;
                 unknown_ondemand.which_variant = meshtastic_OnDemand_response_tag;
                 unknown_ondemand.variant.response.response_type = meshtastic_OnDemandType_UNKNOWN_TYPE;
-                sendPacketToRequester(unknown_ondemand, mp.from);
+                sendPacketToRequester(unknown_ondemand, mp);
             break;
           }
     }
@@ -414,14 +414,16 @@ meshtastic_OnDemand OnDemandModule::prepareRxPacketHistory()
     return onDemand;
 }
 
-void OnDemandModule::sendPacketToRequester(meshtastic_OnDemand demand_packet,u_int32_t from){
+void OnDemandModule::sendPacketToRequester(meshtastic_OnDemand demand_packet,const meshtastic_MeshPacket &mp){
+
     meshtastic_MeshPacket *p = allocDataProtobuf(demand_packet);
-    p->to = from;
+    p->to = mp.from;
     p->decoded.want_response = false;
     p->want_ack = true;
+    p->channel = mp.channel;
     p->priority = meshtastic_MeshPacket_Priority_BACKGROUND;
-
-    if(from == RX_SRC_LOCAL){
+ 
+    if(mp.from == RX_SRC_LOCAL){ 
         p->to = myNodeInfo.my_node_num;
         service->sendToPhone(p);
     }else{

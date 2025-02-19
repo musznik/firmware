@@ -5,8 +5,7 @@ uint64_t max_entries = 39;
 
 void PacketCounter::onPacketReceived(const meshtastic_MeshPacket *p)
 {
-    //exchange packet history
- 
+    //log packet history
     if(p->pki_encrypted){
         meshtastic_PortNum portnum = meshtastic_PortNum_UNKNOWN_APP;
         nodeDB->packetHistoryLog.addEntry({p->from, p->to, portnum});
