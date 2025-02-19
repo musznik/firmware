@@ -35,38 +35,31 @@ bool OnDemandModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, mes
         switch(t->variant.request.request_type) 
         {
             case meshtastic_OnDemandType_REQUEST_FW_PLUS_VERSION: {
-                meshtastic_OnDemand od = prepareFwPlusVersion();
-                sendPacketToRequester(od,mp);
+                sendPacketToRequester(prepareFwPlusVersion(),mp);
                 break;
             }
             case meshtastic_OnDemandType_REQUEST_NODE_STATS: {
-                meshtastic_OnDemand od = prepareNodeStats();
-                sendPacketToRequester(od,mp);
+                sendPacketToRequester(prepareNodeStats(),mp);
                 break;
             }
             case meshtastic_OnDemandType_REQUEST_AIR_ACTIVITY_HISTORY: {
-                meshtastic_OnDemand od = prepareAirActivityHistoryLog();
-                sendPacketToRequester(od,mp);
+                sendPacketToRequester(prepareAirActivityHistoryLog(),mp);
                 break;
             }
             case meshtastic_OnDemandType_REQUEST_PACKET_EXCHANGE_HISTORY: {
-                meshtastic_OnDemand od = preparePacketHistoryLog();
-                sendPacketToRequester(od,mp);
+                sendPacketToRequester(preparePacketHistoryLog(),mp);
                 break;
             }
             case meshtastic_OnDemandType_REQUEST_PORT_COUNTER_HISTORY: {
-                meshtastic_OnDemand od = preparePortCounterHistory();
-                sendPacketToRequester(od,mp);
+                sendPacketToRequester(preparePortCounterHistory(),mp);
                 break;
             }
             case meshtastic_OnDemandType_REQUEST_PACKET_RX_HISTORY: {
-                meshtastic_OnDemand od = prepareRxPacketHistory();
-                sendPacketToRequester(od,mp);
+                sendPacketToRequester(prepareRxPacketHistory(),mp);
                 break;
             }
             case meshtastic_OnDemandType_REQUEST_RX_AVG_TIME: {
-                meshtastic_OnDemand od = prepareRxAvgTimeHistory();
-                sendPacketToRequester(od,mp);
+                sendPacketToRequester(prepareRxAvgTimeHistory(),mp);
                 break;
             }
             case meshtastic_OnDemandType_REQUEST_NODES_ONLINE: {
@@ -78,8 +71,7 @@ bool OnDemandModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, mes
                 break;
             }
             case meshtastic_OnDemandType_REQUEST_PING: {
-                meshtastic_OnDemand od = preparePingResponse();
-                sendPacketToRequester(od, mp);
+                sendPacketToRequester(preparePingResponse(), mp);
                 break;
             }
             default:
@@ -414,7 +406,7 @@ meshtastic_OnDemand OnDemandModule::prepareRxPacketHistory()
     return onDemand;
 }
 
-void OnDemandModule::sendPacketToRequester(meshtastic_OnDemand demand_packet,const meshtastic_MeshPacket &mp){
+void OnDemandModule::sendPacketToRequester(const meshtastic_OnDemand &demand_packet,const meshtastic_MeshPacket &mp){
 
     meshtastic_MeshPacket *p = allocDataProtobuf(demand_packet);
     p->to = mp.from;
