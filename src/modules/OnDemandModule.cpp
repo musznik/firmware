@@ -21,7 +21,7 @@ static const int MAX_PACKET_SIZE = 190;
 #define NUM_ONLINE_SECS (60 * 60 * 2) 
 #define MAGIC_USB_BATTERY_LEVEL 101
 
-#define FW_PLUS_VERSION 8
+#define FW_PLUS_VERSION 9
 
 int32_t OnDemandModule::runOnce()
 {
@@ -71,7 +71,7 @@ bool OnDemandModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, mes
                 break;
             }
             case meshtastic_OnDemandType_REQUEST_PING: {
-                sendPacketToRequester(preparePingResponse(), mp);
+                sendPacketToRequester(preparePingResponse(), mp,false);
                 break;
             }
             default:
@@ -406,12 +406,12 @@ meshtastic_OnDemand OnDemandModule::prepareRxPacketHistory()
     return onDemand;
 }
 
-void OnDemandModule::sendPacketToRequester(const meshtastic_OnDemand &demand_packet,const meshtastic_MeshPacket &mp){
+void OnDemandModule::sendPacketToRequester(const meshtastic_OnDemand &demand_packet,const meshtastic_MeshPacket &mp, bool wantAck){
 
     meshtastic_MeshPacket *p = allocDataProtobuf(demand_packet);
     p->to = mp.from;
     p->decoded.want_response = false;
-    p->want_ack = true;
+    p->want_ack = wantAck;
     p->channel = mp.channel;
     p->priority = meshtastic_MeshPacket_Priority_BACKGROUND;
  

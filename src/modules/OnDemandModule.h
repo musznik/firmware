@@ -37,7 +37,7 @@ class OnDemandModule : private concurrency::OSThread, public ProtobufModule<mesh
 
     meshtastic_OnDemand prepareRxPacketHistory();
  
-    void sendPacketToRequester(const meshtastic_OnDemand &demand_packet,const meshtastic_MeshPacket &mp);
+    void sendPacketToRequester(const meshtastic_OnDemand &demand_packet,const meshtastic_MeshPacket &mp, bool wantAck=true);
 
     bool fitsInPacket(const meshtastic_OnDemand &onDemand, size_t maxSize);
     std::vector<std::unique_ptr<meshtastic_OnDemand>> createSegmentedNodeList();
