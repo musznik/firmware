@@ -658,8 +658,9 @@ bool AdminModule::handleSetModuleConfig(const meshtastic_ModuleConfig &c)
 {
     bool do_reboot=true;
     
-    if (!hasOpenEditTransaction && c.which_payload_variant != meshtastic_ModuleConfig_node_mod_tag)
-        disableBluetooth();
+    // if (!hasOpenEditTransaction && c.which_payload_variant != meshtastic_ModuleConfig_node_mod_tag)
+    //     disableBluetooth();
+
     switch (c.which_payload_variant) {
     case meshtastic_ModuleConfig_mqtt_tag:
 #if MESHTASTIC_EXCLUDE_MQTT
