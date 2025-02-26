@@ -123,7 +123,8 @@ typedef struct _meshtastic_DeviceState {
  Indicates developer is testing and changes should never be saved to flash.
  Deprecated in 2.3.1 */
     bool no_save;
-    /* Some GPS receivers seem to have bogus settings from the factory, so we always do one factory reset. */
+    /* Previously used to manage GPS factory resets.
+ Deprecated in 2.5.23 */
     bool did_gps_reset;
     /* We keep the last received waypoint stored in the device flash,
  so we can show it on the screen.
@@ -349,7 +350,7 @@ extern const pb_msgdesc_t meshtastic_BackupPreferences_msg;
 /* Maximum encoded size of messages (where known) */
 /* meshtastic_NodeDatabase_size depends on runtime parameters */
 #define MESHTASTIC_MESHTASTIC_DEVICEONLY_PB_H_MAX_SIZE meshtastic_BackupPreferences_size
-#define meshtastic_BackupPreferences_size        2263
+#define meshtastic_BackupPreferences_size        3075
 #define meshtastic_ChannelFile_size              718
 #define meshtastic_DeviceState_size              1720
 #define meshtastic_NodeInfoLite_size             188
