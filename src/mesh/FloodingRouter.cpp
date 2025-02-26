@@ -17,7 +17,7 @@ ErrorCode FloodingRouter::send(meshtastic_MeshPacket *p)
     flood_counter++;
     // Add any messages _we_ send to the seen message list (so we will ignore all retransmissions we see)
     p->relay_node = nodeDB->getLastByteOfNodeNum(getNodeNum()); // First set the relayer to us
-    wasSeenRecently(p);                                         // FIXME, move this to a sniffSent method
+    wasSeenRecently(p);                                                                                 // FIXME, move this to a sniffSent method
 
     return Router::send(p);
 }
@@ -82,6 +82,7 @@ void FloodingRouter::perhapsRebroadcast(const meshtastic_MeshPacket *p)
                 }
 #endif
                 tosend->next_hop = NO_NEXT_HOP_PREFERENCE; // this should already be the case, but just in case
+                tosend->next_hop = NO_NEXT_HOP_PREFERENCE; // this should already be the case, but just in case
 
                 LOG_INFO("Rebroadcast received floodmsg");
                 // Note: we are careful to resend using the original senders node id
@@ -100,7 +101,8 @@ void FloodingRouter::perhapsRebroadcast(const meshtastic_MeshPacket *p)
 void FloodingRouter::sniffReceived(const meshtastic_MeshPacket *p, const meshtastic_Routing *c)
 {
     bool isAckorReply = (p->which_payload_variant == meshtastic_MeshPacket_decoded_tag) &&
-                        (p->decoded.request_id != 0 || p->decoded.reply_id != 0);
+                       
+                        (p->decoded.request_id != 0 || p->decoded.reply_id != 0 || p->decoded.reply_id != 0);
     if (isAckorReply && !isToUs(p) && !isBroadcast(p->to)) {
         // do not flood direct message that is ACKed or replied to
         LOG_DEBUG("Rxd an ACK/reply not for me, cancel rebroadcast");

@@ -40,7 +40,6 @@ bool NextHopRouter::shouldFilterReceived(const meshtastic_MeshPacket *p)
 
         // If it was a fallback to flooding, try to relay again
         if (wasFallback) {
-             
             LOG_INFO("Fallback to flooding from relay_node=0x%x", p->relay_node);
             // Check if it's still in the Tx queue, if not, we have to relay it again
             if (!findInTxQueue(p->from, p->id))
@@ -106,7 +105,7 @@ bool NextHopRouter::perhapsRelay(const meshtastic_MeshPacket *p)
                 meshtastic_MeshPacket *tosend = packetPool.allocCopy(*p); // keep a copy because we will be sending it
                 LOG_INFO("Relaying received message coming from %x", p->relay_node);
 
-                tosend->hop_limit--; // bump down the hop count 
+                tosend->hop_limit--; // bump down the hop count
                 NextHopRouter::send(tosend);
 
                 return true;

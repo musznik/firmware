@@ -23,8 +23,6 @@
 #define MAX_NUM_NODES 160
 #endif
 
-#define MAX_NUM_NODES_FS 160
-
 /// Max number of channels allowed
 #define MAX_NUM_CHANNELS (member_size(meshtastic_ChannelFile, channels) / member_size(meshtastic_ChannelFile, channels[0]))
 

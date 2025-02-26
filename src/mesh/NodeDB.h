@@ -4,6 +4,7 @@
 #include <Arduino.h>
 #include <algorithm>
 #include <assert.h>
+#include <pb_encode.h>
 #include <vector>
 
 #include "MeshTypes.h"
@@ -12,7 +13,14 @@
 #include "mesh-pb-constants.h"
 #include "mesh/generated/meshtastic/mesh.pb.h" // For CriticalErrorCode
 
- 
+#if ARCH_PORTDUINO
+#include "PortduinoGlue.h"
+#endif
+
+#if ARCH_PORTDUINO
+#include "PortduinoGlue.h"
+#endif
+
 extern const uint32_t MAX_PORTS;
 extern uint32_t portCounters[];
 /*
@@ -24,11 +32,13 @@ DeviceState versions used to be defined in the .proto file but really only this 
 #define SEGMENT_MODULECONFIG 2
 #define SEGMENT_DEVICESTATE 4
 #define SEGMENT_CHANNELS 8
+#define SEGMENT_NODEDATABASE 16
 
-#define DEVICESTATE_CUR_VER 23
-#define DEVICESTATE_MIN_VER 22
+#define DEVICESTATE_CUR_VER 24
+#define DEVICESTATE_MIN_VER 24
 
 extern meshtastic_DeviceState devicestate;
+extern meshtastic_NodeDatabase nodeDatabase;
 extern meshtastic_ChannelFile channelFile;
 extern meshtastic_MyNodeInfo &myNodeInfo;
 extern meshtastic_LocalConfig config;
@@ -36,6 +46,14 @@ extern meshtastic_DeviceUIConfig uiconfig;
 extern meshtastic_LocalModuleConfig moduleConfig;
 extern meshtastic_User &owner;
 extern meshtastic_Position localPosition;
+
+static constexpr const char *deviceStateFileName = "/prefs/device.proto";
+static constexpr const char *legacyPrefFileName = "/prefs/db.proto";
+static constexpr const char *nodeDatabaseFileName = "/prefs/nodes.proto";
+static constexpr const char *configFileName = "/prefs/config.proto";
+static constexpr const char *uiconfigFileName = "/prefs/uiconfig.proto";
+static constexpr const char *moduleConfigFileName = "/prefs/module.proto";
+static constexpr const char *channelFileName = "/prefs/channels.proto";
 
 /// Given a node, return how many seconds in the past (vs now) that we last heard from it
 uint32_t sinceLastSeen(const meshtastic_NodeInfoLite *n);
@@ -87,6 +105,8 @@ struct ExchangeList {
 };
 
 
+enum UserLicenseStatus { NotKnown, NotLicensed, Licensed };
+
 class NodeDB
 {
     // NodeNum provisionalNodeNum; // if we are trying to find a node num this is our current attempt
@@ -112,7 +132,8 @@ class NodeDB
 
     /// write to flash
     /// @return true if the save was successful
-    bool saveToDisk(int saveWhat = SEGMENT_CONFIG | SEGMENT_MODULECONFIG | SEGMENT_DEVICESTATE | SEGMENT_CHANNELS);
+    bool saveToDisk(int saveWhat = SEGMENT_CONFIG | SEGMENT_MODULECONFIG | SEGMENT_DEVICESTATE | SEGMENT_CHANNELS |
+                                   SEGMENT_NODEDATABASE);
 
     /** Reinit radio config if needed, because either:
      * a) sometimes a buggy android app might send us bogus settings or
@@ -188,6 +209,17 @@ class NodeDB
     virtual meshtastic_NodeInfoLite *getMeshNode(NodeNum n);
     size_t getNumMeshNodes() { return numMeshNodes; }
 
+    UserLicenseStatus getLicenseStatus(uint32_t nodeNum);
+
+    size_t getMaxNodesAllocatedSize()
+    {
+        meshtastic_NodeDatabase emptyNodeDatabase;
+        emptyNodeDatabase.version = DEVICESTATE_CUR_VER;
+        size_t nodeDatabaseSize;
+        pb_get_encoded_size(&nodeDatabaseSize, meshtastic_NodeDatabase_fields, &emptyNodeDatabase);
+        return nodeDatabaseSize + (MAX_NUM_NODES * meshtastic_NodeInfoLite_size);
+    }
+
     // returns true if the maximum number of nodes is reached or we are running low on memory
     bool isFull();
 
@@ -228,8 +260,8 @@ class NodeDB
     void cleanupMeshDB();
 
     /// Reinit device state from scratch (not loading from disk)
-    void installDefaultDeviceState(), installDefaultChannels(), installDefaultConfig(bool preserveKey),
-        installDefaultModuleConfig();
+    void installDefaultDeviceState(), installDefaultNodeDatabase(), installDefaultChannels(),
+        installDefaultConfig(bool preserveKey), installDefaultModuleConfig();
 
     /// write to flash
     /// @return true if the save was successful
@@ -237,6 +269,7 @@ class NodeDB
 
     bool saveChannelsToDisk();
     bool saveDeviceStateToDisk();
+    bool saveNodeDatabaseToDisk();
 };
 
 extern NodeDB *nodeDB;
