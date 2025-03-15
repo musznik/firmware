@@ -17,7 +17,7 @@ ErrorCode FloodingRouter::send(meshtastic_MeshPacket *p)
     flood_counter++;
     // Add any messages _we_ send to the seen message list (so we will ignore all retransmissions we see)
     p->relay_node = nodeDB->getLastByteOfNodeNum(getNodeNum()); // First set the relayer to us
-    wasSeenRecently(p);                                                                                 // FIXME, move this to a sniffSent method
+    wasSeenRecently(p);                                         // FIXME, move this to a sniffSent method
 
     return Router::send(p);
 }
@@ -33,6 +33,11 @@ bool FloodingRouter::shouldFilterReceived(const meshtastic_MeshPacket *p)
         bool isRepeated = p->hop_start > 0 && p->hop_start == p->hop_limit;
         if (isRepeated) {
             LOG_DEBUG("Repeated reliable tx");
+            // Check if it's still in the Tx queue, if not, we have to relay it again
+            if (!findInTxQueue(p->from, p->id))
+                perhapsRebroadcast(p);
+        } else {
+            perhapsCancelDupe(p);
             // Check if it's still in the Tx queue, if not, we have to relay it again
             if (!findInTxQueue(p->from, p->id))
                 perhapsRebroadcast(p);
@@ -60,12 +65,27 @@ void FloodingRouter::perhapsCancelDupe(const meshtastic_MeshPacket *p)
     }
 }
 
+void FloodingRouter::perhapsCancelDupe(const meshtastic_MeshPacket *p)
+{
+    if (config.device.role != meshtastic_Config_DeviceConfig_Role_ROUTER &&
+        config.device.role != meshtastic_Config_DeviceConfig_Role_REPEATER &&
+        config.device.role != meshtastic_Config_DeviceConfig_Role_ROUTER_LATE) {
+        // cancel rebroadcast of this message *if* there was already one, unless we're a router/repeater!
+        if (Router::cancelSending(p->from, p->id))
+            txRelayCanceled++;
+    }
+    if (config.device.role == meshtastic_Config_DeviceConfig_Role_ROUTER_LATE && iface) {
+        iface->clampToLateRebroadcastWindow(getFrom(p), p->id);
+    }
+}
+
 bool FloodingRouter::isRebroadcaster()
 {
     return config.device.role != meshtastic_Config_DeviceConfig_Role_CLIENT_MUTE &&
            config.device.rebroadcast_mode != meshtastic_Config_DeviceConfig_RebroadcastMode_NONE;
 }
 
+void FloodingRouter::perhapsRebroadcast(const meshtastic_MeshPacket *p)
 void FloodingRouter::perhapsRebroadcast(const meshtastic_MeshPacket *p)
 {
     if (!isToUs(p) && (p->hop_limit > 0) && !isFromUs(p)) {
@@ -81,7 +101,6 @@ void FloodingRouter::perhapsRebroadcast(const meshtastic_MeshPacket *p)
                     tosend->hop_limit = 2;
                 }
 #endif
-                tosend->next_hop = NO_NEXT_HOP_PREFERENCE; // this should already be the case, but just in case
                 tosend->next_hop = NO_NEXT_HOP_PREFERENCE; // this should already be the case, but just in case
 
                 LOG_INFO("Rebroadcast received floodmsg");
@@ -101,8 +120,7 @@ void FloodingRouter::perhapsRebroadcast(const meshtastic_MeshPacket *p)
 void FloodingRouter::sniffReceived(const meshtastic_MeshPacket *p, const meshtastic_Routing *c)
 {
     bool isAckorReply = (p->which_payload_variant == meshtastic_MeshPacket_decoded_tag) &&
-                       
-                        (p->decoded.request_id != 0 || p->decoded.reply_id != 0 || p->decoded.reply_id != 0);
+                        (p->decoded.request_id != 0 || p->decoded.reply_id != 0);
     if (isAckorReply && !isToUs(p) && !isBroadcast(p->to)) {
         // do not flood direct message that is ACKed or replied to
         LOG_DEBUG("Rxd an ACK/reply not for me, cancel rebroadcast");

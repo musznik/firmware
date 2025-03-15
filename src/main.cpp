@@ -135,7 +135,7 @@ void setupNicheGraphics();
 
 using namespace concurrency;
 
-volatile static const char slipstreamTZString[] = USERPREFS_TZ_STRING;
+volatile static const char slipstreamTZString[] = {USERPREFS_TZ_STRING};
 
 // We always create a screen object, but we only init it if we find the hardware
 graphics::Screen *screen = nullptr;
@@ -279,6 +279,15 @@ void setup()
     // TF Card , Display backlight(AW9364DNR) , AN48841B(Trackball) , ES7210(Decoder)
     pinMode(KB_POWERON, OUTPUT);
     digitalWrite(KB_POWERON, HIGH);
+    // T-Deck has all three SPI peripherals (TFT, SD, LoRa) attached to the same SPI bus
+    // We need to initialize all CS pins in advance otherwise there will be SPI communication issues
+    // e.g. when detecting the SD card
+    pinMode(LORA_CS, OUTPUT);
+    digitalWrite(LORA_CS, HIGH);
+    pinMode(SDCARD_CS, OUTPUT);
+    digitalWrite(SDCARD_CS, HIGH);
+    pinMode(TFT_CS, OUTPUT);
+    digitalWrite(TFT_CS, HIGH);
     // T-Deck has all three SPI peripherals (TFT, SD, LoRa) attached to the same SPI bus
     // We need to initialize all CS pins in advance otherwise there will be SPI communication issues
     // e.g. when detecting the SD card
@@ -469,6 +478,10 @@ void setup()
     tftSetup();
 #endif
 
+#if HAS_TFT
+    tftSetup();
+#endif
+
     // Currently only the tbeam has a PMU
     // PMU initialization needs to be placed before i2c scanning
     power = new Power();
@@ -650,6 +663,8 @@ void setup()
     scannerToSensorsMap(i2cScanner, ScanI2C::DeviceType::MAX30102, meshtastic_TelemetrySensorType_MAX30102);
     scannerToSensorsMap(i2cScanner, ScanI2C::DeviceType::CGRADSENS, meshtastic_TelemetrySensorType_RADSENS);
     scannerToSensorsMap(i2cScanner, ScanI2C::DeviceType::DFROBOT_RAIN, meshtastic_TelemetrySensorType_DFROBOT_RAIN);
+    scannerToSensorsMap(i2cScanner, ScanI2C::DeviceType::LTR390UV, meshtastic_TelemetrySensorType_LTR390UV);
+    scannerToSensorsMap(i2cScanner, ScanI2C::DeviceType::DPS310, meshtastic_TelemetrySensorType_DPS310);
 
     i2cScanner.reset();
 #endif
@@ -775,6 +790,7 @@ void setup()
 
     // Initialize the screen first so we can show the logo while we start up everything else.
 #if HAS_SCREEN
+#if HAS_SCREEN
     screen = new graphics::Screen(screen_found, screen_model, screen_geometry);
 #endif
     // setup TZ prior to time actions.
@@ -830,11 +846,21 @@ void setup()
     LOG_DEBUG("Start multicast thread");
     udpThread = new UdpMulticastThread();
 #endif
+
+#ifdef HAS_UDP_MULTICAST
+    LOG_DEBUG("Start multicast thread");
+    udpThread = new UdpMulticastThread();
+#endif
     service = new MeshService();
     service->init();
 
     // Now that the mesh service is created, create any modules
     setupModules();
+
+#ifdef MESHTASTIC_INCLUDE_NICHE_GRAPHICS
+    // After modules are setup, so we can observe modules
+    setupNicheGraphics();
+#endif
 
 #ifdef MESHTASTIC_INCLUDE_NICHE_GRAPHICS
     // After modules are setup, so we can observe modules
@@ -1025,6 +1051,22 @@ void setup()
 #endif
 
 #if defined(USE_SX1268)
+#if defined(SX126X_DIO3_TCXO_VOLTAGE) && defined(TCXO_OPTIONAL)
+    if ((!rIf) && (config.lora.region != meshtastic_Config_LoRaConfig_RegionCode_LORA_24)) {
+        // try using the specified TCXO voltage
+        auto *sxIf = new SX1268Interface(RadioLibHAL, SX126X_CS, SX126X_DIO1, SX126X_RESET, SX126X_BUSY);
+        sxIf->setTCXOVoltage(SX126X_DIO3_TCXO_VOLTAGE);
+        if (!sxIf->init()) {
+            LOG_WARN("No SX1268 radio with TCXO, Vref %fV", SX126X_DIO3_TCXO_VOLTAGE);
+            delete sxIf;
+            rIf = NULL;
+        } else {
+            LOG_INFO("SX1268 init success, TCXO, Vref %fV", SX126X_DIO3_TCXO_VOLTAGE);
+            rIf = sxIf;
+            radioType = SX1268_RADIO;
+        }
+    }
+#endif
     if ((!rIf) && (config.lora.region != meshtastic_Config_LoRaConfig_RegionCode_LORA_24)) {
         rIf = new SX1268Interface(RadioLibHAL, SX126X_CS, SX126X_DIO1, SX126X_RESET, SX126X_BUSY);
         if (!rIf->init()) {
@@ -1180,7 +1222,15 @@ void setup()
     powerFSMthread = new PowerFSMThread();
 
 #if !HAS_TFT
+
+#if !HAS_TFT
     setCPUFast(false); // 80MHz is fine for our slow peripherals
+#endif
+
+#ifdef ARDUINO_ARCH_ESP32
+    LOG_DEBUG("Free heap  : %7d bytes", ESP.getFreeHeap());
+    LOG_DEBUG("Free PSRAM : %7d bytes", ESP.getFreePsram());
+#endif
 #endif
 
 #ifdef ARDUINO_ARCH_ESP32
@@ -1216,8 +1266,12 @@ extern meshtastic_DeviceMetadata getDeviceMetadata()
 #if MESHTASTIC_EXCLUDE_AUDIO
     deviceMetadata.excluded_modules |= meshtastic_ExcludedModules_AUDIO_CONFIG;
 #endif
-#if !HAS_SCREEN || NO_EXT_GPIO
-    deviceMetadata.excluded_modules |= meshtastic_ExcludedModules_CANNEDMSG_CONFIG | meshtastic_ExcludedModules_EXTNOTIF_CONFIG;
+// Option to explicitly include canned messages for edge cases, e.g. niche graphics
+#if (!HAS_SCREEN && NO_EXT_GPIO) && !MESHTASTIC_INCLUDE_CANNEDMSG
+    deviceMetadata.excluded_modules |= meshtastic_ExcludedModules_CANNEDMSG_CONFIG;
+#endif
+#if NO_EXT_GPIO
+    deviceMetadata.excluded_modules |= meshtastic_ExcludedModules_EXTNOTIF_CONFIG;
 #endif
 // Only edge case here is if we apply this a device with built in Accelerometer and want to detect interrupts
 // We'll have to macro guard against those targets potentially

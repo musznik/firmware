@@ -34,7 +34,7 @@ typedef enum _meshtastic_AdminMessage_ConfigType {
     meshtastic_AdminMessage_ConfigType_BLUETOOTH_CONFIG = 6,
     /* TODO: REPLACE */
     meshtastic_AdminMessage_ConfigType_SECURITY_CONFIG = 7,
-    /*  */
+    /* Session key config */
     meshtastic_AdminMessage_ConfigType_SESSIONKEY_CONFIG = 8,
     /* device-ui config */
     meshtastic_AdminMessage_ConfigType_DEVICEUI_CONFIG = 9
@@ -241,6 +241,10 @@ extern "C" {
 #define _meshtastic_AdminMessage_ModuleConfigType_MIN meshtastic_AdminMessage_ModuleConfigType_MQTT_CONFIG
 #define _meshtastic_AdminMessage_ModuleConfigType_MAX meshtastic_AdminMessage_ModuleConfigType_IDLEGAME_ADMIN_CONFIG
 #define _meshtastic_AdminMessage_ModuleConfigType_ARRAYSIZE ((meshtastic_AdminMessage_ModuleConfigType)(meshtastic_AdminMessage_ModuleConfigType_IDLEGAME_ADMIN_CONFIG+1))
+
+#define _meshtastic_AdminMessage_BackupLocation_MIN meshtastic_AdminMessage_BackupLocation_FLASH
+#define _meshtastic_AdminMessage_BackupLocation_MAX meshtastic_AdminMessage_BackupLocation_SD
+#define _meshtastic_AdminMessage_BackupLocation_ARRAYSIZE ((meshtastic_AdminMessage_BackupLocation)(meshtastic_AdminMessage_BackupLocation_SD+1))
 
 #define _meshtastic_AdminMessage_BackupLocation_MIN meshtastic_AdminMessage_BackupLocation_FLASH
 #define _meshtastic_AdminMessage_BackupLocation_MAX meshtastic_AdminMessage_BackupLocation_SD

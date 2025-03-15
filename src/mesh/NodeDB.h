@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <assert.h>
 #include <pb_encode.h>
+#include <pb_encode.h>
 #include <vector>
 
 #include "MeshTypes.h"
@@ -33,11 +34,11 @@ DeviceState versions used to be defined in the .proto file but really only this 
 #define SEGMENT_DEVICESTATE 4
 #define SEGMENT_CHANNELS 8
 #define SEGMENT_NODEDATABASE 16
-
 #define DEVICESTATE_CUR_VER 24
 #define DEVICESTATE_MIN_VER 24
 
 extern meshtastic_DeviceState devicestate;
+extern meshtastic_NodeDatabase nodeDatabase;
 extern meshtastic_NodeDatabase nodeDatabase;
 extern meshtastic_ChannelFile channelFile;
 extern meshtastic_MyNodeInfo &myNodeInfo;
@@ -46,6 +47,14 @@ extern meshtastic_DeviceUIConfig uiconfig;
 extern meshtastic_LocalModuleConfig moduleConfig;
 extern meshtastic_User &owner;
 extern meshtastic_Position localPosition;
+
+static constexpr const char *deviceStateFileName = "/prefs/device.proto";
+static constexpr const char *legacyPrefFileName = "/prefs/db.proto";
+static constexpr const char *nodeDatabaseFileName = "/prefs/nodes.proto";
+static constexpr const char *configFileName = "/prefs/config.proto";
+static constexpr const char *uiconfigFileName = "/prefs/uiconfig.proto";
+static constexpr const char *moduleConfigFileName = "/prefs/module.proto";
+static constexpr const char *channelFileName = "/prefs/channels.proto";
 
 static constexpr const char *deviceStateFileName = "/prefs/device.proto";
 static constexpr const char *legacyPrefFileName = "/prefs/db.proto";
@@ -134,14 +143,18 @@ class NodeDB
     /// @return true if the save was successful
     bool saveToDisk(int saveWhat = SEGMENT_CONFIG | SEGMENT_MODULECONFIG | SEGMENT_DEVICESTATE | SEGMENT_CHANNELS |
                                    SEGMENT_NODEDATABASE);
+    bool saveToDisk(int saveWhat = SEGMENT_CONFIG | SEGMENT_MODULECONFIG | SEGMENT_DEVICESTATE | SEGMENT_CHANNELS |
+                                   SEGMENT_NODEDATABASE);
 
     /** Reinit radio config if needed, because either:
      * a) sometimes a buggy android app might send us bogus settings or
      * b) the client set factory_reset
      *
+     * @param factory_reset if true, reset all settings to factory defaults
+     * @param is_fresh_install set to true after a fresh install, to trigger NodeInfo/Position requests
      * @return true if the config was completely reset, in that case, we should send it back to the client
      */
-    bool resetRadioConfig(bool factory_reset = false);
+    bool resetRadioConfig(bool factory_reset = false, bool is_fresh_install = false);
 
     /// given a subpacket sniffed from the network, update our DB state
     /// we updateGUI and updateGUIforNode if we think our this change is big enough for a redraw
@@ -161,6 +174,9 @@ class NodeDB
 
     /// @return our node number
     NodeNum getNodeNum() { return myNodeInfo.my_node_num; }
+
+    // @return last byte of a NodeNum, 0xFF if it ended at 0x00
+    uint8_t getLastByteOfNodeNum(NodeNum num) { return (uint8_t)((num & 0xFF) ? (num & 0xFF) : 0xFF); }
 
     // @return last byte of a NodeNum, 0xFF if it ended at 0x00
     uint8_t getLastByteOfNodeNum(NodeNum num) { return (uint8_t)((num & 0xFF) ? (num & 0xFF) : 0xFF); }
@@ -220,6 +236,17 @@ class NodeDB
         return nodeDatabaseSize + (MAX_NUM_NODES * meshtastic_NodeInfoLite_size);
     }
 
+    UserLicenseStatus getLicenseStatus(uint32_t nodeNum);
+
+    size_t getMaxNodesAllocatedSize()
+    {
+        meshtastic_NodeDatabase emptyNodeDatabase;
+        emptyNodeDatabase.version = DEVICESTATE_CUR_VER;
+        size_t nodeDatabaseSize;
+        pb_get_encoded_size(&nodeDatabaseSize, meshtastic_NodeDatabase_fields, &emptyNodeDatabase);
+        return nodeDatabaseSize + (MAX_NUM_NODES * meshtastic_NodeInfoLite_size);
+    }
+
     // returns true if the maximum number of nodes is reached or we are running low on memory
     bool isFull();
 
@@ -262,6 +289,8 @@ class NodeDB
     /// Reinit device state from scratch (not loading from disk)
     void installDefaultDeviceState(), installDefaultNodeDatabase(), installDefaultChannels(),
         installDefaultConfig(bool preserveKey), installDefaultModuleConfig();
+    void installDefaultDeviceState(), installDefaultNodeDatabase(), installDefaultChannels(),
+        installDefaultConfig(bool preserveKey), installDefaultModuleConfig();
 
     /// write to flash
     /// @return true if the save was successful
@@ -269,6 +298,7 @@ class NodeDB
 
     bool saveChannelsToDisk();
     bool saveDeviceStateToDisk();
+    bool saveNodeDatabaseToDisk();
     bool saveNodeDatabaseToDisk();
 };
 
