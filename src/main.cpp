@@ -55,12 +55,12 @@ NimbleBluetooth *nimbleBluetooth = nullptr;
 NRF52Bluetooth *nrf52Bluetooth = nullptr;
 #endif
 
-#if HAS_WIFI
+#if HAS_WIFI || defined(USE_WS5500)
 #include "mesh/api/WiFiServerAPI.h"
 #include "mesh/wifi/WiFiAPClient.h"
 #endif
 
-#if HAS_ETHERNET
+#if HAS_ETHERNET && !defined(USE_WS5500)
 #include "mesh/api/ethServerAPI.h"
 #include "mesh/eth/ethClient.h"
 #endif
@@ -269,8 +269,6 @@ void printInfo()
 #ifndef PIO_UNIT_TESTING
 void setup()
 {
-
-
 #if defined(T_DECK)
     // GPIO10 manages all peripheral power supplies
     // Turn on peripheral power immediately after MUC starts.
@@ -279,15 +277,6 @@ void setup()
     // TF Card , Display backlight(AW9364DNR) , AN48841B(Trackball) , ES7210(Decoder)
     pinMode(KB_POWERON, OUTPUT);
     digitalWrite(KB_POWERON, HIGH);
-    // T-Deck has all three SPI peripherals (TFT, SD, LoRa) attached to the same SPI bus
-    // We need to initialize all CS pins in advance otherwise there will be SPI communication issues
-    // e.g. when detecting the SD card
-    pinMode(LORA_CS, OUTPUT);
-    digitalWrite(LORA_CS, HIGH);
-    pinMode(SDCARD_CS, OUTPUT);
-    digitalWrite(SDCARD_CS, HIGH);
-    pinMode(TFT_CS, OUTPUT);
-    digitalWrite(TFT_CS, HIGH);
     // T-Deck has all three SPI peripherals (TFT, SD, LoRa) attached to the same SPI bus
     // We need to initialize all CS pins in advance otherwise there will be SPI communication issues
     // e.g. when detecting the SD card
@@ -472,10 +461,6 @@ void setup()
     // RAK-12039 set pin for Air quality sensor. Detectable on I2C after ~3 seconds, so we need to rescan later
     pinMode(AQ_SET_PIN, OUTPUT);
     digitalWrite(AQ_SET_PIN, HIGH);
-#endif
-
-#if HAS_TFT
-    tftSetup();
 #endif
 
 #if HAS_TFT
@@ -790,7 +775,6 @@ void setup()
 
     // Initialize the screen first so we can show the logo while we start up everything else.
 #if HAS_SCREEN
-#if HAS_SCREEN
     screen = new graphics::Screen(screen_found, screen_model, screen_geometry);
 #endif
     // setup TZ prior to time actions.
@@ -847,10 +831,6 @@ void setup()
     udpThread = new UdpMulticastThread();
 #endif
 
-#ifdef HAS_UDP_MULTICAST
-    LOG_DEBUG("Start multicast thread");
-    udpThread = new UdpMulticastThread();
-#endif
     service = new MeshService();
     service->init();
 
@@ -1222,15 +1202,7 @@ void setup()
     powerFSMthread = new PowerFSMThread();
 
 #if !HAS_TFT
-
-#if !HAS_TFT
     setCPUFast(false); // 80MHz is fine for our slow peripherals
-#endif
-
-#ifdef ARDUINO_ARCH_ESP32
-    LOG_DEBUG("Free heap  : %7d bytes", ESP.getFreeHeap());
-    LOG_DEBUG("Free PSRAM : %7d bytes", ESP.getFreePsram());
-#endif
 #endif
 
 #ifdef ARDUINO_ARCH_ESP32

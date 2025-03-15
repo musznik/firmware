@@ -38,11 +38,6 @@ bool FloodingRouter::shouldFilterReceived(const meshtastic_MeshPacket *p)
                 perhapsRebroadcast(p);
         } else {
             perhapsCancelDupe(p);
-            // Check if it's still in the Tx queue, if not, we have to relay it again
-            if (!findInTxQueue(p->from, p->id))
-                perhapsRebroadcast(p);
-        } else {
-            perhapsCancelDupe(p);
         }
 
         return true;
@@ -65,27 +60,12 @@ void FloodingRouter::perhapsCancelDupe(const meshtastic_MeshPacket *p)
     }
 }
 
-void FloodingRouter::perhapsCancelDupe(const meshtastic_MeshPacket *p)
-{
-    if (config.device.role != meshtastic_Config_DeviceConfig_Role_ROUTER &&
-        config.device.role != meshtastic_Config_DeviceConfig_Role_REPEATER &&
-        config.device.role != meshtastic_Config_DeviceConfig_Role_ROUTER_LATE) {
-        // cancel rebroadcast of this message *if* there was already one, unless we're a router/repeater!
-        if (Router::cancelSending(p->from, p->id))
-            txRelayCanceled++;
-    }
-    if (config.device.role == meshtastic_Config_DeviceConfig_Role_ROUTER_LATE && iface) {
-        iface->clampToLateRebroadcastWindow(getFrom(p), p->id);
-    }
-}
-
 bool FloodingRouter::isRebroadcaster()
 {
     return config.device.role != meshtastic_Config_DeviceConfig_Role_CLIENT_MUTE &&
            config.device.rebroadcast_mode != meshtastic_Config_DeviceConfig_RebroadcastMode_NONE;
 }
 
-void FloodingRouter::perhapsRebroadcast(const meshtastic_MeshPacket *p)
 void FloodingRouter::perhapsRebroadcast(const meshtastic_MeshPacket *p)
 {
     if (!isToUs(p) && (p->hop_limit > 0) && !isFromUs(p)) {

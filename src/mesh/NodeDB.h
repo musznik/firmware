@@ -56,14 +56,6 @@ static constexpr const char *uiconfigFileName = "/prefs/uiconfig.proto";
 static constexpr const char *moduleConfigFileName = "/prefs/module.proto";
 static constexpr const char *channelFileName = "/prefs/channels.proto";
 
-static constexpr const char *deviceStateFileName = "/prefs/device.proto";
-static constexpr const char *legacyPrefFileName = "/prefs/db.proto";
-static constexpr const char *nodeDatabaseFileName = "/prefs/nodes.proto";
-static constexpr const char *configFileName = "/prefs/config.proto";
-static constexpr const char *uiconfigFileName = "/prefs/uiconfig.proto";
-static constexpr const char *moduleConfigFileName = "/prefs/module.proto";
-static constexpr const char *channelFileName = "/prefs/channels.proto";
-
 /// Given a node, return how many seconds in the past (vs now) that we last heard from it
 uint32_t sinceLastSeen(const meshtastic_NodeInfoLite *n);
 
@@ -143,8 +135,6 @@ class NodeDB
     /// @return true if the save was successful
     bool saveToDisk(int saveWhat = SEGMENT_CONFIG | SEGMENT_MODULECONFIG | SEGMENT_DEVICESTATE | SEGMENT_CHANNELS |
                                    SEGMENT_NODEDATABASE);
-    bool saveToDisk(int saveWhat = SEGMENT_CONFIG | SEGMENT_MODULECONFIG | SEGMENT_DEVICESTATE | SEGMENT_CHANNELS |
-                                   SEGMENT_NODEDATABASE);
 
     /** Reinit radio config if needed, because either:
      * a) sometimes a buggy android app might send us bogus settings or
@@ -174,9 +164,6 @@ class NodeDB
 
     /// @return our node number
     NodeNum getNodeNum() { return myNodeInfo.my_node_num; }
-
-    // @return last byte of a NodeNum, 0xFF if it ended at 0x00
-    uint8_t getLastByteOfNodeNum(NodeNum num) { return (uint8_t)((num & 0xFF) ? (num & 0xFF) : 0xFF); }
 
     // @return last byte of a NodeNum, 0xFF if it ended at 0x00
     uint8_t getLastByteOfNodeNum(NodeNum num) { return (uint8_t)((num & 0xFF) ? (num & 0xFF) : 0xFF); }
@@ -236,17 +223,6 @@ class NodeDB
         return nodeDatabaseSize + (MAX_NUM_NODES * meshtastic_NodeInfoLite_size);
     }
 
-    UserLicenseStatus getLicenseStatus(uint32_t nodeNum);
-
-    size_t getMaxNodesAllocatedSize()
-    {
-        meshtastic_NodeDatabase emptyNodeDatabase;
-        emptyNodeDatabase.version = DEVICESTATE_CUR_VER;
-        size_t nodeDatabaseSize;
-        pb_get_encoded_size(&nodeDatabaseSize, meshtastic_NodeDatabase_fields, &emptyNodeDatabase);
-        return nodeDatabaseSize + (MAX_NUM_NODES * meshtastic_NodeInfoLite_size);
-    }
-
     // returns true if the maximum number of nodes is reached or we are running low on memory
     bool isFull();
 
@@ -289,8 +265,6 @@ class NodeDB
     /// Reinit device state from scratch (not loading from disk)
     void installDefaultDeviceState(), installDefaultNodeDatabase(), installDefaultChannels(),
         installDefaultConfig(bool preserveKey), installDefaultModuleConfig();
-    void installDefaultDeviceState(), installDefaultNodeDatabase(), installDefaultChannels(),
-        installDefaultConfig(bool preserveKey), installDefaultModuleConfig();
 
     /// write to flash
     /// @return true if the save was successful
@@ -298,7 +272,6 @@ class NodeDB
 
     bool saveChannelsToDisk();
     bool saveDeviceStateToDisk();
-    bool saveNodeDatabaseToDisk();
     bool saveNodeDatabaseToDisk();
 };
 
