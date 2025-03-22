@@ -99,6 +99,11 @@ void NextHopRouter::sniffReceived(const meshtastic_MeshPacket *p, const meshtast
 /* Check if we should be relaying this packet if so, do so. */
 bool NextHopRouter::perhapsRelay(const meshtastic_MeshPacket *p)
 {
+    //fw+
+    if (!isToUs(p) && (p->hop_limit <= 0) && !isFromUs(p)) {
+        blocked_by_hoplimit++;
+    }
+
     if (!isToUs(p) && !isFromUs(p) && p->hop_limit > 0) {
         if (p->next_hop == NO_NEXT_HOP_PREFERENCE || p->next_hop == nodeDB->getLastByteOfNodeNum(getNodeNum())) {
             if (isRebroadcaster()) {

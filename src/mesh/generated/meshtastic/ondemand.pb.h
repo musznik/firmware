@@ -29,7 +29,9 @@ typedef enum _meshtastic_OnDemandType {
     meshtastic_OnDemandType_REQUEST_NODE_STATS = 15,
     meshtastic_OnDemandType_RESPONSE_NODE_STATS = 16,
     meshtastic_OnDemandType_REQUEST_FW_PLUS_VERSION = 17,
-    meshtastic_OnDemandType_RESPONSE_FW_PLUS_VERSION = 18
+    meshtastic_OnDemandType_RESPONSE_FW_PLUS_VERSION = 18,
+    meshtastic_OnDemandType_REQUEST_ROUTING_ERRORS = 19,
+    meshtastic_OnDemandType_RESPONSE_ROUTING_ERRORS = 20
 } meshtastic_OnDemandType;
 
 /* Struct definitions */
@@ -102,6 +104,8 @@ typedef struct _meshtastic_NodeStats {
     uint32_t nexthop_counter;
     bool has_firmware_version;
     char firmware_version[18];
+    bool has_blocked_by_hoplimit;
+    uint32_t blocked_by_hoplimit;
 } meshtastic_NodeStats;
 
 typedef struct _meshtastic_RxPacketHistory {
@@ -123,6 +127,16 @@ typedef struct _meshtastic_PortCountersHistory {
     pb_size_t port_counter_history_count;
     meshtastic_PortCounterEntry port_counter_history[20];
 } meshtastic_PortCountersHistory;
+
+typedef struct _meshtastic_RoutingErrorEnetry {
+    uint32_t num;
+    uint32_t counter;
+} meshtastic_RoutingErrorEnetry;
+
+typedef struct _meshtastic_RoutingErrorsHistory {
+    pb_size_t routing_errors_count;
+    meshtastic_RoutingErrorEnetry routing_errors[40];
+} meshtastic_RoutingErrorsHistory;
 
 typedef struct _meshtastic_AirActivityEntry {
     uint32_t tx_time;
@@ -181,6 +195,7 @@ typedef struct _meshtastic_OnDemandResponse {
         meshtastic_AirActivityHistory air_activity_history;
         meshtastic_NodeStats node_stats;
         meshtastic_FwPlusVersion fw_plus_version;
+        meshtastic_RoutingErrorsHistory routing_errors;
     } response_data;
 } meshtastic_OnDemandResponse;
 
@@ -203,8 +218,10 @@ extern "C" {
 
 /* Helper constants for enums */
 #define _meshtastic_OnDemandType_MIN meshtastic_OnDemandType_UNKNOWN_TYPE
-#define _meshtastic_OnDemandType_MAX meshtastic_OnDemandType_RESPONSE_FW_PLUS_VERSION
-#define _meshtastic_OnDemandType_ARRAYSIZE ((meshtastic_OnDemandType)(meshtastic_OnDemandType_RESPONSE_FW_PLUS_VERSION+1))
+#define _meshtastic_OnDemandType_MAX meshtastic_OnDemandType_RESPONSE_ROUTING_ERRORS
+#define _meshtastic_OnDemandType_ARRAYSIZE ((meshtastic_OnDemandType)(meshtastic_OnDemandType_RESPONSE_ROUTING_ERRORS+1))
+
+
 
 
 
@@ -227,11 +244,13 @@ extern "C" {
 
 /* Initializer values for message structs */
 #define meshtastic_FwPlusVersion_init_default    {0}
-#define meshtastic_NodeStats_init_default        {false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, ""}
+#define meshtastic_NodeStats_init_default        {false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, "", false, 0}
 #define meshtastic_RxPacketHistory_init_default  {0, {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}}
 #define meshtastic_RxAvgTimeHistory_init_default {0, {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}}
 #define meshtastic_PortCounterEntry_init_default {0, 0}
 #define meshtastic_PortCountersHistory_init_default {0, {meshtastic_PortCounterEntry_init_default, meshtastic_PortCounterEntry_init_default, meshtastic_PortCounterEntry_init_default, meshtastic_PortCounterEntry_init_default, meshtastic_PortCounterEntry_init_default, meshtastic_PortCounterEntry_init_default, meshtastic_PortCounterEntry_init_default, meshtastic_PortCounterEntry_init_default, meshtastic_PortCounterEntry_init_default, meshtastic_PortCounterEntry_init_default, meshtastic_PortCounterEntry_init_default, meshtastic_PortCounterEntry_init_default, meshtastic_PortCounterEntry_init_default, meshtastic_PortCounterEntry_init_default, meshtastic_PortCounterEntry_init_default, meshtastic_PortCounterEntry_init_default, meshtastic_PortCounterEntry_init_default, meshtastic_PortCounterEntry_init_default, meshtastic_PortCounterEntry_init_default, meshtastic_PortCounterEntry_init_default}}
+#define meshtastic_RoutingErrorEnetry_init_default {0, 0}
+#define meshtastic_RoutingErrorsHistory_init_default {0, {meshtastic_RoutingErrorEnetry_init_default, meshtastic_RoutingErrorEnetry_init_default, meshtastic_RoutingErrorEnetry_init_default, meshtastic_RoutingErrorEnetry_init_default, meshtastic_RoutingErrorEnetry_init_default, meshtastic_RoutingErrorEnetry_init_default, meshtastic_RoutingErrorEnetry_init_default, meshtastic_RoutingErrorEnetry_init_default, meshtastic_RoutingErrorEnetry_init_default, meshtastic_RoutingErrorEnetry_init_default, meshtastic_RoutingErrorEnetry_init_default, meshtastic_RoutingErrorEnetry_init_default, meshtastic_RoutingErrorEnetry_init_default, meshtastic_RoutingErrorEnetry_init_default, meshtastic_RoutingErrorEnetry_init_default, meshtastic_RoutingErrorEnetry_init_default, meshtastic_RoutingErrorEnetry_init_default, meshtastic_RoutingErrorEnetry_init_default, meshtastic_RoutingErrorEnetry_init_default, meshtastic_RoutingErrorEnetry_init_default, meshtastic_RoutingErrorEnetry_init_default, meshtastic_RoutingErrorEnetry_init_default, meshtastic_RoutingErrorEnetry_init_default, meshtastic_RoutingErrorEnetry_init_default, meshtastic_RoutingErrorEnetry_init_default, meshtastic_RoutingErrorEnetry_init_default, meshtastic_RoutingErrorEnetry_init_default, meshtastic_RoutingErrorEnetry_init_default, meshtastic_RoutingErrorEnetry_init_default, meshtastic_RoutingErrorEnetry_init_default, meshtastic_RoutingErrorEnetry_init_default, meshtastic_RoutingErrorEnetry_init_default, meshtastic_RoutingErrorEnetry_init_default, meshtastic_RoutingErrorEnetry_init_default, meshtastic_RoutingErrorEnetry_init_default, meshtastic_RoutingErrorEnetry_init_default, meshtastic_RoutingErrorEnetry_init_default, meshtastic_RoutingErrorEnetry_init_default, meshtastic_RoutingErrorEnetry_init_default, meshtastic_RoutingErrorEnetry_init_default}}
 #define meshtastic_AirActivityEntry_init_default {0, 0, 0}
 #define meshtastic_AirActivityHistory_init_default {0, {meshtastic_AirActivityEntry_init_default, meshtastic_AirActivityEntry_init_default, meshtastic_AirActivityEntry_init_default, meshtastic_AirActivityEntry_init_default, meshtastic_AirActivityEntry_init_default, meshtastic_AirActivityEntry_init_default, meshtastic_AirActivityEntry_init_default, meshtastic_AirActivityEntry_init_default, meshtastic_AirActivityEntry_init_default, meshtastic_AirActivityEntry_init_default}}
 #define meshtastic_NodeEntry_init_default        {0, "", "", 0, 0, 0}
@@ -243,11 +262,13 @@ extern "C" {
 #define meshtastic_OnDemandResponse_init_default {_meshtastic_OnDemandType_MIN, 0, {meshtastic_RxPacketHistory_init_default}}
 #define meshtastic_OnDemand_init_default         {false, 0, false, 0, 0, {meshtastic_OnDemandRequest_init_default}}
 #define meshtastic_FwPlusVersion_init_zero       {0}
-#define meshtastic_NodeStats_init_zero           {false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, ""}
+#define meshtastic_NodeStats_init_zero           {false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, "", false, 0}
 #define meshtastic_RxPacketHistory_init_zero     {0, {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}}
 #define meshtastic_RxAvgTimeHistory_init_zero    {0, {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}}
 #define meshtastic_PortCounterEntry_init_zero    {0, 0}
 #define meshtastic_PortCountersHistory_init_zero {0, {meshtastic_PortCounterEntry_init_zero, meshtastic_PortCounterEntry_init_zero, meshtastic_PortCounterEntry_init_zero, meshtastic_PortCounterEntry_init_zero, meshtastic_PortCounterEntry_init_zero, meshtastic_PortCounterEntry_init_zero, meshtastic_PortCounterEntry_init_zero, meshtastic_PortCounterEntry_init_zero, meshtastic_PortCounterEntry_init_zero, meshtastic_PortCounterEntry_init_zero, meshtastic_PortCounterEntry_init_zero, meshtastic_PortCounterEntry_init_zero, meshtastic_PortCounterEntry_init_zero, meshtastic_PortCounterEntry_init_zero, meshtastic_PortCounterEntry_init_zero, meshtastic_PortCounterEntry_init_zero, meshtastic_PortCounterEntry_init_zero, meshtastic_PortCounterEntry_init_zero, meshtastic_PortCounterEntry_init_zero, meshtastic_PortCounterEntry_init_zero}}
+#define meshtastic_RoutingErrorEnetry_init_zero  {0, 0}
+#define meshtastic_RoutingErrorsHistory_init_zero {0, {meshtastic_RoutingErrorEnetry_init_zero, meshtastic_RoutingErrorEnetry_init_zero, meshtastic_RoutingErrorEnetry_init_zero, meshtastic_RoutingErrorEnetry_init_zero, meshtastic_RoutingErrorEnetry_init_zero, meshtastic_RoutingErrorEnetry_init_zero, meshtastic_RoutingErrorEnetry_init_zero, meshtastic_RoutingErrorEnetry_init_zero, meshtastic_RoutingErrorEnetry_init_zero, meshtastic_RoutingErrorEnetry_init_zero, meshtastic_RoutingErrorEnetry_init_zero, meshtastic_RoutingErrorEnetry_init_zero, meshtastic_RoutingErrorEnetry_init_zero, meshtastic_RoutingErrorEnetry_init_zero, meshtastic_RoutingErrorEnetry_init_zero, meshtastic_RoutingErrorEnetry_init_zero, meshtastic_RoutingErrorEnetry_init_zero, meshtastic_RoutingErrorEnetry_init_zero, meshtastic_RoutingErrorEnetry_init_zero, meshtastic_RoutingErrorEnetry_init_zero, meshtastic_RoutingErrorEnetry_init_zero, meshtastic_RoutingErrorEnetry_init_zero, meshtastic_RoutingErrorEnetry_init_zero, meshtastic_RoutingErrorEnetry_init_zero, meshtastic_RoutingErrorEnetry_init_zero, meshtastic_RoutingErrorEnetry_init_zero, meshtastic_RoutingErrorEnetry_init_zero, meshtastic_RoutingErrorEnetry_init_zero, meshtastic_RoutingErrorEnetry_init_zero, meshtastic_RoutingErrorEnetry_init_zero, meshtastic_RoutingErrorEnetry_init_zero, meshtastic_RoutingErrorEnetry_init_zero, meshtastic_RoutingErrorEnetry_init_zero, meshtastic_RoutingErrorEnetry_init_zero, meshtastic_RoutingErrorEnetry_init_zero, meshtastic_RoutingErrorEnetry_init_zero, meshtastic_RoutingErrorEnetry_init_zero, meshtastic_RoutingErrorEnetry_init_zero, meshtastic_RoutingErrorEnetry_init_zero, meshtastic_RoutingErrorEnetry_init_zero}}
 #define meshtastic_AirActivityEntry_init_zero    {0, 0, 0}
 #define meshtastic_AirActivityHistory_init_zero  {0, {meshtastic_AirActivityEntry_init_zero, meshtastic_AirActivityEntry_init_zero, meshtastic_AirActivityEntry_init_zero, meshtastic_AirActivityEntry_init_zero, meshtastic_AirActivityEntry_init_zero, meshtastic_AirActivityEntry_init_zero, meshtastic_AirActivityEntry_init_zero, meshtastic_AirActivityEntry_init_zero, meshtastic_AirActivityEntry_init_zero, meshtastic_AirActivityEntry_init_zero}}
 #define meshtastic_NodeEntry_init_zero           {0, "", "", 0, 0, 0}
@@ -293,11 +314,15 @@ extern "C" {
 #define meshtastic_NodeStats_flood_counter_tag   30
 #define meshtastic_NodeStats_nexthop_counter_tag 31
 #define meshtastic_NodeStats_firmware_version_tag 32
+#define meshtastic_NodeStats_blocked_by_hoplimit_tag 33
 #define meshtastic_RxPacketHistory_rx_packet_history_tag 1
 #define meshtastic_RxAvgTimeHistory_rx_avg_history_tag 1
 #define meshtastic_PortCounterEntry_port_tag     1
 #define meshtastic_PortCounterEntry_count_tag    2
 #define meshtastic_PortCountersHistory_port_counter_history_tag 1
+#define meshtastic_RoutingErrorEnetry_num_tag    1
+#define meshtastic_RoutingErrorEnetry_counter_tag 2
+#define meshtastic_RoutingErrorsHistory_routing_errors_tag 1
 #define meshtastic_AirActivityEntry_tx_time_tag  1
 #define meshtastic_AirActivityEntry_rx_time_tag  2
 #define meshtastic_AirActivityEntry_rxBad_time_tag 3
@@ -324,6 +349,7 @@ extern "C" {
 #define meshtastic_OnDemandResponse_air_activity_history_tag 8
 #define meshtastic_OnDemandResponse_node_stats_tag 9
 #define meshtastic_OnDemandResponse_fw_plus_version_tag 10
+#define meshtastic_OnDemandResponse_routing_errors_tag 11
 #define meshtastic_OnDemand_packet_index_tag     1
 #define meshtastic_OnDemand_packet_total_tag     2
 #define meshtastic_OnDemand_request_tag          3
@@ -367,7 +393,8 @@ X(a, STATIC,   OPTIONAL, FLOAT,    ch3_voltage,      28) \
 X(a, STATIC,   OPTIONAL, FLOAT,    ch3_current,      29) \
 X(a, STATIC,   OPTIONAL, UINT32,   flood_counter,    30) \
 X(a, STATIC,   OPTIONAL, UINT32,   nexthop_counter,  31) \
-X(a, STATIC,   OPTIONAL, STRING,   firmware_version,  32)
+X(a, STATIC,   OPTIONAL, STRING,   firmware_version,  32) \
+X(a, STATIC,   OPTIONAL, UINT32,   blocked_by_hoplimit,  33)
 #define meshtastic_NodeStats_CALLBACK NULL
 #define meshtastic_NodeStats_DEFAULT NULL
 
@@ -392,6 +419,18 @@ X(a, STATIC,   REPEATED, MESSAGE,  port_counter_history,   1)
 #define meshtastic_PortCountersHistory_CALLBACK NULL
 #define meshtastic_PortCountersHistory_DEFAULT NULL
 #define meshtastic_PortCountersHistory_port_counter_history_MSGTYPE meshtastic_PortCounterEntry
+
+#define meshtastic_RoutingErrorEnetry_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, UINT32,   num,               1) \
+X(a, STATIC,   SINGULAR, UINT32,   counter,           2)
+#define meshtastic_RoutingErrorEnetry_CALLBACK NULL
+#define meshtastic_RoutingErrorEnetry_DEFAULT NULL
+
+#define meshtastic_RoutingErrorsHistory_FIELDLIST(X, a) \
+X(a, STATIC,   REPEATED, MESSAGE,  routing_errors,    1)
+#define meshtastic_RoutingErrorsHistory_CALLBACK NULL
+#define meshtastic_RoutingErrorsHistory_DEFAULT NULL
+#define meshtastic_RoutingErrorsHistory_routing_errors_MSGTYPE meshtastic_RoutingErrorEnetry
 
 #define meshtastic_AirActivityEntry_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, UINT32,   tx_time,           1) \
@@ -455,7 +494,8 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (response_data,port_counter_history,response_
 X(a, STATIC,   ONEOF,    MESSAGE,  (response_data,exchange_packet_log,response_data.exchange_packet_log),   7) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (response_data,air_activity_history,response_data.air_activity_history),   8) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (response_data,node_stats,response_data.node_stats),   9) \
-X(a, STATIC,   ONEOF,    MESSAGE,  (response_data,fw_plus_version,response_data.fw_plus_version),  10)
+X(a, STATIC,   ONEOF,    MESSAGE,  (response_data,fw_plus_version,response_data.fw_plus_version),  10) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (response_data,routing_errors,response_data.routing_errors),  11)
 #define meshtastic_OnDemandResponse_CALLBACK NULL
 #define meshtastic_OnDemandResponse_DEFAULT NULL
 #define meshtastic_OnDemandResponse_response_data_rx_packet_history_MSGTYPE meshtastic_RxPacketHistory
@@ -467,6 +507,7 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (response_data,fw_plus_version,response_data.
 #define meshtastic_OnDemandResponse_response_data_air_activity_history_MSGTYPE meshtastic_AirActivityHistory
 #define meshtastic_OnDemandResponse_response_data_node_stats_MSGTYPE meshtastic_NodeStats
 #define meshtastic_OnDemandResponse_response_data_fw_plus_version_MSGTYPE meshtastic_FwPlusVersion
+#define meshtastic_OnDemandResponse_response_data_routing_errors_MSGTYPE meshtastic_RoutingErrorsHistory
 
 #define meshtastic_OnDemand_FIELDLIST(X, a) \
 X(a, STATIC,   OPTIONAL, UINT32,   packet_index,      1) \
@@ -484,6 +525,8 @@ extern const pb_msgdesc_t meshtastic_RxPacketHistory_msg;
 extern const pb_msgdesc_t meshtastic_RxAvgTimeHistory_msg;
 extern const pb_msgdesc_t meshtastic_PortCounterEntry_msg;
 extern const pb_msgdesc_t meshtastic_PortCountersHistory_msg;
+extern const pb_msgdesc_t meshtastic_RoutingErrorEnetry_msg;
+extern const pb_msgdesc_t meshtastic_RoutingErrorsHistory_msg;
 extern const pb_msgdesc_t meshtastic_AirActivityEntry_msg;
 extern const pb_msgdesc_t meshtastic_AirActivityHistory_msg;
 extern const pb_msgdesc_t meshtastic_NodeEntry_msg;
@@ -502,6 +545,8 @@ extern const pb_msgdesc_t meshtastic_OnDemand_msg;
 #define meshtastic_RxAvgTimeHistory_fields &meshtastic_RxAvgTimeHistory_msg
 #define meshtastic_PortCounterEntry_fields &meshtastic_PortCounterEntry_msg
 #define meshtastic_PortCountersHistory_fields &meshtastic_PortCountersHistory_msg
+#define meshtastic_RoutingErrorEnetry_fields &meshtastic_RoutingErrorEnetry_msg
+#define meshtastic_RoutingErrorsHistory_fields &meshtastic_RoutingErrorsHistory_msg
 #define meshtastic_AirActivityEntry_fields &meshtastic_AirActivityEntry_msg
 #define meshtastic_AirActivityHistory_fields &meshtastic_AirActivityHistory_msg
 #define meshtastic_NodeEntry_fields &meshtastic_NodeEntry_msg
@@ -521,7 +566,7 @@ extern const pb_msgdesc_t meshtastic_OnDemand_msg;
 #define meshtastic_ExchangeList_size             240
 #define meshtastic_FwPlusVersion_size            6
 #define meshtastic_NodeEntry_size                69
-#define meshtastic_NodeStats_size                213
+#define meshtastic_NodeStats_size                220
 #define meshtastic_NodesList_size                710
 #define meshtastic_OnDemandRequest_size          2
 #define meshtastic_OnDemandResponse_size         715
@@ -529,6 +574,8 @@ extern const pb_msgdesc_t meshtastic_OnDemand_msg;
 #define meshtastic_Ping_size                     0
 #define meshtastic_PortCounterEntry_size         12
 #define meshtastic_PortCountersHistory_size      280
+#define meshtastic_RoutingErrorEnetry_size       12
+#define meshtastic_RoutingErrorsHistory_size     560
 #define meshtastic_RxAvgTimeHistory_size         240
 #define meshtastic_RxPacketHistory_size          240
 

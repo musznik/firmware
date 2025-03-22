@@ -35,31 +35,31 @@ bool OnDemandModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, mes
         switch(t->variant.request.request_type) 
         {
             case meshtastic_OnDemandType_REQUEST_FW_PLUS_VERSION: {
-                sendPacketToRequester(prepareFwPlusVersion(),mp);
+                sendPacketToRequester(prepareFwPlusVersion(), mp);
                 break;
             }
             case meshtastic_OnDemandType_REQUEST_NODE_STATS: {
-                sendPacketToRequester(prepareNodeStats(),mp);
+                sendPacketToRequester(prepareNodeStats(), mp);
                 break;
             }
             case meshtastic_OnDemandType_REQUEST_AIR_ACTIVITY_HISTORY: {
-                sendPacketToRequester(prepareAirActivityHistoryLog(),mp);
+                sendPacketToRequester(prepareAirActivityHistoryLog(), mp);
                 break;
             }
             case meshtastic_OnDemandType_REQUEST_PACKET_EXCHANGE_HISTORY: {
-                sendPacketToRequester(preparePacketHistoryLog(),mp);
+                sendPacketToRequester(preparePacketHistoryLog(), mp);
                 break;
             }
             case meshtastic_OnDemandType_REQUEST_PORT_COUNTER_HISTORY: {
-                sendPacketToRequester(preparePortCounterHistory(),mp);
+                sendPacketToRequester(preparePortCounterHistory(), mp);
                 break;
             }
             case meshtastic_OnDemandType_REQUEST_PACKET_RX_HISTORY: {
-                sendPacketToRequester(prepareRxPacketHistory(),mp);
+                sendPacketToRequester(prepareRxPacketHistory(), mp);
                 break;
             }
             case meshtastic_OnDemandType_REQUEST_RX_AVG_TIME: {
-                sendPacketToRequester(prepareRxAvgTimeHistory(),mp);
+                sendPacketToRequester(prepareRxAvgTimeHistory(), mp);
                 break;
             }
             case meshtastic_OnDemandType_REQUEST_NODES_ONLINE: {
@@ -71,7 +71,11 @@ bool OnDemandModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, mes
                 break;
             }
             case meshtastic_OnDemandType_REQUEST_PING: {
-                sendPacketToRequester(preparePingResponse(), mp,false);
+                sendPacketToRequester(preparePingResponse(), mp, false);
+                break;
+            }
+            case meshtastic_OnDemandType_REQUEST_ROUTING_ERRORS: {
+                sendPacketToRequester(prepareRoutingErrorResponse(), mp, true);
                 break;
             }
             default:
@@ -190,6 +194,22 @@ std::vector<std::unique_ptr<meshtastic_OnDemand>> OnDemandModule::createSegmente
     return packets;
 }
 
+meshtastic_OnDemand OnDemandModule::prepareRoutingErrorResponse()
+{
+    meshtastic_OnDemand onDemand = meshtastic_OnDemand_init_zero;
+    onDemand.which_variant = meshtastic_OnDemand_response_tag;
+
+    onDemand.variant.response.response_type = meshtastic_OnDemandType_RESPONSE_ROUTING_ERRORS;
+    onDemand.variant.response.which_response_data = meshtastic_OnDemandResponse_routing_errors_tag;
+
+    onDemand.variant.response.response_data.routing_errors.routing_errors_count=38;
+    for (uint16_t i = 0; i < 37; i++) {
+            onDemand.variant.response.response_data.routing_errors.routing_errors[i].num = i;
+            onDemand.variant.response.response_data.routing_errors.routing_errors[i].counter = router->packetErrorCounters[i];
+    }
+    return onDemand;
+}
+
 meshtastic_OnDemand OnDemandModule::preparePingResponse()
 {   
     meshtastic_OnDemand onDemand = meshtastic_OnDemand_init_zero;
@@ -253,6 +273,7 @@ meshtastic_OnDemand OnDemandModule::prepareNodeStats()
     onDemand.variant.response.response_data.node_stats.has_flood_counter = true;
     onDemand.variant.response.response_data.node_stats.has_nexthop_counter = true;
     onDemand.variant.response.response_data.node_stats.has_firmware_version = true;
+    onDemand.variant.response.response_data.node_stats.has_blocked_by_hoplimit = true;
 
     onDemand.variant.response.response_data.node_stats.battery_level = (!powerStatus->getHasBattery() || powerStatus->getIsCharging()) ? MAGIC_USB_BATTERY_LEVEL : powerStatus->getBatteryChargePercent();
     onDemand.variant.response.response_data.node_stats.voltage = powerStatus->getBatteryVoltageMv() / 1000.0;
@@ -273,6 +294,7 @@ meshtastic_OnDemand OnDemandModule::prepareNodeStats()
     onDemand.variant.response.response_data.node_stats.cpu_usage_percent = CpuHwUsagePercent;
     onDemand.variant.response.response_data.node_stats.flood_counter = router->flood_counter;
     onDemand.variant.response.response_data.node_stats.nexthop_counter = router->nexthop_counter;
+    onDemand.variant.response.response_data.node_stats.blocked_by_hoplimit = router->blocked_by_hoplimit;
     strncpy(onDemand.variant.response.response_data.node_stats.firmware_version, optstr(APP_VERSION_SHORT), sizeof(onDemand.variant.response.response_data.node_stats.firmware_version));
     
     bool valid = false;

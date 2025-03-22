@@ -93,6 +93,7 @@ int MeshService::handleFromRadio(const meshtastic_MeshPacket *mp)
             auto hopLimit = mp->hop_limit;
             uint8_t hopsUsed = hopStart < hopLimit ? config.lora.hop_limit : hopStart - hopLimit;
             if (hopsUsed > config.lora.hop_limit + 2) {
+                router->blocked_by_hoplimit++;
                 LOG_DEBUG("Skip send NodeInfo: %d hops away is too far away", hopsUsed);
             } else {
                 LOG_INFO("Heard new node on ch. %d, send NodeInfo and ask for response", mp->channel);

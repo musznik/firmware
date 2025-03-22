@@ -68,6 +68,11 @@ bool FloodingRouter::isRebroadcaster()
 
 void FloodingRouter::perhapsRebroadcast(const meshtastic_MeshPacket *p)
 {
+    //fw+
+    if (!isToUs(p) && (p->hop_limit <= 0) && !isFromUs(p)) {
+        blocked_by_hoplimit++;
+    }
+
     if (!isToUs(p) && (p->hop_limit > 0) && !isFromUs(p)) {
         if (p->id != 0) {
             if (isRebroadcaster()) {

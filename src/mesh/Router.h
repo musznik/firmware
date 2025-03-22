@@ -92,6 +92,10 @@ class Router : protected concurrency::OSThread, protected PacketHistory
         before us */
     uint32_t rxDupe = 0, txRelayCanceled = 0;
     uint32_t flood_counter = 0, nexthop_counter = 0;
+    uint32_t blocked_by_hoplimit = 0;
+
+    //fw+
+    uint32_t packetErrorCounters[38] = {}; // fw+
 
   protected:
     friend class RoutingModule;
