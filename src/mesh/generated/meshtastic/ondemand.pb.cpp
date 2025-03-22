@@ -24,7 +24,7 @@ PB_BIND(meshtastic_PortCounterEntry, meshtastic_PortCounterEntry, AUTO)
 PB_BIND(meshtastic_PortCountersHistory, meshtastic_PortCountersHistory, AUTO)
 
 
-PB_BIND(meshtastic_RoutingErrorEnetry, meshtastic_RoutingErrorEnetry, AUTO)
+PB_BIND(meshtastic_RoutingErrorEntry, meshtastic_RoutingErrorEntry, AUTO)
 
 
 PB_BIND(meshtastic_RoutingErrorsHistory, meshtastic_RoutingErrorsHistory, 2)

@@ -274,6 +274,7 @@ meshtastic_OnDemand OnDemandModule::prepareNodeStats()
     onDemand.variant.response.response_data.node_stats.has_nexthop_counter = true;
     onDemand.variant.response.response_data.node_stats.has_firmware_version = true;
     onDemand.variant.response.response_data.node_stats.has_blocked_by_hoplimit = true;
+    onDemand.variant.response.response_data.node_stats.has_firmware_version = true;
 
     onDemand.variant.response.response_data.node_stats.battery_level = (!powerStatus->getHasBattery() || powerStatus->getIsCharging()) ? MAGIC_USB_BATTERY_LEVEL : powerStatus->getBatteryChargePercent();
     onDemand.variant.response.response_data.node_stats.voltage = powerStatus->getBatteryVoltageMv() / 1000.0;
@@ -295,6 +296,7 @@ meshtastic_OnDemand OnDemandModule::prepareNodeStats()
     onDemand.variant.response.response_data.node_stats.flood_counter = router->flood_counter;
     onDemand.variant.response.response_data.node_stats.nexthop_counter = router->nexthop_counter;
     onDemand.variant.response.response_data.node_stats.blocked_by_hoplimit = router->blocked_by_hoplimit;
+    onDemand.variant.response.response_data.node_stats.fw_plus_version = FW_PLUS_VERSION;
     strncpy(onDemand.variant.response.response_data.node_stats.firmware_version, optstr(APP_VERSION_SHORT), sizeof(onDemand.variant.response.response_data.node_stats.firmware_version));
     
     bool valid = false;
