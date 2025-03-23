@@ -120,6 +120,7 @@ bool AdminModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, meshta
         if (!checkPassKey(r)) {
             LOG_WARN("Admin message without session_key!");
             myReply = allocErrorResponse(meshtastic_Routing_Error_ADMIN_BAD_SESSION_KEY, &mp);
+            router->packetErrorCounters[static_cast<uint32_t>(meshtastic_Routing_Error_ADMIN_BAD_SESSION_KEY)]++;
             return handled;
         }
     }

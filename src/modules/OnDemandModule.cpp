@@ -202,8 +202,8 @@ meshtastic_OnDemand OnDemandModule::prepareRoutingErrorResponse()
     onDemand.variant.response.response_type = meshtastic_OnDemandType_RESPONSE_ROUTING_ERRORS;
     onDemand.variant.response.which_response_data = meshtastic_OnDemandResponse_routing_errors_tag;
 
-    onDemand.variant.response.response_data.routing_errors.routing_errors_count=38;
-    for (uint16_t i = 0; i < 37; i++) {
+    onDemand.variant.response.response_data.routing_errors.routing_errors_count=39;
+    for (uint16_t i = 0; i < 38; i++) {
             onDemand.variant.response.response_data.routing_errors.routing_errors[i].num = i;
             onDemand.variant.response.response_data.routing_errors.routing_errors[i].counter = router->packetErrorCounters[i];
     }

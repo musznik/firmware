@@ -75,6 +75,7 @@ meshtastic_MeshPacket *MeshModule::allocAckNak(meshtastic_Routing_Error err, Nod
 
 meshtastic_MeshPacket *MeshModule::allocErrorResponse(meshtastic_Routing_Error err, const meshtastic_MeshPacket *p)
 {
+    router->packetErrorCounters[static_cast<uint32_t>(err)]++;
     // If the original packet couldn't be decoded, use the primary channel
     uint8_t channelIndex =
         p->which_payload_variant == meshtastic_MeshPacket_decoded_tag ? p->channel : channels.getPrimaryIndex();

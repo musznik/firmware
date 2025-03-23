@@ -67,7 +67,7 @@ meshtastic_MeshPacket *RoutingModule::allocReply()
 void RoutingModule::sendAckNak(meshtastic_Routing_Error err, NodeNum to, PacketId idFrom, ChannelIndex chIndex, uint8_t hopLimit)
 {
     auto p = allocAckNak(err, to, idFrom, chIndex, hopLimit);
-    router->packetErrorCounters[err]++;
+    router->packetErrorCounters[static_cast<uint32_t>(err)]++;
     if(moduleConfig.nodemodadmin.sniffer_enabled && moduleConfig.has_nodemodadmin){
         meshtastic_MeshPacket *copyPtr = packetPool.allocCopy(*p);
         service->sendPacketToPhoneRaw(copyPtr);

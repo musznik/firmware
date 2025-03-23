@@ -143,7 +143,7 @@ void Router::sendAckNak(meshtastic_Routing_Error err, NodeNum to, PacketId idFro
 
 void Router::abortSendAndNak(meshtastic_Routing_Error err, meshtastic_MeshPacket *p)
 {
-    packetErrorCounters[err]++;
+    packetErrorCounters[static_cast<uint32_t>(err)]++;
     LOG_ERROR("Error=%d, return NAK and drop packet", err);
     sendAckNak(err, getFrom(p), p->id, p->channel);
     packetPool.release(p);
