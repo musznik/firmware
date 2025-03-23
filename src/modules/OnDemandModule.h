@@ -52,6 +52,7 @@ class OnDemandModule : private concurrency::OSThread, public ProtobufModule<mesh
     meshtastic_OnDemand prepareNodeStats();
     meshtastic_OnDemand prepareFwPlusVersion();
     meshtastic_OnDemand prepareRoutingErrorResponse();
+    meshtastic_OnDemand preparePingResponseAck();
 
   private:
     uint32_t lastSentToMesh = 0;

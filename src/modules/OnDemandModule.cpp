@@ -21,7 +21,7 @@ static const int MAX_PACKET_SIZE = 190;
 #define NUM_ONLINE_SECS (60 * 60 * 2) 
 #define MAGIC_USB_BATTERY_LEVEL 101
 
-#define FW_PLUS_VERSION 10
+#define FW_PLUS_VERSION 11
 
 int32_t OnDemandModule::runOnce()
 {
@@ -72,6 +72,10 @@ bool OnDemandModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, mes
             }
             case meshtastic_OnDemandType_REQUEST_PING: {
                 sendPacketToRequester(preparePingResponse(), mp, false);
+                break;
+            }
+            case meshtastic_OnDemandType_REQUEST_PING_ACK: {
+                sendPacketToRequester(preparePingResponseAck(), mp, true);
                 break;
             }
             case meshtastic_OnDemandType_REQUEST_ROUTING_ERRORS: {
@@ -216,6 +220,17 @@ meshtastic_OnDemand OnDemandModule::preparePingResponse()
     onDemand.which_variant = meshtastic_OnDemand_response_tag;
 
     onDemand.variant.response.response_type = meshtastic_OnDemandType_RESPONSE_PING;
+    onDemand.variant.response.which_response_data = meshtastic_OnDemandResponse_ping_tag;
+
+    return onDemand;
+}
+
+meshtastic_OnDemand OnDemandModule::preparePingResponseAck()
+{
+    meshtastic_OnDemand onDemand = meshtastic_OnDemand_init_zero;
+    onDemand.which_variant = meshtastic_OnDemand_response_tag;
+
+    onDemand.variant.response.response_type = meshtastic_OnDemandType_RESPONSE_PING_ACK;
     onDemand.variant.response.which_response_data = meshtastic_OnDemandResponse_ping_tag;
 
     return onDemand;

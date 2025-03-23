@@ -31,7 +31,9 @@ typedef enum _meshtastic_OnDemandType {
     meshtastic_OnDemandType_REQUEST_FW_PLUS_VERSION = 17,
     meshtastic_OnDemandType_RESPONSE_FW_PLUS_VERSION = 18,
     meshtastic_OnDemandType_REQUEST_ROUTING_ERRORS = 19,
-    meshtastic_OnDemandType_RESPONSE_ROUTING_ERRORS = 20
+    meshtastic_OnDemandType_RESPONSE_ROUTING_ERRORS = 20,
+    meshtastic_OnDemandType_REQUEST_PING_ACK = 21,
+    meshtastic_OnDemandType_RESPONSE_PING_ACK = 22
 } meshtastic_OnDemandType;
 
 /* Struct definitions */
@@ -220,8 +222,8 @@ extern "C" {
 
 /* Helper constants for enums */
 #define _meshtastic_OnDemandType_MIN meshtastic_OnDemandType_UNKNOWN_TYPE
-#define _meshtastic_OnDemandType_MAX meshtastic_OnDemandType_RESPONSE_ROUTING_ERRORS
-#define _meshtastic_OnDemandType_ARRAYSIZE ((meshtastic_OnDemandType)(meshtastic_OnDemandType_RESPONSE_ROUTING_ERRORS+1))
+#define _meshtastic_OnDemandType_MAX meshtastic_OnDemandType_RESPONSE_PING_ACK
+#define _meshtastic_OnDemandType_ARRAYSIZE ((meshtastic_OnDemandType)(meshtastic_OnDemandType_RESPONSE_PING_ACK+1))
 
 
 
