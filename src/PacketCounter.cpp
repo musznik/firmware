@@ -1,6 +1,6 @@
 #include "PacketCounter.h"
 #include "NodeDB.h"
-#include "AirTime.h"
+#include "airtime.h"
 uint64_t max_entries = 39;
 
 void PacketCounter::onPacketReceived(const meshtastic_MeshPacket *p)
