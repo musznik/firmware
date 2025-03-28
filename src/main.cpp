@@ -849,11 +849,6 @@ void setup()
     setupNicheGraphics();
 #endif
 
-#ifdef MESHTASTIC_INCLUDE_NICHE_GRAPHICS
-    // After modules are setup, so we can observe modules
-    setupNicheGraphics();
-#endif
-
 #ifdef LED_PIN
     // Turn LED off after boot, if heartbeat by config
     if (config.device.led_heartbeat_disabled)

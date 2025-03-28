@@ -914,10 +914,6 @@ void AdminModule::handleGetModuleConfig(const meshtastic_MeshPacket &req, const 
 {
     meshtastic_AdminMessage res = meshtastic_AdminMessage_init_default;
 
-    std::string configTypeStr = std::to_string(configType);
-    const char* configTypeCStr = configTypeStr.c_str();
-
-    LOG_WARN(configTypeCStr);
     if (req.decoded.want_response) {
         switch (configType) {
         case meshtastic_AdminMessage_ModuleConfigType_MQTT_CONFIG:

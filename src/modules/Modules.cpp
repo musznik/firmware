@@ -94,7 +94,8 @@
 
 
 #include "modules/NodeMod.h"
-#include "modules/IdleGameModule.h"
+/* #include "modules/IdleGameModule.h"
+*/
 #include "modules/OnDemandModule.h"
 
 /**
@@ -255,7 +256,6 @@ void setupModules()
     // acks
     nodeModModule = new NodeModModule();
     //idleGameModule = new IdleGameModule();
-    routingModule = new RoutingModule();
-
     onDemandModule = new OnDemandModule();
+    routingModule = new RoutingModule();
 }

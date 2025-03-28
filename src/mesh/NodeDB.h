@@ -5,7 +5,6 @@
 #include <algorithm>
 #include <assert.h>
 #include <pb_encode.h>
-#include <pb_encode.h>
 #include <vector>
 
 #include "MeshTypes.h"
@@ -13,10 +12,6 @@
 #include "configuration.h"
 #include "mesh-pb-constants.h"
 #include "mesh/generated/meshtastic/mesh.pb.h" // For CriticalErrorCode
-
-#if ARCH_PORTDUINO
-#include "PortduinoGlue.h"
-#endif
 
 #if ARCH_PORTDUINO
 #include "PortduinoGlue.h"

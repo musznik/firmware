@@ -28,7 +28,6 @@ class Router : protected concurrency::OSThread, protected PacketHistory
      *
      */
     Router();
- 
     /**
      * Currently we only allow one interface, that may change in the future
      */
@@ -61,7 +60,7 @@ class Router : protected concurrency::OSThread, protected PacketHistory
 
     /** Return Underlying interface's TX queue status */
     meshtastic_QueueStatus getQueueStatus();
-    
+
     /**
      * @return our local nodenum */
     NodeNum getNodeNum();
@@ -70,7 +69,6 @@ class Router : protected concurrency::OSThread, protected PacketHistory
      * FIXME, this is kinda a hack because we don't have a nice way yet to say 'wake us because we are 'blocked on this queue'
      */
     void setReceivedMessage();
-
 
     /**
      * RadioInterface calls this to queue up packets that have been received from the radio.  The router is now responsible for
@@ -115,7 +113,7 @@ class Router : protected concurrency::OSThread, protected PacketHistory
      * update routing tables etc... based on what we overhear (even for messages not destined to our node)
      */
     virtual void sniffReceived(const meshtastic_MeshPacket *p, const meshtastic_Routing *c);
-    
+
     /**
      * Send an ack or a nak packet back towards whoever sent idFrom
      */
@@ -144,7 +142,7 @@ class Router : protected concurrency::OSThread, protected PacketHistory
 
     /** Frees the provided packet, and generates a NAK indicating the specifed error while sending */
     void abortSendAndNak(meshtastic_Routing_Error err, meshtastic_MeshPacket *p);
-    /* packet counter history */
+    /* packet counter history  fw+*/
      PacketCounter m_packetCounter; 
 };
 
