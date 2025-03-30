@@ -190,7 +190,7 @@ ErrorCode Router::sendLocal(meshtastic_MeshPacket *p, RxSource src)
 
         // don't override if a channel was requested and no need to set it when PKI is enforced
         if (!p->channel && !p->pki_encrypted && !isBroadcast(p->to)) {
-            meshtastic_NodeInfoLite *node = nodeDB->getMeshNode(p->to);
+            meshtastic_NodeInfoLite const *node = nodeDB->getMeshNode(p->to);
             if (node) {
                 p->channel = node->channel;
                 LOG_DEBUG("localSend to channel %d", p->channel);
@@ -705,7 +705,7 @@ void Router::perhapsHandleReceived(meshtastic_MeshPacket *p)
         return;
     }
 
-    meshtastic_NodeInfoLite *node = nodeDB->getMeshNode(p->from);
+    meshtastic_NodeInfoLite const *node = nodeDB->getMeshNode(p->from);
     if (node != NULL && node->is_ignored) {
         LOG_DEBUG("Ignore msg, 0x%x is ignored", p->from);
         packetPool.release(p);
