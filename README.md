@@ -1,4 +1,4 @@
-<div align="center" markdown="1">
+<div markdown="1">
 
 <img src=".github/meshtastic_logo.png" alt="Meshtastic Logo" width="80"/>
 <h1>Meshtastic Firmware+</h1>
@@ -15,7 +15,7 @@
 - Protect private messages on public MQTT: This commit introduces a feature that enhances security by preventing the sending of private messages between nodes when the MQTT uplink is enabled. The motivation behind this change is to ensure that sensitive information is not inadvertently transmitted over potentially insecure channels. Public messages (broadcast) along with telemetry data, remain unrestricted to maintain the core functionality of the network. This feature is configurable via the APK+ for android, providing users with flexibility and control over their network's security. Default: True.
 - Default hop limit changed from 3 to 5.
 - Allow to administrate node with "Managed Mode" via Wifi or BT.
-- Less air limits.
+- Less air limits. (configurable)
 - Support for private text message "nodes" (only online) or "nodes all" and return list of nodes.
 - Allow to change node position over mesh.
 - Local stats over mesh (additional telemetry).
@@ -29,6 +29,7 @@
 - AutoRedirector for message redirection to another node
 - OnDemand request lists (remote over mesh and local)
 - NextHopRouter
+- Signal Reply Module (write "ping" to node). https://github.com/VilemR/meshtstic_modules_mod
 <ol>
 <li>total number of reads and writes (RX/RX) for a 10-minute window across 40 measurements (6h~)</li>
 <li>average time spent reading (RX) a packet by LoRA</li>
@@ -39,8 +40,6 @@
 <li>simple ping request</li>
 <li>request node stats (local stats, telemetry, additional stats)</li>
 </ol>
-
-
 
 ## Overview
 
