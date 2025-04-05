@@ -4,8 +4,8 @@
 /** Master clock frequency */
 #define VARIANT_MCK (64000000ul)
 
-// #define USE_LFXO // Board uses 32khz crystal for LF
-#define USE_LFRC // Board uses RC for LF
+#define USE_LFXO // Board uses 32khz crystal for LF
+// #define USE_LFRC // Board uses RC for LF
 
 #define PROMICRO_DIY_TCXO
 
@@ -71,10 +71,12 @@ NRF52 PRO MICRO PIN ASSIGNMENT
 
 // LED
 #define PIN_LED1 (0 + 15) // P0.15
+// #define PIN_LED2 (32 + 7) // P1.07
+// #define PIN_LED3 (32 + 7) // P1.07
 #define LED_BUILTIN PIN_LED1
-// Actually red
-#define LED_BLUE PIN_LED1
+#define LED_BLUE PIN_LED1 // LED is RED
 #define LED_STATE_ON 1 // State when LED is lit
+
 
 // Button
 #define BUTTON_PIN (32 + 1) // P1.01
@@ -103,10 +105,10 @@ NRF52 PRO MICRO PIN ASSIGNMENT
 #define PIN_SPI_SCK (0 + 2)  // P0.02
 
 // LORA MODULES
-#define USE_LLCC68
+// #define USE_LLCC68
 #define USE_SX1262
 // #define USE_RF95
-#define USE_SX1268
+// #define USE_SX1268
 
 // LORA CONFIG
 #define SX126X_CS (32 + 11)      // P1.11 FIXME - we really should define LORA_CS instead
