@@ -94,9 +94,11 @@
 
 
 #include "modules/NodeMod.h"
-/* #include "modules/IdleGameModule.h"
-*/
+/* #include "modules/IdleGameModule.h"*/
 #include "modules/OnDemandModule.h"
+
+#include "modules/SignalReplyModule.h"
+
 
 /**
  * Create module instances here.  If you are adding a new module, you must 'new' it here (or somewhere else)
@@ -258,4 +260,5 @@ void setupModules()
     //idleGameModule = new IdleGameModule();
     onDemandModule = new OnDemandModule();
     routingModule = new RoutingModule();
+    signalReplyModule = new SignalReplyModule();
 }
