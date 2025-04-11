@@ -179,7 +179,10 @@ typedef struct _meshtastic_NodesList {
 } meshtastic_NodesList;
 
 typedef struct _meshtastic_Ping {
-    char dummy_field;
+    bool has_rx_rssi;
+    int32_t rx_rssi;
+    bool has_snr;
+    float snr;
 } meshtastic_Ping;
 
 typedef struct _meshtastic_OnDemandRequest {
@@ -261,7 +264,7 @@ extern "C" {
 #define meshtastic_ExchangeEntry_init_default    {0, 0, 0}
 #define meshtastic_ExchangeList_init_default     {0, {meshtastic_ExchangeEntry_init_default, meshtastic_ExchangeEntry_init_default, meshtastic_ExchangeEntry_init_default, meshtastic_ExchangeEntry_init_default, meshtastic_ExchangeEntry_init_default, meshtastic_ExchangeEntry_init_default, meshtastic_ExchangeEntry_init_default, meshtastic_ExchangeEntry_init_default, meshtastic_ExchangeEntry_init_default, meshtastic_ExchangeEntry_init_default, meshtastic_ExchangeEntry_init_default, meshtastic_ExchangeEntry_init_default}}
 #define meshtastic_NodesList_init_default        {0, {meshtastic_NodeEntry_init_default, meshtastic_NodeEntry_init_default, meshtastic_NodeEntry_init_default, meshtastic_NodeEntry_init_default, meshtastic_NodeEntry_init_default, meshtastic_NodeEntry_init_default, meshtastic_NodeEntry_init_default, meshtastic_NodeEntry_init_default, meshtastic_NodeEntry_init_default, meshtastic_NodeEntry_init_default}}
-#define meshtastic_Ping_init_default             {0}
+#define meshtastic_Ping_init_default             {false, 0, false, 0}
 #define meshtastic_OnDemandRequest_init_default  {_meshtastic_OnDemandType_MIN}
 #define meshtastic_OnDemandResponse_init_default {_meshtastic_OnDemandType_MIN, 0, {meshtastic_RxPacketHistory_init_default}}
 #define meshtastic_OnDemand_init_default         {false, 0, false, 0, 0, {meshtastic_OnDemandRequest_init_default}}
@@ -279,7 +282,7 @@ extern "C" {
 #define meshtastic_ExchangeEntry_init_zero       {0, 0, 0}
 #define meshtastic_ExchangeList_init_zero        {0, {meshtastic_ExchangeEntry_init_zero, meshtastic_ExchangeEntry_init_zero, meshtastic_ExchangeEntry_init_zero, meshtastic_ExchangeEntry_init_zero, meshtastic_ExchangeEntry_init_zero, meshtastic_ExchangeEntry_init_zero, meshtastic_ExchangeEntry_init_zero, meshtastic_ExchangeEntry_init_zero, meshtastic_ExchangeEntry_init_zero, meshtastic_ExchangeEntry_init_zero, meshtastic_ExchangeEntry_init_zero, meshtastic_ExchangeEntry_init_zero}}
 #define meshtastic_NodesList_init_zero           {0, {meshtastic_NodeEntry_init_zero, meshtastic_NodeEntry_init_zero, meshtastic_NodeEntry_init_zero, meshtastic_NodeEntry_init_zero, meshtastic_NodeEntry_init_zero, meshtastic_NodeEntry_init_zero, meshtastic_NodeEntry_init_zero, meshtastic_NodeEntry_init_zero, meshtastic_NodeEntry_init_zero, meshtastic_NodeEntry_init_zero}}
-#define meshtastic_Ping_init_zero                {0}
+#define meshtastic_Ping_init_zero                {false, 0, false, 0}
 #define meshtastic_OnDemandRequest_init_zero     {_meshtastic_OnDemandType_MIN}
 #define meshtastic_OnDemandResponse_init_zero    {_meshtastic_OnDemandType_MIN, 0, {meshtastic_RxPacketHistory_init_zero}}
 #define meshtastic_OnDemand_init_zero            {false, 0, false, 0, 0, {meshtastic_OnDemandRequest_init_zero}}
@@ -343,6 +346,8 @@ extern "C" {
 #define meshtastic_ExchangeEntry_port_num_tag    3
 #define meshtastic_ExchangeList_exchange_list_tag 1
 #define meshtastic_NodesList_node_list_tag       1
+#define meshtastic_Ping_rx_rssi_tag              1
+#define meshtastic_Ping_snr_tag                  2
 #define meshtastic_OnDemandRequest_request_type_tag 1
 #define meshtastic_OnDemandResponse_response_type_tag 1
 #define meshtastic_OnDemandResponse_rx_packet_history_tag 2
@@ -481,7 +486,8 @@ X(a, STATIC,   REPEATED, MESSAGE,  node_list,         1)
 #define meshtastic_NodesList_node_list_MSGTYPE meshtastic_NodeEntry
 
 #define meshtastic_Ping_FIELDLIST(X, a) \
-
+X(a, STATIC,   OPTIONAL, INT32,    rx_rssi,           1) \
+X(a, STATIC,   OPTIONAL, FLOAT,    snr,               2)
 #define meshtastic_Ping_CALLBACK NULL
 #define meshtastic_Ping_DEFAULT NULL
 
@@ -577,7 +583,7 @@ extern const pb_msgdesc_t meshtastic_OnDemand_msg;
 #define meshtastic_OnDemandRequest_size          2
 #define meshtastic_OnDemandResponse_size         715
 #define meshtastic_OnDemand_size                 724
-#define meshtastic_Ping_size                     0
+#define meshtastic_Ping_size                     16
 #define meshtastic_PortCounterEntry_size         12
 #define meshtastic_PortCountersHistory_size      280
 #define meshtastic_RoutingErrorEntry_size        12

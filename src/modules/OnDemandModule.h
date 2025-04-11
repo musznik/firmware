@@ -44,7 +44,7 @@ class OnDemandModule : private concurrency::OSThread, public ProtobufModule<mesh
     meshtastic_OnDemand prepareNodeList(uint32_t packetIndex);
     static uint32_t getLastHeard(const meshtastic_NodeInfoLite* node);
     uint32_t sinceLastSeen(const meshtastic_NodeInfoLite *n);
-    meshtastic_OnDemand preparePingResponse();
+    meshtastic_OnDemand preparePingResponse(const meshtastic_MeshPacket &mp);
     meshtastic_OnDemand prepareRxAvgTimeHistory();
     meshtastic_OnDemand preparePortCounterHistory();
     meshtastic_OnDemand preparePacketHistoryLog();
@@ -52,7 +52,7 @@ class OnDemandModule : private concurrency::OSThread, public ProtobufModule<mesh
     meshtastic_OnDemand prepareNodeStats();
     meshtastic_OnDemand prepareFwPlusVersion();
     meshtastic_OnDemand prepareRoutingErrorResponse();
-    meshtastic_OnDemand preparePingResponseAck();
+    meshtastic_OnDemand preparePingResponseAck(const meshtastic_MeshPacket &mp);
 
   private:
     uint32_t lastSentToMesh = 0;

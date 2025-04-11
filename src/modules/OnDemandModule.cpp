@@ -21,7 +21,7 @@ static const int MAX_PACKET_SIZE = 190;
 #define NUM_ONLINE_SECS (60 * 60 * 2) 
 #define MAGIC_USB_BATTERY_LEVEL 101
 
-#define FW_PLUS_VERSION 11
+#define FW_PLUS_VERSION 12
 
 int32_t OnDemandModule::runOnce()
 {
@@ -71,11 +71,11 @@ bool OnDemandModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, mes
                 break;
             }
             case meshtastic_OnDemandType_REQUEST_PING: {
-                sendPacketToRequester(preparePingResponse(), mp, false);
+                sendPacketToRequester(preparePingResponse(mp), mp, false);
                 break;
             }
             case meshtastic_OnDemandType_REQUEST_PING_ACK: {
-                sendPacketToRequester(preparePingResponseAck(), mp, true);
+                sendPacketToRequester(preparePingResponseAck(mp), mp, true);
                 break;
             }
             case meshtastic_OnDemandType_REQUEST_ROUTING_ERRORS: {
@@ -214,7 +214,7 @@ meshtastic_OnDemand OnDemandModule::prepareRoutingErrorResponse()
     return onDemand;
 }
 
-meshtastic_OnDemand OnDemandModule::preparePingResponse()
+meshtastic_OnDemand OnDemandModule::preparePingResponse(const meshtastic_MeshPacket &mp)
 {   
     meshtastic_OnDemand onDemand = meshtastic_OnDemand_init_zero;
     onDemand.which_variant = meshtastic_OnDemand_response_tag;
@@ -222,16 +222,44 @@ meshtastic_OnDemand OnDemandModule::preparePingResponse()
     onDemand.variant.response.response_type = meshtastic_OnDemandType_RESPONSE_PING;
     onDemand.variant.response.which_response_data = meshtastic_OnDemandResponse_ping_tag;
 
+    if(mp.from != 0x0 && mp.from != nodeDB->getNodeNum()){
+        int hopLimit = mp.hop_limit;
+        int hopStart = mp.hop_start;
+
+        if (hopLimit == hopStart)
+        {
+            onDemand.variant.response.response_data.ping.has_rx_rssi=true;
+            onDemand.variant.response.response_data.ping.has_snr=true;
+
+            onDemand.variant.response.response_data.ping.rx_rssi = mp.rx_rssi;
+            onDemand.variant.response.response_data.ping.snr = mp.rx_snr;
+        }
+    }
+
     return onDemand;
 }
 
-meshtastic_OnDemand OnDemandModule::preparePingResponseAck()
+meshtastic_OnDemand OnDemandModule::preparePingResponseAck(const meshtastic_MeshPacket &mp)
 {
     meshtastic_OnDemand onDemand = meshtastic_OnDemand_init_zero;
     onDemand.which_variant = meshtastic_OnDemand_response_tag;
 
     onDemand.variant.response.response_type = meshtastic_OnDemandType_RESPONSE_PING_ACK;
     onDemand.variant.response.which_response_data = meshtastic_OnDemandResponse_ping_tag;
+
+    if(mp.from != 0x0 && mp.from != nodeDB->getNodeNum()){
+        int hopLimit = mp.hop_limit;
+        int hopStart = mp.hop_start;
+
+        if (hopLimit == hopStart)
+        {
+            onDemand.variant.response.response_data.ping.has_rx_rssi = true;
+            onDemand.variant.response.response_data.ping.has_snr = true;
+
+            onDemand.variant.response.response_data.ping.rx_rssi = mp.rx_rssi;
+            onDemand.variant.response.response_data.ping.snr = mp.rx_snr;
+        }
+    }
 
     return onDemand;
 }
