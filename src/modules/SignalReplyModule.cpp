@@ -51,15 +51,15 @@ ProcessMessage SignalReplyModule::handleReceived(const meshtastic_MeshPacket &cu
         meshtastic_NodeInfoLite *nodeReceiver = nodeDB->getMeshNode(nodeDB->getNodeNum());
         const char *usernameja = nodeReceiver->has_user ? nodeReceiver->user.short_name : idReceipient;
 
-        LOG_ERROR("SignalReplyModule::handleReceived(): '%s' from %s.", messageRequest, username);
+        //LOG_ERROR("SignalReplyModule::handleReceived(): '%s' from %s.", messageRequest, username);
 
         if (hopLimit != hopStart)
         {
-            snprintf(messageReply, sizeof(messageReply), "%s: RSSI/SNR cannot be determined due to indirect connection through %d nodes!", username, (hopLimit - hopStart));
+            snprintf(messageReply, sizeof(messageReply), "%s: indirect via %d nodes!", username, (hopLimit - hopStart));
         }
         else
         {
-            snprintf(messageReply, sizeof(messageReply), "Request '%s'->'%s' : RSSI %d dBm, SNR %.1f dB (@%s).", username, usernameja, currentRequest.rx_rssi, currentRequest.rx_snr, usernameja);
+            snprintf(messageReply, sizeof(messageReply), "'%s'->'%s' : RSSI %d dBm, SNR %.1f dB (@%s).", username, usernameja, currentRequest.rx_rssi, currentRequest.rx_snr, usernameja);
         }
 
         auto reply = allocDataPacket();
@@ -88,10 +88,10 @@ meshtastic_MeshPacket *SignalReplyModule::allocReply()
     auto req = *currentRequest;
     auto &p = req.decoded;
     // The incoming message is in p.payload
-    LOG_INFO("Received message from=0x%0x, id=%d, msg=%.*s", req.from, req.id, p.payload.size, p.payload.bytes);
+    //LOG_INFO("Received message from=0x%0x, id=%d, msg=%.*s", req.from, req.id, p.payload.size, p.payload.bytes);
 #endif
     screen->print("Send reply\n");
-    const char *replyStr = "Message Received";
+    const char *replyStr = "Msg Received";
     auto reply = allocDataPacket();                 // Allocate a packet for sending
     reply->decoded.payload.size = strlen(replyStr); // You must specify how many bytes are in the reply
     memcpy(reply->decoded.payload.bytes, replyStr, reply->decoded.payload.size);
