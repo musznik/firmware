@@ -288,11 +288,6 @@ ErrorCode Router::send(meshtastic_MeshPacket *p)
             abortSendAndNak(encodeResult, p);
             return encodeResult; // FIXME - this isn't a valid ErrorCode
         }
-#if HAS_UDP_MULTICAST
-        if (udpThread && config.network.enabled_protocols & meshtastic_Config_NetworkConfig_ProtocolFlags_UDP_BROADCAST) {
-            udpThread->onSend(const_cast<meshtastic_MeshPacket *>(p));
-        }
-#endif
 #if !MESHTASTIC_EXCLUDE_MQTT
         // Only publish to MQTT if we're the original transmitter of the packet
         if (moduleConfig.mqtt.enabled && isFromUs(p) && mqtt) {
@@ -310,6 +305,12 @@ ErrorCode Router::send(meshtastic_MeshPacket *p)
         m_packetCounter.onPacketReceived(p_decoded);
         packetPool.release(p_decoded);
     }
+
+#if HAS_UDP_MULTICAST
+    if (udpThread && config.network.enabled_protocols & meshtastic_Config_NetworkConfig_ProtocolFlags_UDP_BROADCAST) {
+        udpThread->onSend(const_cast<meshtastic_MeshPacket *>(p));
+    }
+#endif
 
     assert(iface); // This should have been detected already in sendLocal (or we just received a packet from outside)
     
