@@ -1,7 +1,6 @@
 #include "SignalReplyModule.h"
 #include "MeshService.h"
 #include "configuration.h"
-#include "main.h"
 
 SignalReplyModule *signalReplyModule;
 
@@ -45,7 +44,7 @@ ProcessMessage SignalReplyModule::handleReceived(const meshtastic_MeshPacket &cu
         snprintf(idSender, sizeof(idSender), "%d", currentRequest.from);
         snprintf(idReceipient, sizeof(idReceipient), "%d", nodeDB->getNodeNum());
 
-        char messageReply[250];
+        char messageReply[120];
         meshtastic_NodeInfoLite *nodeSender = nodeDB->getMeshNode(currentRequest.from);
         const char *username = nodeSender->has_user ? nodeSender->user.short_name : idSender;
         meshtastic_NodeInfoLite *nodeReceiver = nodeDB->getMeshNode(nodeDB->getNodeNum());
@@ -84,13 +83,6 @@ ProcessMessage SignalReplyModule::handleReceived(const meshtastic_MeshPacket &cu
 meshtastic_MeshPacket *SignalReplyModule::allocReply()
 {
     assert(currentRequest); // should always be !NULL
-#ifdef DEBUG_PORT
-    auto req = *currentRequest;
-    auto &p = req.decoded;
-    // The incoming message is in p.payload
-    //LOG_INFO("Received message from=0x%0x, id=%d, msg=%.*s", req.from, req.id, p.payload.size, p.payload.bytes);
-#endif
-    screen->print("Send reply\n");
     const char *replyStr = "Msg Received";
     auto reply = allocDataPacket();                 // Allocate a packet for sending
     reply->decoded.payload.size = strlen(replyStr); // You must specify how many bytes are in the reply
