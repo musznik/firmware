@@ -266,7 +266,6 @@ void setupModules()
     nodeModModule = new NodeModModule();
     //idleGameModule = new IdleGameModule();
     onDemandModule = new OnDemandModule();
-    routingModule = new RoutingModule();
     signalReplyModule = new SignalReplyModule();
-
+    routingModule = new RoutingModule();
 }
