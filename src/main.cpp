@@ -1330,7 +1330,8 @@ extern meshtastic_DeviceMetadata getDeviceMetadata()
     deviceMetadata.position_flags = config.position.position_flags;
     deviceMetadata.hw_model = HW_VENDOR;
     deviceMetadata.hasRemoteHardware = moduleConfig.remote_hardware.enabled;
-    deviceMetadata.excluded_modules = meshtastic_ExcludedModules_EXCLUDED_NONE;
+    deviceMetadata.hasFwPlus = true;
+    deviceMetadata.hasNodemod = true;
 #if MESHTASTIC_EXCLUDE_REMOTEHARDWARE
     deviceMetadata.excluded_modules |= meshtastic_ExcludedModules_REMOTEHARDWARE_CONFIG;
 #endif
