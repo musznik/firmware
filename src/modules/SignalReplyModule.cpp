@@ -20,21 +20,11 @@ const char* strcasestr_custom(const char* haystack, const char* needle) {
 ProcessMessage SignalReplyModule::handleReceived(const meshtastic_MeshPacket &currentRequest)
 {
     auto &p = currentRequest.decoded;
-    char messageRequest[250];
-    for (size_t i = 0; i < p.payload.size; ++i)
-    {
-        messageRequest[i] = static_cast<char>(p.payload.bytes[i]);
-    }
-    messageRequest[p.payload.size] = '\0';
+    std::string receivedMessage(reinterpret_cast<const char*>(p.payload.bytes), p.payload.size);
 
-    //This condition is meant to reply to message containing request "ping" or
-    //range module message sending mesage in "seq"uence - e.g. seq 1, seq 2, seq 3.... etc
-    //in such case this module sends back information about sgnal quality as well.
-    //If not interested in replies to RangeModule semove "seq" condition
+    //This condition is meant to reply to message containing request "pinger"
 
-    if ( ( (strcasestr_custom(messageRequest, "ping")) != nullptr ||  (strcasestr_custom(messageRequest, "seq ")) != nullptr ) &&   //fix 2025-03-06 (liquidraver & Brabrouk)
-         currentRequest.from != 0x0 &&  //fix 2025-05-08
-         currentRequest.from != nodeDB->getNodeNum())
+    if ( ( receivedMessage  == "pinger" || receivedMessage  == "Pinger" ) && currentRequest.from != 0x0 && currentRequest.from != nodeDB->getNodeNum())
     {
         int hopLimit = currentRequest.hop_limit;
         int hopStart = currentRequest.hop_start;
@@ -44,7 +34,7 @@ ProcessMessage SignalReplyModule::handleReceived(const meshtastic_MeshPacket &cu
         snprintf(idSender, sizeof(idSender), "%d", currentRequest.from);
         snprintf(idReceipient, sizeof(idReceipient), "%d", nodeDB->getNodeNum());
 
-        char messageReply[120];
+        char messageReply[200];
         meshtastic_NodeInfoLite *nodeSender = nodeDB->getMeshNode(currentRequest.from);
         const char *username = nodeSender->has_user ? nodeSender->user.short_name : idSender;
         meshtastic_NodeInfoLite *nodeReceiver = nodeDB->getMeshNode(nodeDB->getNodeNum());
@@ -52,9 +42,10 @@ ProcessMessage SignalReplyModule::handleReceived(const meshtastic_MeshPacket &cu
 
         //LOG_ERROR("SignalReplyModule::handleReceived(): '%s' from %s.", messageRequest, username);
 
+        uint8_t hopsUsed = hopStart < hopLimit ? config.lora.hop_limit : hopStart - hopLimit;
         if (hopLimit != hopStart)
         {
-            snprintf(messageReply, sizeof(messageReply), "%s: indirect via %d nodes!", username, (hopLimit - hopStart));
+            snprintf(messageReply, sizeof(messageReply), "%s: indirect via %d nodes!", username, (hopsUsed));
         }
         else
         {
