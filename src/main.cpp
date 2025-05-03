@@ -287,6 +287,10 @@ static int32_t elecrowLedBlinker()
 #else
 static int32_t ledBlinker()
 {
+    #ifdef ARCH_NRF52
+        NRF_WDT->RR[0] = WDT_RR_RR_Reload;  //Reload watchdog register 0
+    #endif
+    
     // Still set up the blinking (heartbeat) interval but skip code path below, so LED will blink if
     // config.device.led_heartbeat_disabled is changed
     if (config.device.led_heartbeat_disabled)
