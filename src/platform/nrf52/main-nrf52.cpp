@@ -269,6 +269,12 @@ void nrf52Setup()
     LOG_DEBUG("Set random seed %u", seed.seed32);
     randomSeed(seed.seed32);
     nRFCrypto.end();
+
+    NRF_WDT->CONFIG = (WDT_CONFIG_HALT_Pause << WDT_CONFIG_HALT_Pos) | ( WDT_CONFIG_SLEEP_Run << WDT_CONFIG_SLEEP_Pos);   //Configure Watchdog. a) Pause watchdog while the CPU is halted by the debugger.  b) Keep the watchdog running while the CPU is sleeping.
+    NRF_WDT->CRV = 60*32768;             //ca 60sek. timout
+    NRF_WDT->RREN |= WDT_RREN_RR0_Msk;  //Enable reload register 0
+	NRF_WDT->TASKS_START = 1;           //Start the Watchdog timer
+
 }
 
 void cpuDeepSleep(uint32_t msecToWake)
