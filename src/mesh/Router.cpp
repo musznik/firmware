@@ -65,10 +65,6 @@ Router::Router() : concurrency::OSThread("Router"), fromRadioQueue(MAX_RX_FROMRA
  */
 int32_t Router::runOnce()
 {
-#ifdef ARCH_PORTDUINO
-    const std::lock_guard<std::mutex> lock(queueMutex);
-#endif
-
     meshtastic_MeshPacket *mp;
     while ((mp = fromRadioQueue.dequeuePtr(0)) != NULL) {
         // printPacket("handle fromRadioQ", mp);
@@ -85,10 +81,6 @@ int32_t Router::runOnce()
  */
 void Router::enqueueReceivedMessage(meshtastic_MeshPacket *p)
 {
-#ifdef ARCH_PORTDUINO
-    const std::lock_guard<std::mutex> lock(queueMutex);
-#endif
-
     // Try enqueue until successful
     while (!fromRadioQueue.enqueue(p, 0)) {
         meshtastic_MeshPacket *old_p;
