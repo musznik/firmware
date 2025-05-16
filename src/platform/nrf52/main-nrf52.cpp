@@ -250,7 +250,7 @@ void nrf52Setup()
     
     // Add nRF52 Watchdog
     NRF_WDT->CONFIG = (WDT_CONFIG_HALT_Pause << WDT_CONFIG_HALT_Pos) | ( WDT_CONFIG_SLEEP_Run << WDT_CONFIG_SLEEP_Pos);   //Configure Watchdog. a) Pause watchdog while the CPU is halted by the debugger.  b) Keep the watchdog running while the CPU is sleeping.
-    NRF_WDT->CRV = 60*32768;             //ca 1 min. timout
+    NRF_WDT->CRV = 60*32768;             //ca 1 min. timeout
     NRF_WDT->RREN |= WDT_RREN_RR0_Msk;  //Enable reload register 0
     NRF_WDT->TASKS_START = 1;           //Start the Watchdog timer
 
