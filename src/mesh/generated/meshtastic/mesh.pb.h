@@ -1955,7 +1955,7 @@ extern const pb_msgdesc_t meshtastic_ChunkedPayloadResponse_msg;
 #define meshtastic_ClientNotification_size       482
 #define meshtastic_Compressed_size               239
 #define meshtastic_Data_size                     269
-#define meshtastic_DeviceMetadata_size           54
+#define meshtastic_DeviceMetadata_size           60
 #define meshtastic_DuplicatedPublicKey_size      0
 #define meshtastic_FileInfo_size                 236
 #define meshtastic_FromRadio_size                510

@@ -313,6 +313,7 @@ extern "C" {
 
 
 
+
 #define meshtastic_KeyVerificationAdmin_message_type_ENUMTYPE meshtastic_KeyVerificationAdmin_MessageType
 
 
