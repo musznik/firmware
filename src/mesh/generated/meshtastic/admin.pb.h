@@ -133,11 +133,8 @@ typedef struct _meshtastic_SharedContact {
     /* The User of the contact */
     bool has_user;
     meshtastic_User user;
-<<<<<<< HEAD
-=======
     /* Add this contact to the blocked / ignored list */
     bool should_ignore;
->>>>>>> 5e921453240b2d1be6a85c2dbaa35b5f1b1493c4
 } meshtastic_SharedContact;
 
 /* This message is used by a client to initiate or complete a key verification */
@@ -316,10 +313,6 @@ extern "C" {
 
 
 
-<<<<<<< HEAD
-=======
-
->>>>>>> 5e921453240b2d1be6a85c2dbaa35b5f1b1493c4
 #define meshtastic_KeyVerificationAdmin_message_type_ENUMTYPE meshtastic_KeyVerificationAdmin_MessageType
 
 
@@ -328,21 +321,13 @@ extern "C" {
 #define meshtastic_AdminMessage_InputEvent_init_default {0, 0, 0, 0}
 #define meshtastic_HamParameters_init_default    {"", 0, 0, ""}
 #define meshtastic_NodeRemoteHardwarePinsResponse_init_default {0, {meshtastic_NodeRemoteHardwarePin_init_default, meshtastic_NodeRemoteHardwarePin_init_default, meshtastic_NodeRemoteHardwarePin_init_default, meshtastic_NodeRemoteHardwarePin_init_default, meshtastic_NodeRemoteHardwarePin_init_default, meshtastic_NodeRemoteHardwarePin_init_default, meshtastic_NodeRemoteHardwarePin_init_default, meshtastic_NodeRemoteHardwarePin_init_default, meshtastic_NodeRemoteHardwarePin_init_default, meshtastic_NodeRemoteHardwarePin_init_default, meshtastic_NodeRemoteHardwarePin_init_default, meshtastic_NodeRemoteHardwarePin_init_default, meshtastic_NodeRemoteHardwarePin_init_default, meshtastic_NodeRemoteHardwarePin_init_default, meshtastic_NodeRemoteHardwarePin_init_default, meshtastic_NodeRemoteHardwarePin_init_default}}
-<<<<<<< HEAD
-#define meshtastic_SharedContact_init_default    {0, false, meshtastic_User_init_default}
-=======
 #define meshtastic_SharedContact_init_default    {0, false, meshtastic_User_init_default, 0}
->>>>>>> 5e921453240b2d1be6a85c2dbaa35b5f1b1493c4
 #define meshtastic_KeyVerificationAdmin_init_default {_meshtastic_KeyVerificationAdmin_MessageType_MIN, 0, 0, false, 0}
 #define meshtastic_AdminMessage_init_zero        {0, {0}, {0, {0}}}
 #define meshtastic_AdminMessage_InputEvent_init_zero {0, 0, 0, 0}
 #define meshtastic_HamParameters_init_zero       {"", 0, 0, ""}
 #define meshtastic_NodeRemoteHardwarePinsResponse_init_zero {0, {meshtastic_NodeRemoteHardwarePin_init_zero, meshtastic_NodeRemoteHardwarePin_init_zero, meshtastic_NodeRemoteHardwarePin_init_zero, meshtastic_NodeRemoteHardwarePin_init_zero, meshtastic_NodeRemoteHardwarePin_init_zero, meshtastic_NodeRemoteHardwarePin_init_zero, meshtastic_NodeRemoteHardwarePin_init_zero, meshtastic_NodeRemoteHardwarePin_init_zero, meshtastic_NodeRemoteHardwarePin_init_zero, meshtastic_NodeRemoteHardwarePin_init_zero, meshtastic_NodeRemoteHardwarePin_init_zero, meshtastic_NodeRemoteHardwarePin_init_zero, meshtastic_NodeRemoteHardwarePin_init_zero, meshtastic_NodeRemoteHardwarePin_init_zero, meshtastic_NodeRemoteHardwarePin_init_zero, meshtastic_NodeRemoteHardwarePin_init_zero}}
-<<<<<<< HEAD
-#define meshtastic_SharedContact_init_zero       {0, false, meshtastic_User_init_zero}
-=======
 #define meshtastic_SharedContact_init_zero       {0, false, meshtastic_User_init_zero, 0}
->>>>>>> 5e921453240b2d1be6a85c2dbaa35b5f1b1493c4
 #define meshtastic_KeyVerificationAdmin_init_zero {_meshtastic_KeyVerificationAdmin_MessageType_MIN, 0, 0, false, 0}
 
 /* Field tags (for use in manual encoding/decoding) */
@@ -357,10 +342,7 @@ extern "C" {
 #define meshtastic_NodeRemoteHardwarePinsResponse_node_remote_hardware_pins_tag 1
 #define meshtastic_SharedContact_node_num_tag    1
 #define meshtastic_SharedContact_user_tag        2
-<<<<<<< HEAD
-=======
 #define meshtastic_SharedContact_should_ignore_tag 3
->>>>>>> 5e921453240b2d1be6a85c2dbaa35b5f1b1493c4
 #define meshtastic_KeyVerificationAdmin_message_type_tag 1
 #define meshtastic_KeyVerificationAdmin_remote_nodenum_tag 2
 #define meshtastic_KeyVerificationAdmin_nonce_tag 3
@@ -498,8 +480,6 @@ X(a, STATIC,   SINGULAR, BYTES,    session_passkey, 101)
 #define meshtastic_AdminMessage_payload_variant_store_ui_config_MSGTYPE meshtastic_DeviceUIConfig
 #define meshtastic_AdminMessage_payload_variant_add_contact_MSGTYPE meshtastic_SharedContact
 #define meshtastic_AdminMessage_payload_variant_key_verification_MSGTYPE meshtastic_KeyVerificationAdmin
-<<<<<<< HEAD
-=======
 
 #define meshtastic_AdminMessage_InputEvent_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, UINT32,   event_code,        1) \
@@ -508,7 +488,6 @@ X(a, STATIC,   SINGULAR, UINT32,   touch_x,           3) \
 X(a, STATIC,   SINGULAR, UINT32,   touch_y,           4)
 #define meshtastic_AdminMessage_InputEvent_CALLBACK NULL
 #define meshtastic_AdminMessage_InputEvent_DEFAULT NULL
->>>>>>> 5e921453240b2d1be6a85c2dbaa35b5f1b1493c4
 
 #define meshtastic_HamParameters_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, STRING,   call_sign,         1) \
@@ -526,12 +505,8 @@ X(a, STATIC,   REPEATED, MESSAGE,  node_remote_hardware_pins,   1)
 
 #define meshtastic_SharedContact_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, UINT32,   node_num,          1) \
-<<<<<<< HEAD
-X(a, STATIC,   OPTIONAL, MESSAGE,  user,              2)
-=======
 X(a, STATIC,   OPTIONAL, MESSAGE,  user,              2) \
 X(a, STATIC,   SINGULAR, BOOL,     should_ignore,     3)
->>>>>>> 5e921453240b2d1be6a85c2dbaa35b5f1b1493c4
 #define meshtastic_SharedContact_CALLBACK NULL
 #define meshtastic_SharedContact_DEFAULT NULL
 #define meshtastic_SharedContact_user_MSGTYPE meshtastic_User
@@ -566,11 +541,7 @@ extern const pb_msgdesc_t meshtastic_KeyVerificationAdmin_msg;
 #define meshtastic_HamParameters_size            31
 #define meshtastic_KeyVerificationAdmin_size     25
 #define meshtastic_NodeRemoteHardwarePinsResponse_size 496
-<<<<<<< HEAD
-#define meshtastic_SharedContact_size            123
-=======
 #define meshtastic_SharedContact_size            125
->>>>>>> 5e921453240b2d1be6a85c2dbaa35b5f1b1493c4
 
 #ifdef __cplusplus
 } /* extern "C" */

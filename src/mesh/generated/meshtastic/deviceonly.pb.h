@@ -360,11 +360,7 @@ extern const pb_msgdesc_t meshtastic_BackupPreferences_msg;
 /* Maximum encoded size of messages (where known) */
 /* meshtastic_NodeDatabase_size depends on runtime parameters */
 #define MESHTASTIC_MESHTASTIC_DEVICEONLY_PB_H_MAX_SIZE meshtastic_BackupPreferences_size
-<<<<<<< HEAD
-#define meshtastic_BackupPreferences_size        3081
-=======
 #define meshtastic_BackupPreferences_size        2271
->>>>>>> 5e921453240b2d1be6a85c2dbaa35b5f1b1493c4
 #define meshtastic_ChannelFile_size              718
 #define meshtastic_DeviceState_size              1722
 #define meshtastic_NodeInfoLite_size             196

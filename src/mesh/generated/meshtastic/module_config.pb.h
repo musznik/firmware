@@ -1189,16 +1189,6 @@ extern const pb_msgdesc_t meshtastic_RemoteHardwarePin_msg;
 #define meshtastic_ModuleConfig_CannedMessageConfig_size 49
 #define meshtastic_ModuleConfig_DetectionSensorConfig_size 44
 #define meshtastic_ModuleConfig_ExternalNotificationConfig_size 42
-<<<<<<< HEAD
-#define meshtastic_ModuleConfig_IdleGameAction_size 11
-#define meshtastic_ModuleConfig_IdleGameAlliance_size 9
-#define meshtastic_ModuleConfig_IdleGameConfig_size 483
-#define meshtastic_ModuleConfig_IdleGameKnownVillages_size 480
-#define meshtastic_ModuleConfig_IdleGamePatron_size 6
-#define meshtastic_ModuleConfig_IdleGameRelations_size 76
-#define meshtastic_ModuleConfig_IdleGameState_size 46
-=======
->>>>>>> 5e921453240b2d1be6a85c2dbaa35b5f1b1493c4
 #define meshtastic_ModuleConfig_MQTTConfig_size  224
 #define meshtastic_ModuleConfig_MapReportSettings_size 14
 #define meshtastic_ModuleConfig_NeighborInfoConfig_size 10
@@ -1210,11 +1200,7 @@ extern const pb_msgdesc_t meshtastic_RemoteHardwarePin_msg;
 #define meshtastic_ModuleConfig_SerialConfig_size 28
 #define meshtastic_ModuleConfig_StoreForwardConfig_size 24
 #define meshtastic_ModuleConfig_TelemetryConfig_size 46
-<<<<<<< HEAD
-#define meshtastic_ModuleConfig_size             487
-=======
 #define meshtastic_ModuleConfig_size             227
->>>>>>> 5e921453240b2d1be6a85c2dbaa35b5f1b1493c4
 #define meshtastic_RemoteHardwarePin_size        21
 
 #ifdef __cplusplus

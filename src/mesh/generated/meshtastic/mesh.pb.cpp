@@ -60,15 +60,12 @@ PB_BIND(meshtastic_KeyVerificationNumberRequest, meshtastic_KeyVerificationNumbe
 PB_BIND(meshtastic_KeyVerificationFinal, meshtastic_KeyVerificationFinal, AUTO)
 
 
-<<<<<<< HEAD
-=======
 PB_BIND(meshtastic_DuplicatedPublicKey, meshtastic_DuplicatedPublicKey, AUTO)
 
 
 PB_BIND(meshtastic_LowEntropyKey, meshtastic_LowEntropyKey, AUTO)
 
 
->>>>>>> 5e921453240b2d1be6a85c2dbaa35b5f1b1493c4
 PB_BIND(meshtastic_FileInfo, meshtastic_FileInfo, AUTO)
 
 
