@@ -527,7 +527,6 @@ void RadioInterface::applyModemConfig()
     }
 
     power = loraConfig.tx_power;
- 
     if (power == 0)
         power = 17; // Default to this power level if we don't have a valid regional power limit (powerLimit of myRegion defaults
                     // to 0, currently no region has an actual power limit of 0 [dBm] so we can assume regions which have this
@@ -613,7 +612,12 @@ void RadioInterface::limitPower()
         power = maxPower;
     }
 
-    LOG_INFO("Set radio: final power level=%d", power);
+    if (TX_GAIN_LORA > 0) {
+        LOG_INFO("Requested Tx power: %d dBm; Device LoRa Tx gain: %d dB", power, TX_GAIN_LORA);
+        power -= TX_GAIN_LORA;
+    }
+
+    LOG_INFO("Final Tx power: %d dBm", power);
 }
 
 void RadioInterface::deliverToReceiver(meshtastic_MeshPacket *p)

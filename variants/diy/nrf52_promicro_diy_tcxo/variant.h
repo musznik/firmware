@@ -185,6 +185,12 @@ settings.
 #define SX126X_DIO3_TCXO_VOLTAGE 1.8
 #define TCXO_OPTIONAL // make it so that the firmware can try both TCXO and XTAL
 
+// E-Ink DIY
+#define PIN_EINK_CS (32 + 7)
+#define PIN_EINK_DC (32 + 2)
+#define PIN_EINK_RES (32 + 1)
+#define PIN_EINK_BUSY (32 + 6)
+
 #ifdef __cplusplus
 }
 #endif

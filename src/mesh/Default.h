@@ -22,6 +22,7 @@
 #define default_neighbor_info_broadcast_secs 5 * 60 * 60
 #define min_node_info_broadcast_secs 30 * 60 // No regular broadcasts of more than once an hour
 #define min_neighbor_info_broadcast_secs 1 * 60 * 60
+#define default_map_publish_interval_secs 60 * 60
 
 #define default_mqtt_address "loranet.pl"
 #define default_mqtt_username ""
@@ -36,6 +37,8 @@
 #define default_chantxutil_user_additional 5
 #define default_autoresponder_enabled false
 #define default_autoredirect_messages_enabled false
+#define default_mqtt_encryption_enabled true
+#define default_mqtt_tls_enabled false
 
 #define IF_ROUTER(routerVal, normalVal)                                                                                          \
     ((config.device.role == meshtastic_Config_DeviceConfig_Role_ROUTER) ? (routerVal) : (normalVal))
