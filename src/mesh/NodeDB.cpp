@@ -343,6 +343,22 @@ NodeDB::NodeDB()
         moduleConfig.telemetry.health_update_interval = Default::getConfiguredOrMinimumValue(
             moduleConfig.telemetry.health_update_interval, min_default_telemetry_interval_secs);
     }
+    // FIXME: UINT32_MAX intervals overflows Apple clients until they are fully patched
+    if (config.device.node_info_broadcast_secs > MAX_INTERVAL)
+        config.device.node_info_broadcast_secs = MAX_INTERVAL;
+    if (config.position.position_broadcast_secs > MAX_INTERVAL)
+        config.position.position_broadcast_secs = MAX_INTERVAL;
+    if (moduleConfig.neighbor_info.update_interval > MAX_INTERVAL)
+        moduleConfig.neighbor_info.update_interval = MAX_INTERVAL;
+    if (moduleConfig.telemetry.device_update_interval > MAX_INTERVAL)
+        moduleConfig.telemetry.device_update_interval = MAX_INTERVAL;
+    if (moduleConfig.telemetry.environment_update_interval > MAX_INTERVAL)
+        moduleConfig.telemetry.environment_update_interval = MAX_INTERVAL;
+    if (moduleConfig.telemetry.air_quality_interval > MAX_INTERVAL)
+        moduleConfig.telemetry.air_quality_interval = MAX_INTERVAL;
+    if (moduleConfig.telemetry.health_update_interval > MAX_INTERVAL)
+        moduleConfig.telemetry.health_update_interval = MAX_INTERVAL;
+
     if (moduleConfig.mqtt.has_map_report_settings &&
         moduleConfig.mqtt.map_report_settings.publish_interval_secs < default_map_publish_interval_secs) {
         moduleConfig.mqtt.map_report_settings.publish_interval_secs = default_map_publish_interval_secs;
@@ -356,6 +372,14 @@ NodeDB::NodeDB()
     if (owner.is_licensed) {
         config.device.rebroadcast_mode = meshtastic_Config_DeviceConfig_RebroadcastMode_LOCAL_ONLY;
     }
+
+#if !HAS_TFT
+    if (config.display.displaymode == meshtastic_Config_DisplayConfig_DisplayMode_COLOR) {
+        // On a device without MUI, this display mode makes no sense, and will break logic.
+        config.display.displaymode = meshtastic_Config_DisplayConfig_DisplayMode_DEFAULT;
+        config.bluetooth.enabled = true;
+    }
+#endif
 
     if (devicestateCRC != crc32Buffer(&devicestate, sizeof(devicestate)))
         saveWhat |= SEGMENT_DEVICESTATE;
@@ -395,6 +419,7 @@ NodeDB::NodeDB()
 #endif
     }
 #endif
+    sortMeshDB();
     saveToDisk(saveWhat);
 }
 
@@ -759,7 +784,7 @@ void NodeDB::installDefaultModuleConfig()
     moduleConfig.external_notification.alert_message_buzzer = true;
     moduleConfig.external_notification.nag_timeout = 60;
 #endif
-#if defined(RAK4630) || defined(RAK11310)
+#if defined(RAK4630) || defined(RAK11310) || defined(RAK3312)
     // Default to RAK led pin 2 (blue)
     moduleConfig.external_notification.enabled = true;
     moduleConfig.external_notification.output = PIN_LED2;
@@ -866,10 +891,12 @@ void NodeDB::installRoleDefaults(meshtastic_Config_DeviceConfig_Role role)
     if (role == meshtastic_Config_DeviceConfig_Role_ROUTER) {
         initConfigIntervals();
         initModuleConfigIntervals();
+        moduleConfig.telemetry.device_update_interval = default_telemetry_broadcast_interval_secs;
         config.device.rebroadcast_mode = meshtastic_Config_DeviceConfig_RebroadcastMode_ALL;
         owner.has_is_unmessagable = true;
         owner.is_unmessagable = true;
     } else if (role == meshtastic_Config_DeviceConfig_Role_ROUTER_LATE) {
+        moduleConfig.telemetry.device_update_interval = ONE_DAY;
         owner.has_is_unmessagable = true;
         owner.is_unmessagable = true;
     } else if (role == meshtastic_Config_DeviceConfig_Role_REPEATER) {
@@ -880,6 +907,7 @@ void NodeDB::installRoleDefaults(meshtastic_Config_DeviceConfig_Role role)
     } else if (role == meshtastic_Config_DeviceConfig_Role_SENSOR) {
         owner.has_is_unmessagable = true;
         owner.is_unmessagable = true;
+        moduleConfig.telemetry.device_update_interval = default_telemetry_broadcast_interval_secs;
         moduleConfig.telemetry.environment_measurement_enabled = true;
         moduleConfig.telemetry.environment_update_interval = 300;
     } else if (role == meshtastic_Config_DeviceConfig_Role_LOST_AND_FOUND) {
@@ -897,6 +925,7 @@ void NodeDB::installRoleDefaults(meshtastic_Config_DeviceConfig_Role role)
     } else if (role == meshtastic_Config_DeviceConfig_Role_TRACKER) {
         owner.has_is_unmessagable = true;
         owner.is_unmessagable = true;
+        moduleConfig.telemetry.device_update_interval = default_telemetry_broadcast_interval_secs;
     } else if (role == meshtastic_Config_DeviceConfig_Role_TAK_TRACKER) {
         owner.has_is_unmessagable = true;
         owner.is_unmessagable = true;
@@ -912,21 +941,25 @@ void NodeDB::installRoleDefaults(meshtastic_Config_DeviceConfig_Role role)
         moduleConfig.telemetry.device_update_interval = ONE_DAY;
     } else if (role == meshtastic_Config_DeviceConfig_Role_CLIENT_HIDDEN) {
         config.device.rebroadcast_mode = meshtastic_Config_DeviceConfig_RebroadcastMode_LOCAL_ONLY;
-        config.device.node_info_broadcast_secs = UINT32_MAX;
+        config.device.node_info_broadcast_secs = MAX_INTERVAL;
         config.position.position_broadcast_smart_enabled = false;
-        config.position.position_broadcast_secs = UINT32_MAX;
-        moduleConfig.neighbor_info.update_interval = UINT32_MAX;
-        moduleConfig.telemetry.device_update_interval = UINT32_MAX;
-        moduleConfig.telemetry.environment_update_interval = UINT32_MAX;
-        moduleConfig.telemetry.air_quality_interval = UINT32_MAX;
-        moduleConfig.telemetry.health_update_interval = UINT32_MAX;
+        config.position.position_broadcast_secs = MAX_INTERVAL;
+        moduleConfig.neighbor_info.update_interval = MAX_INTERVAL;
+        moduleConfig.telemetry.device_update_interval = MAX_INTERVAL;
+        moduleConfig.telemetry.environment_update_interval = MAX_INTERVAL;
+        moduleConfig.telemetry.air_quality_interval = MAX_INTERVAL;
+        moduleConfig.telemetry.health_update_interval = MAX_INTERVAL;
     }
 }
 
 void NodeDB::initModuleConfigIntervals()
 {
     // Zero out telemetry intervals so that they coalesce to defaults in Default.h
-    moduleConfig.telemetry.device_update_interval = 0;
+#ifdef USERPREFS_CONFIG_DEVICE_TELEM_UPDATE_INTERVAL
+    moduleConfig.telemetry.device_update_interval = USERPREFS_CONFIG_DEVICE_TELEM_UPDATE_INTERVAL;
+#else
+    moduleConfig.telemetry.device_update_interval = MAX_INTERVAL;
+#endif
     moduleConfig.telemetry.environment_update_interval = 0;
     moduleConfig.telemetry.air_quality_interval = 0;
     moduleConfig.telemetry.power_update_interval = 0;
@@ -992,7 +1025,10 @@ void NodeDB::cleanupMeshDB()
                     meshNodes->at(i).user.public_key.size = 0;
                 }
             }
-            meshNodes->at(newPos++) = meshNodes->at(i);
+            if (newPos != i)
+                meshNodes->at(newPos++) = meshNodes->at(i);
+            else
+                newPos++;
         } else {
             removed++;
         }
@@ -1079,8 +1115,8 @@ LoadFileResult NodeDB::loadProto(const char *filename, size_t protoSize, size_t 
     if (f) {
         LOG_INFO("Load %s", filename);
         pb_istream_t stream = {&readcb, &f, protoSize};
-
-        memset(dest_struct, 0, objSize);
+        if (fields != &meshtastic_NodeDatabase_msg) // contains a vector object
+            memset(dest_struct, 0, objSize);
         if (!pb_decode(&stream, fields, dest_struct)) {
             LOG_ERROR("Error: can't decode protobuf %s", PB_GET_ERROR(&stream));
             state = LoadFileResult::DECODE_FAILED;
@@ -1576,6 +1612,7 @@ void NodeDB::addFromContact(meshtastic_SharedContact contact)
         // Mark the node's key as manually verified to indicate trustworthiness.
         updateGUIforNode = info;
         // powerFSM.trigger(EVENT_NODEDB_UPDATED); This event has been retired
+        sortMeshDB();
         notifyObservers(true); // Force an update whether or not our node counts have changed
     }
     saveNodeDatabaseToDisk();
@@ -1679,6 +1716,52 @@ void NodeDB::updateFrom(const meshtastic_MeshPacket &mp)
             info->has_hops_away = true;
             info->hops_away = mp.hop_start - mp.hop_limit;
         }
+        sortMeshDB();
+    }
+}
+
+void NodeDB::set_favorite(bool is_favorite, uint32_t nodeId)
+{
+    meshtastic_NodeInfoLite *lite = getMeshNode(nodeId);
+    if (lite && lite->is_favorite != is_favorite) {
+        lite->is_favorite = is_favorite;
+        sortMeshDB();
+        saveNodeDatabaseToDisk();
+    }
+}
+
+void NodeDB::pause_sort(bool paused)
+{
+    sortingIsPaused = paused;
+}
+
+void NodeDB::sortMeshDB()
+{
+    if (!sortingIsPaused && (lastSort == 0 || !Throttle::isWithinTimespanMs(lastSort, 1000 * 5))) {
+        lastSort = millis();
+        bool changed = true;
+        while (changed) { // dumb reverse bubble sort, but probably not bad for what we're doing
+            changed = false;
+            for (int i = numMeshNodes - 1; i > 0; i--) { // lowest case this should examine is i == 1
+                if (meshNodes->at(i - 1).num == getNodeNum()) {
+                    // noop
+                } else if (meshNodes->at(i).num ==
+                           getNodeNum()) { // in the oddball case our own node num is not at location 0, put it there
+                    // TODO: Look for at(i-1) also matching own node num, and throw the DB in the trash
+                    std::swap(meshNodes->at(i), meshNodes->at(i - 1));
+                    changed = true;
+                } else if (meshNodes->at(i).is_favorite && !meshNodes->at(i - 1).is_favorite) {
+                    std::swap(meshNodes->at(i), meshNodes->at(i - 1));
+                    changed = true;
+                } else if (!meshNodes->at(i).is_favorite && meshNodes->at(i - 1).is_favorite) {
+                    // noop
+                } else if (meshNodes->at(i).last_heard > meshNodes->at(i - 1).last_heard) {
+                    std::swap(meshNodes->at(i), meshNodes->at(i - 1));
+                    changed = true;
+                }
+            }
+        }
+        LOG_INFO("Sort took %u milliseconds", millis() - lastSort);
     }
 }
 
