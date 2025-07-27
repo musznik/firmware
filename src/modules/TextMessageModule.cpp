@@ -9,6 +9,7 @@
 #include <sstream>
 #undef round
 #define NUM_ONLINE_SECS (60 * 60 * 2) // 2 hrs to consider someone offline
+#include "graphics/Screen.h"
 TextMessageModule *textMessageModule;
 
 ProcessMessage TextMessageModule::handleReceived(const meshtastic_MeshPacket &mp)
@@ -23,7 +24,7 @@ ProcessMessage TextMessageModule::handleReceived(const meshtastic_MeshPacket &mp
     devicestate.has_rx_text_message = true;
 
     std::string receivedMessage(reinterpret_cast<const char*>(p.payload.bytes), p.payload.size);
- 
+
     if(!isBroadcast(mp.to) && mp.to == nodeDB->getNodeNum())
     {
         if(moduleConfig.nodemodadmin.auto_responder_enabled){
@@ -35,7 +36,10 @@ ProcessMessage TextMessageModule::handleReceived(const meshtastic_MeshPacket &mp
         }
     }
 
-    powerFSM.trigger(EVENT_RECEIVED_MSG);
+    // Only trigger screen wake if configuration allows it
+    if (shouldWakeOnReceivedMessage()) {
+        powerFSM.trigger(EVENT_RECEIVED_MSG);
+    }
     notifyObservers(&mp);
 
     return ProcessMessage::CONTINUE; // Let others look at this message also if they want
