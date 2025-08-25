@@ -86,8 +86,11 @@ meshtastic_MeshPacket *MeshModule::allocErrorResponse(meshtastic_Routing_Error e
     return r;
 }
 
-void MeshModule::callModules(meshtastic_MeshPacket &mp, RxSource src)
+void MeshModule::callModules(meshtastic_MeshPacket &mp, RxSource src, const char *specificModule)
 {
+    if (specificModule) {
+        LOG_DEBUG("Calling specific module: %s", specificModule);
+    }
     // LOG_DEBUG("In call modules");
     bool moduleFound = false;
 
@@ -104,6 +107,11 @@ void MeshModule::callModules(meshtastic_MeshPacket &mp, RxSource src)
 
     for (auto i = modules->begin(); i != modules->end(); ++i) {
         auto &pi = **i;
+
+        // If specificModule is provided, only call that specific module
+        if (specificModule && (!pi.name || strcmp(pi.name, specificModule) != 0)) {
+            continue;
+        }
 
         pi.currentRequest = &mp;
 

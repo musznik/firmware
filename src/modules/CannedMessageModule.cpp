@@ -40,6 +40,9 @@ extern ScanI2C::DeviceAddress cardkb_found;
 extern bool graphics::isMuted;
 
 static const char *cannedMessagesConfigFile = "/prefs/cannedConf.proto";
+static NodeNum lastDest = NODENUM_BROADCAST;
+static uint8_t lastChannel = 0;
+static bool lastDestSet = false;
 
 meshtastic_CannedMessageModuleConfig cannedMessageModuleConfig;
 
@@ -63,18 +66,27 @@ CannedMessageModule::CannedMessageModule()
 
 void CannedMessageModule::LaunchWithDestination(NodeNum newDest, uint8_t newChannel)
 {
+    // Use the requested destination, unless it's "broadcast" and we have a previous node/channel
+    if (newDest == NODENUM_BROADCAST && lastDestSet) {
+        newDest = lastDest;
+        newChannel = lastChannel;
+    }
     dest = newDest;
     channel = newChannel;
-    // Always select the first real canned message on activation
-    int firstRealMsgIdx = 0;
+    lastDest = dest;
+    lastChannel = channel;
+    lastDestSet = true;
+
+    // Rest of function unchanged...
+    // Upon activation, highlight "[Select Destination]"
+    int selectDestination = 0;
     for (int i = 0; i < messagesCount; ++i) {
-        if (strcmp(messages[i], "[Select Destination]") != 0 && strcmp(messages[i], "[Exit]") != 0 &&
-            strcmp(messages[i], "[---- Free Text ----]") != 0) {
-            firstRealMsgIdx = i;
+        if (strcmp(messages[i], "[Select Destination]") == 0) {
+            selectDestination = i;
             break;
         }
     }
-    currentMessageIndex = firstRealMsgIdx;
+    currentMessageIndex = selectDestination;
 
     // This triggers the canned message list
     runState = CANNED_MESSAGE_RUN_STATE_ACTIVE;
@@ -84,10 +96,28 @@ void CannedMessageModule::LaunchWithDestination(NodeNum newDest, uint8_t newChan
     notifyObservers(&e);
 }
 
+void CannedMessageModule::LaunchRepeatDestination()
+{
+    if (!lastDestSet) {
+        LaunchWithDestination(NODENUM_BROADCAST, 0);
+    } else {
+        LaunchWithDestination(lastDest, lastChannel);
+    }
+}
+
 void CannedMessageModule::LaunchFreetextWithDestination(NodeNum newDest, uint8_t newChannel)
 {
+    // Use the requested destination, unless it's "broadcast" and we have a previous node/channel
+    if (newDest == NODENUM_BROADCAST && lastDestSet) {
+        newDest = lastDest;
+        newChannel = lastChannel;
+    }
     dest = newDest;
     channel = newChannel;
+    lastDest = dest;
+    lastChannel = channel;
+    lastDestSet = true;
+
     runState = CANNED_MESSAGE_RUN_STATE_FREETEXT;
     requestFocus();
     UIFrameEvent e;
@@ -479,6 +509,9 @@ int CannedMessageModule::handleDestinationSelectionInput(const InputEvent *event
         if (destIndex < static_cast<int>(activeChannelIndices.size())) {
             dest = NODENUM_BROADCAST;
             channel = activeChannelIndices[destIndex];
+            lastDest = dest;
+            lastChannel = channel;
+            lastDestSet = true;
         } else {
             int nodeIndex = destIndex - static_cast<int>(activeChannelIndices.size());
             if (nodeIndex >= 0 && nodeIndex < static_cast<int>(filteredNodes.size())) {
@@ -486,6 +519,10 @@ int CannedMessageModule::handleDestinationSelectionInput(const InputEvent *event
                 if (selectedNode) {
                     dest = selectedNode->num;
                     channel = selectedNode->channel;
+                    // Already saves here, but for clarity, also:
+                    lastDest = dest;
+                    lastChannel = channel;
+                    lastDestSet = true;
                 }
             }
         }
@@ -595,8 +632,27 @@ bool CannedMessageModule::handleMessageSelectorInput(const InputEvent *event, bo
         // Normal canned message selection
         if (runState == CANNED_MESSAGE_RUN_STATE_INACTIVE || runState == CANNED_MESSAGE_RUN_STATE_DISABLED) {
         } else {
+            // Show confirmation dialog before sending canned message
+            NodeNum destNode = dest;
+            ChannelIndex chan = channel;
+#if CANNED_MESSAGE_ADD_CONFIRMATION
+            graphics::menuHandler::showConfirmationBanner("Send message?", [this, destNode, chan, current]() {
+                this->sendText(destNode, chan, current, false);
+                payload = runState;
+                runState = CANNED_MESSAGE_RUN_STATE_INACTIVE;
+                currentMessageIndex = -1;
+
+                // Notify UI to regenerate frame set and redraw
+                UIFrameEvent e;
+                e.action = UIFrameEvent::Action::REGENERATE_FRAMESET;
+                notifyObservers(&e);
+                screen->forceDisplay();
+            });
+#else
             payload = runState;
             runState = CANNED_MESSAGE_RUN_STATE_ACTION_SELECT;
+#endif
+            // Do not immediately set runState; wait for confirmation
             handled = true;
         }
     }
@@ -827,6 +883,9 @@ int CannedMessageModule::handleEmotePickerInput(const InputEvent *event)
 
 void CannedMessageModule::sendText(NodeNum dest, ChannelIndex channel, const char *message, bool wantReplies)
 {
+    lastDest = dest;
+    lastChannel = channel;
+    lastDestSet = true;
     // === Prepare packet ===
     meshtastic_MeshPacket *p = allocDataPacket();
     p->to = dest;
@@ -939,17 +998,16 @@ int32_t CannedMessageModule::runOnce()
         this->notifyObservers(&e);
         return 2000;
     }
-    // Always highlight the first real canned message when entering the message list
+    // Highlight [Select Destination] initially when entering the message list
     else if ((this->runState != CANNED_MESSAGE_RUN_STATE_FREETEXT) && (this->currentMessageIndex == -1)) {
-        int firstRealMsgIdx = 0;
+        int selectDestination = 0;
         for (int i = 0; i < this->messagesCount; ++i) {
-            if (strcmp(this->messages[i], "[Select Destination]") != 0 && strcmp(this->messages[i], "[Exit]") != 0 &&
-                strcmp(this->messages[i], "[---- Free Text ----]") != 0) {
-                firstRealMsgIdx = i;
+            if (strcmp(this->messages[i], "[Select Destination]") == 0) {
+                selectDestination = i;
                 break;
             }
         }
-        this->currentMessageIndex = firstRealMsgIdx;
+        this->currentMessageIndex = selectDestination;
         e.action = UIFrameEvent::Action::REGENERATE_FRAMESET;
         this->runState = CANNED_MESSAGE_RUN_STATE_ACTIVE;
     } else if (this->runState == CANNED_MESSAGE_RUN_STATE_ACTION_UP) {
@@ -1711,7 +1769,7 @@ void CannedMessageModule::drawFrame(OLEDDisplay *display, OLEDDisplayUiState *st
                     // Text: split by words and wrap inside word if needed
                     String text = token.second;
                     pos = 0;
-                    while (pos < text.length()) {
+                    while (pos < static_cast<int>(text.length())) {
                         // Find next space (or end)
                         int spacePos = text.indexOf(' ', pos);
                         int endPos = (spacePos == -1) ? text.length() : spacePos + 1; // Include space
