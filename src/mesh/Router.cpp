@@ -227,7 +227,6 @@ ErrorCode Router::send(meshtastic_MeshPacket *p)
     if (!config.lora.override_duty_cycle && myRegion->dutyCycle < 100) {
         float hourlyTxPercent = airTime->utilizationTXPercent();
         if (hourlyTxPercent > (myRegion->dutyCycle+moduleConfig.nodemodadmin.additional_txutil)) {
-#ifdef DEBUG_PORT
             uint8_t silentMinutes = airTime->getSilentMinutes(hourlyTxPercent, myRegion->dutyCycle+float(moduleConfig.nodemodadmin.additional_txutil));
             LOG_WARN("Duty cycle limit exceeded. Aborting send for now, you can send again in %d mins", silentMinutes);
 
@@ -546,8 +545,7 @@ meshtastic_Routing_Error perhapsEncode(meshtastic_MeshPacket *p)
             // Don't use PKC with Ham mode
             !owner.is_licensed &&
             // Don't use PKC on 'serial' or 'gpio' channels unless explicitly requested
-            !(p->pki_encrypted != true && (strcasecmp(channels.getName(chIndex), Channels::serialChannel) == 0 ||
-                                           strcasecmp(channels.getName(chIndex), Channels::gpioChannel) == 0)) &&
+            !(p->pki_encrypted != true && p->channel > 0) &&
             // Check for valid keys and single node destination
             config.security.private_key.size == 32 && !isBroadcast(p->to) && node != nullptr &&
             // Check for a known public key for the destination
