@@ -110,6 +110,8 @@ typedef struct _meshtastic_NodeStats {
     uint32_t blocked_by_hoplimit;
     bool has_fw_plus_version;
     uint32_t fw_plus_version;
+    bool has_rebroadcast_mode;
+    uint32_t rebroadcast_mode;
 } meshtastic_NodeStats;
 
 typedef struct _meshtastic_RxPacketHistory {
@@ -251,7 +253,7 @@ extern "C" {
 
 /* Initializer values for message structs */
 #define meshtastic_FwPlusVersion_init_default    {0}
-#define meshtastic_NodeStats_init_default        {false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, "", false, 0, false, 0}
+#define meshtastic_NodeStats_init_default        {false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, "", false, 0, false, 0, false, 0}
 #define meshtastic_RxPacketHistory_init_default  {0, {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}}
 #define meshtastic_RxAvgTimeHistory_init_default {0, {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}}
 #define meshtastic_PortCounterEntry_init_default {0, 0}
@@ -269,7 +271,7 @@ extern "C" {
 #define meshtastic_OnDemandResponse_init_default {_meshtastic_OnDemandType_MIN, 0, {meshtastic_RxPacketHistory_init_default}}
 #define meshtastic_OnDemand_init_default         {false, 0, false, 0, 0, {meshtastic_OnDemandRequest_init_default}}
 #define meshtastic_FwPlusVersion_init_zero       {0}
-#define meshtastic_NodeStats_init_zero           {false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, "", false, 0, false, 0}
+#define meshtastic_NodeStats_init_zero           {false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, "", false, 0, false, 0, false, 0}
 #define meshtastic_RxPacketHistory_init_zero     {0, {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}}
 #define meshtastic_RxAvgTimeHistory_init_zero    {0, {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}}
 #define meshtastic_PortCounterEntry_init_zero    {0, 0}
@@ -323,6 +325,7 @@ extern "C" {
 #define meshtastic_NodeStats_firmware_version_tag 32
 #define meshtastic_NodeStats_blocked_by_hoplimit_tag 33
 #define meshtastic_NodeStats_fw_plus_version_tag 34
+#define meshtastic_NodeStats_rebroadcast_mode_tag 35
 #define meshtastic_RxPacketHistory_rx_packet_history_tag 1
 #define meshtastic_RxAvgTimeHistory_rx_avg_history_tag 1
 #define meshtastic_PortCounterEntry_port_tag     1
@@ -405,7 +408,8 @@ X(a, STATIC,   OPTIONAL, UINT32,   flood_counter,    30) \
 X(a, STATIC,   OPTIONAL, UINT32,   nexthop_counter,  31) \
 X(a, STATIC,   OPTIONAL, STRING,   firmware_version,  32) \
 X(a, STATIC,   OPTIONAL, UINT32,   blocked_by_hoplimit,  33) \
-X(a, STATIC,   OPTIONAL, UINT32,   fw_plus_version,  34)
+X(a, STATIC,   OPTIONAL, UINT32,   fw_plus_version,  34) \
+X(a, STATIC,   OPTIONAL, UINT32,   rebroadcast_mode,  35)
 #define meshtastic_NodeStats_CALLBACK NULL
 #define meshtastic_NodeStats_DEFAULT NULL
 
@@ -578,7 +582,7 @@ extern const pb_msgdesc_t meshtastic_OnDemand_msg;
 #define meshtastic_ExchangeList_size             240
 #define meshtastic_FwPlusVersion_size            6
 #define meshtastic_NodeEntry_size                69
-#define meshtastic_NodeStats_size                227
+#define meshtastic_NodeStats_size                234
 #define meshtastic_NodesList_size                710
 #define meshtastic_OnDemandRequest_size          2
 #define meshtastic_OnDemandResponse_size         715
