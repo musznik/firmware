@@ -662,7 +662,7 @@ void Router::handleReceived(meshtastic_MeshPacket *p, RxSource src)
                        meshtastic_PortNum_KEY_VERIFICATION_APP, meshtastic_PortNum_WAYPOINT_APP,
                        meshtastic_PortNum_STORE_FORWARD_APP, meshtastic_PortNum_TRACEROUTE_APP,
                        meshtastic_PortNum_ON_DEMAND_APP, meshtastic_PortNum_NODE_MOD_APP,
-                       meshtastic_PortNum_PRIVATE_APP, meshtastic_PortNum_IDLE_GAME_APP,
+                       meshtastic_PortNum_PRIVATE_APP, meshtastic_PortNum_IDLE_GAME_APP
                     )) {
             LOG_DEBUG("Ignore packet on non-standard portnum for CORE_PORTNUMS_ONLY");
             cancelSending(p->from, p->id);
