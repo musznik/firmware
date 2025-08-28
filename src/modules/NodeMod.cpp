@@ -62,8 +62,11 @@ void NodeModModule::sendToPhone()
  
 void NodeModModule::sendToMesh(bool statusChanged)
 {
-    bool allowedByDefault = ((lastSentToMesh == 0) || ((uptimeLastMs - lastSentToMesh) >= (1800 * 1000) && airTime->isTxAllowedAirUtil() && airTime->isTxAllowedChannelUtil(false)));
-    bool allowedDueToStatusChange = (statusChanged == true && (uptimeLastMs - lastSentToMesh) >= (300 * 1000) && airTime->isTxAllowedAirUtil() && airTime->isTxAllowedChannelUtil(false));
+    uint32_t baseIntervalMs = Default::getConfiguredOrDefaultMsScaled(0, default_telemetry_broadcast_interval_secs, numOnlineNodes);
+    uint32_t statusChangeIntervalMs = Default::getConfiguredOrDefaultMsScaled(0, 300, numOnlineNodes);
+
+    bool allowedByDefault = ((lastSentToMesh == 0) || (((uptimeLastMs - lastSentToMesh) >= baseIntervalMs) && airTime->isTxAllowedAirUtil() && airTime->isTxAllowedChannelUtil(false)));
+    bool allowedDueToStatusChange = (statusChanged == true && ((uptimeLastMs - lastSentToMesh) >= statusChangeIntervalMs) && airTime->isTxAllowedAirUtil() && airTime->isTxAllowedChannelUtil(false));
 
     if (allowedByDefault || allowedDueToStatusChange)
     {
