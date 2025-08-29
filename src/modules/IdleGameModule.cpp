@@ -33,7 +33,7 @@ int32_t IdleGameModule::runOnce()
         //         devicestate.owner.long_name);
     }
 
-     return SECONDS_IN_MINUTE * 1000; // 1min
+     return SECONDS_IN_MINUTE * 10000; // 10min
 }
 
 bool checkChance(float chancePercent)

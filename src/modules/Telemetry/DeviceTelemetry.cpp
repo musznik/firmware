@@ -42,10 +42,10 @@ int32_t DeviceTelemetryModule::runOnce()
         }
     }
 
-    // send local telemetry 5 min after normal telemetry
+    // send local telemetry some time after normal telemetry (lightly scaled by network size)
     if (statsHaveBeenSent == true &&
         localStatsHaveBeenSent == false &&
-        (uptimeLastMs - lastSentToMesh) >= (5 * 60 * 1000) &&
+        (uptimeLastMs - lastSentToMesh) >= Default::getLightlyScaledWindowMs(5 * 60, numOnlineNodes) &&
         airTime->isTxAllowedChannelUtil(!isImpoliteRole) &&
         airTime->isTxAllowedAirUtil() &&
         config.device.role != meshtastic_Config_DeviceConfig_Role_REPEATER &&
@@ -59,10 +59,10 @@ int32_t DeviceTelemetryModule::runOnce()
         lastSentLocalStatsToMesh=uptimeLastMs;
     }
 
-    // send local telemetry 5 min after local telemetry over mesh
+    // send local telemetry extended some time after local telemetry over mesh (lightly scaled by network size)
     if (statsHaveBeenSent == true &&
         localStatsHaveBeenSent == true &&
-        (uptimeLastMs - lastSentLocalStatsToMesh) >= 5 * 60 * 1000 &&
+        (uptimeLastMs - lastSentLocalStatsToMesh) >= Default::getLightlyScaledWindowMs(5 * 60, numOnlineNodes) &&
         airTime->isTxAllowedChannelUtil(!isImpoliteRole) && airTime->isTxAllowedAirUtil() &&
         config.device.role != meshtastic_Config_DeviceConfig_Role_REPEATER &&
         config.device.role != meshtastic_Config_DeviceConfig_Role_CLIENT_HIDDEN)
