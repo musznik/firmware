@@ -21,10 +21,11 @@ static const int MAX_PACKET_SIZE = 190;
 #define NUM_ONLINE_SECS (60 * 60 * 2) 
 #define MAGIC_USB_BATTERY_LEVEL 101
 
-#define FW_PLUS_VERSION 14
+#define FW_PLUS_VERSION 15
 
 int32_t OnDemandModule::runOnce()
 {
+    refreshUptime();
     return default_broadcast_interval_secs;
 }
 
