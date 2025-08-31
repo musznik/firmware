@@ -4,6 +4,7 @@
 #include "mesh-pb-constants.h"
 
 #include "MeshService.h"
+#include "NodeDB.h"
 
 FloodingRouter::FloodingRouter() {}
 
@@ -78,6 +79,13 @@ void FloodingRouter::perhapsRebroadcast(const meshtastic_MeshPacket *p)
     if (!isToUs(p) && (p->hop_limit > 0) && !isFromUs(p)) {
         if (p->id != 0) {
             if (isRebroadcaster()) {
+                // If telemetry limiter is enabled and this is TELEMETRY_APP, enforce per-minute limit
+                if (p->which_payload_variant == meshtastic_MeshPacket_decoded_tag &&
+                    p->decoded.portnum == meshtastic_PortNum_TELEMETRY_APP) {
+                    if (!isTelemetryRebroadcastLimited(p)) {
+                        return; // limit reached: do not rebroadcast telemetry
+                    }
+                }
                 meshtastic_MeshPacket *tosend = packetPool.allocCopy(*p); // keep a copy because we will be sending it
 
                 tosend->hop_limit--; // bump down the hop count
@@ -118,4 +126,42 @@ void FloodingRouter::sniffReceived(const meshtastic_MeshPacket *p, const meshtas
 
     // handle the packet as normal
     Router::sniffReceived(p, c);
+}
+
+bool FloodingRouter::isTelemetryRebroadcastLimited(const meshtastic_MeshPacket *p)
+{
+    // Read admin config from global moduleConfig
+    if (!moduleConfig.has_nodemodadmin) return true; // no admin module present, allow
+
+    const bool limiterEnabled = moduleConfig.nodemodadmin.telemetry_limiter_enabled;
+    const bool autoChanutilEnabled = moduleConfig.nodemodadmin.telemetry_limiter_auto_chanutil_enabled;
+    const uint16_t limitPerMinute = moduleConfig.nodemodadmin.telemetry_limiter_packets_per_minute;
+    const uint32_t chanUtilThreshold = moduleConfig.nodemodadmin.telemetry_limiter_auto_chanutil_threshold;
+
+    // Master switch off: allow all
+    if (!limiterEnabled) return true;
+
+    // If auto mode is enabled, enforce limiter only when channel utilization exceeds threshold
+    if (autoChanutilEnabled) {
+        float currentChanUtil = airTime->channelUtilizationPercent();
+        if (currentChanUtil < (float)chanUtilThreshold) {
+            return true; // below threshold: bypass limiter
+        }
+    }
+
+    // Enforce per-minute limiter
+    const uint32_t now = millis();
+    if (now - telemetryWindowStartMs >= 60000UL) {
+        telemetryWindowStartMs = now;
+        telemetryPacketsInWindow = 0;
+    }
+
+    if (telemetryPacketsInWindow >= limitPerMinute) {
+        LOG_DEBUG("Telemetry limiter: limit reached (%u/min)", limitPerMinute);
+        return false; // do not allow
+    }
+
+    // count only when we actually rebroadcast (we're about to)
+    telemetryPacketsInWindow++;
+    return true;
 }

@@ -889,6 +889,11 @@ void NodeDB::installDefaultModuleConfig()
     moduleConfig.nodemodadmin.local_stats_extended_over_mesh_enabled = default_local_stats_extended_over_mesh_enabled;
     moduleConfig.nodemodadmin.additional_chutil = default_chanutil_user_additional;
     moduleConfig.nodemodadmin.additional_txutil = default_chantxutil_user_additional;
+    // telemetry limiter defaults
+    moduleConfig.nodemodadmin.telemetry_limiter_enabled = false;
+    moduleConfig.nodemodadmin.telemetry_limiter_packets_per_minute = 8;
+    moduleConfig.nodemodadmin.telemetry_limiter_auto_chanutil_enabled = true;
+    moduleConfig.nodemodadmin.telemetry_limiter_auto_chanutil_threshold = 30; // percent
 
     moduleConfig.has_neighbor_info = true;
     moduleConfig.neighbor_info.enabled = true;
@@ -1307,6 +1312,38 @@ void NodeDB::loadFromDisk()
             installDefaultModuleConfig();
         } else {
             LOG_INFO("Loaded saved moduleConfig version %d", moduleConfig.version);
+        }
+    }
+
+    //fw+
+    // Normalize NodeModAdmin defaults on upgrade without factory reset (only fill unset/invalid values)
+    {
+        bool mutated = false;
+        moduleConfig.has_nodemodadmin = true; // ensure section is marked present
+
+        // 1) telemetry_limiter_packets_per_minute: treat 0 as not set → default to 8
+        if (moduleConfig.nodemodadmin.telemetry_limiter_packets_per_minute == 0) {
+            moduleConfig.nodemodadmin.telemetry_limiter_packets_per_minute = 8;
+            mutated = true;
+        }
+
+        // 2) telemetry_limiter_auto_chanutil_threshold: 0 is invalid/unset → default to 30; clamp to [1..100]
+        uint32_t thr = moduleConfig.nodemodadmin.telemetry_limiter_auto_chanutil_threshold;
+        if (thr == 0) {
+            // default auto enable only when previously unset
+            if (moduleConfig.nodemodadmin.telemetry_limiter_auto_chanutil_enabled == 0) {
+                moduleConfig.nodemodadmin.telemetry_limiter_auto_chanutil_enabled = true;
+            }
+            moduleConfig.nodemodadmin.telemetry_limiter_auto_chanutil_threshold = 30;
+            mutated = true;
+        } else if (thr > 100) {
+            moduleConfig.nodemodadmin.telemetry_limiter_auto_chanutil_threshold = 100;
+            mutated = true;
+        }
+
+        if (mutated) {
+            saveToDisk(SEGMENT_MODULECONFIG);
+            LOG_INFO("Normalized NodeModAdmin defaults (filled unset/invalid values)");
         }
     }
 

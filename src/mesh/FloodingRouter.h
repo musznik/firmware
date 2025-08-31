@@ -31,6 +31,11 @@ class FloodingRouter : public Router
     /* Check if we should rebroadcast this packet, and do so if needed */
     void perhapsRebroadcast(const meshtastic_MeshPacket *p);
 
+    // Telemetry rebroadcast limiter state (60s fixed window)
+    uint32_t telemetryWindowStartMs = 0;
+    uint16_t telemetryPacketsInWindow = 0;
+    bool isTelemetryRebroadcastLimited(const meshtastic_MeshPacket *p);
+
   public:
     /**
      * Constructor
