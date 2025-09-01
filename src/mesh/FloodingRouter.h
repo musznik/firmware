@@ -36,6 +36,19 @@ class FloodingRouter : public Router
     uint16_t telemetryPacketsInWindow = 0;
     bool isTelemetryRebroadcastLimited(const meshtastic_MeshPacket *p);
 
+    // Position rebroadcast limiter - cache of last forwarded positions (LRU, fixed size)
+    struct ForwardedPositionEntry {
+      uint32_t nodeId = 0;
+      int32_t lastLat_i = 0;
+      int32_t lastLon_i = 0;
+      uint32_t lastRebroadcastMs = 0;
+    };
+    static constexpr size_t kMaxPositionEntries = 64;
+    ForwardedPositionEntry recentForwardedPositions[kMaxPositionEntries] = {};
+    size_t recentForwardedPositionsCount = 0;
+    bool isPositionRebroadcastAllowed(const meshtastic_MeshPacket *p);
+    void upsertPositionEntryLRU(uint32_t nodeId, int32_t lat_i, int32_t lon_i, uint32_t nowMs);
+
   public:
     /**
      * Constructor

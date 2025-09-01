@@ -456,6 +456,10 @@ typedef struct _meshtastic_ModuleConfig_NodeModAdminConfig {
     bool telemetry_limiter_auto_chanutil_enabled;
     /* telemetry limiter, limit telemetry per minute */
     uint8_t telemetry_limiter_auto_chanutil_threshold;
+    /* position limiter, enabled */
+    bool position_limiter_enabled;
+    /* position limiter, time threshold */
+    uint8_t position_limiter_time_minutes_threshold;
 } meshtastic_ModuleConfig_NodeModAdminConfig;
 
 typedef PB_BYTES_ARRAY_T(1) meshtastic_ModuleConfig_IdleGameAlliance_morale_bonus_t;
@@ -653,7 +657,7 @@ extern "C" {
 #define meshtastic_ModuleConfig_CannedMessageConfig_init_default {0, 0, 0, 0, _meshtastic_ModuleConfig_CannedMessageConfig_InputEventChar_MIN, _meshtastic_ModuleConfig_CannedMessageConfig_InputEventChar_MIN, _meshtastic_ModuleConfig_CannedMessageConfig_InputEventChar_MIN, 0, 0, "", 0}
 #define meshtastic_ModuleConfig_AmbientLightingConfig_init_default {0, 0, 0, 0, 0}
 #define meshtastic_ModuleConfig_NodeModConfig_init_default {"", ""}
-#define meshtastic_ModuleConfig_NodeModAdminConfig_init_default {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "", 0, 0, 0, 0, 0, 0}
+#define meshtastic_ModuleConfig_NodeModAdminConfig_init_default {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "", 0, 0, 0, 0, 0, 0, 0, 0}
 #define meshtastic_ModuleConfig_IdleGameKnownVillages_init_default {0, {meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default}}
 #define meshtastic_ModuleConfig_IdleGameAlliance_init_default {0, 0, {0, {0}}}
 #define meshtastic_ModuleConfig_IdleGamePatron_init_default {0, 0}
@@ -678,7 +682,7 @@ extern "C" {
 #define meshtastic_ModuleConfig_CannedMessageConfig_init_zero {0, 0, 0, 0, _meshtastic_ModuleConfig_CannedMessageConfig_InputEventChar_MIN, _meshtastic_ModuleConfig_CannedMessageConfig_InputEventChar_MIN, _meshtastic_ModuleConfig_CannedMessageConfig_InputEventChar_MIN, 0, 0, "", 0}
 #define meshtastic_ModuleConfig_AmbientLightingConfig_init_zero {0, 0, 0, 0, 0}
 #define meshtastic_ModuleConfig_NodeModConfig_init_zero {"", ""}
-#define meshtastic_ModuleConfig_NodeModAdminConfig_init_zero {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "", 0, 0, 0, 0, 0, 0}
+#define meshtastic_ModuleConfig_NodeModAdminConfig_init_zero {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "", 0, 0, 0, 0, 0, 0, 0, 0}
 #define meshtastic_ModuleConfig_IdleGameKnownVillages_init_zero {0, {meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero}}
 #define meshtastic_ModuleConfig_IdleGameAlliance_init_zero {0, 0, {0, {0}}}
 #define meshtastic_ModuleConfig_IdleGamePatron_init_zero {0, 0}
@@ -809,6 +813,8 @@ extern "C" {
 #define meshtastic_ModuleConfig_NodeModAdminConfig_telemetry_limiter_packets_per_minute_tag 19
 #define meshtastic_ModuleConfig_NodeModAdminConfig_telemetry_limiter_auto_chanutil_enabled_tag 20
 #define meshtastic_ModuleConfig_NodeModAdminConfig_telemetry_limiter_auto_chanutil_threshold_tag 21
+#define meshtastic_ModuleConfig_NodeModAdminConfig_position_limiter_enabled_tag 22
+#define meshtastic_ModuleConfig_NodeModAdminConfig_position_limiter_time_minutes_threshold_tag 23
 #define meshtastic_ModuleConfig_IdleGameAlliance_node_id_tag 1
 #define meshtastic_ModuleConfig_IdleGameAlliance_started_at_tag 2
 #define meshtastic_ModuleConfig_IdleGameAlliance_morale_bonus_tag 3
@@ -1078,7 +1084,9 @@ X(a, STATIC,   SINGULAR, UINT32,   auto_redirect_target_node_id,  17) \
 X(a, STATIC,   SINGULAR, BOOL,     telemetry_limiter_enabled,  18) \
 X(a, STATIC,   SINGULAR, UINT32,   telemetry_limiter_packets_per_minute,  19) \
 X(a, STATIC,   SINGULAR, BOOL,     telemetry_limiter_auto_chanutil_enabled,  20) \
-X(a, STATIC,   SINGULAR, UINT32,   telemetry_limiter_auto_chanutil_threshold,  21)
+X(a, STATIC,   SINGULAR, UINT32,   telemetry_limiter_auto_chanutil_threshold,  21) \
+X(a, STATIC,   SINGULAR, BOOL,     position_limiter_enabled,  22) \
+X(a, STATIC,   SINGULAR, UINT32,   position_limiter_time_minutes_threshold,  23)
 #define meshtastic_ModuleConfig_NodeModAdminConfig_CALLBACK NULL
 #define meshtastic_ModuleConfig_NodeModAdminConfig_DEFAULT NULL
 
@@ -1218,7 +1226,7 @@ extern const pb_msgdesc_t meshtastic_RemoteHardwarePin_msg;
 #define meshtastic_ModuleConfig_MQTTConfig_size  224
 #define meshtastic_ModuleConfig_MapReportSettings_size 14
 #define meshtastic_ModuleConfig_NeighborInfoConfig_size 10
-#define meshtastic_ModuleConfig_NodeModAdminConfig_size 125
+#define meshtastic_ModuleConfig_NodeModAdminConfig_size 132
 #define meshtastic_ModuleConfig_NodeModConfig_size 207
 #define meshtastic_ModuleConfig_PaxcounterConfig_size 30
 #define meshtastic_ModuleConfig_RangeTestConfig_size 10

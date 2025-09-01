@@ -52,7 +52,11 @@ typedef struct _meshtastic_NodeModAdmin {
     /* telemetry limiter, auto chanUtil limiter */
     bool telemetry_limiter_auto_chanutil_enabled;
     /* telemetry limiter, limit telemetry per minute */
-    uint8_t telemetry_limiter_auto_chanutil_threshold;
+    uint32_t telemetry_limiter_auto_chanutil_threshold;
+    /* position limiter, enabled */
+    bool position_limiter_enabled;
+    /* position limiter, time threshold */
+    uint32_t position_limiter_time_minutes_threshold;
 } meshtastic_NodeModAdmin;
 
 
@@ -61,8 +65,8 @@ extern "C" {
 #endif
 
 /* Initializer values for message structs */
-#define meshtastic_NodeModAdmin_init_default     {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "", 0, 0, 0, 0, 0, 0}
-#define meshtastic_NodeModAdmin_init_zero        {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "", 0, 0, 0, 0, 0, 0}
+#define meshtastic_NodeModAdmin_init_default     {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "", 0, 0, 0, 0, 0, 0, 0, 0}
+#define meshtastic_NodeModAdmin_init_zero        {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "", 0, 0, 0, 0, 0, 0, 0, 0}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define meshtastic_NodeModAdmin_sniffer_enabled_tag 1
@@ -86,6 +90,8 @@ extern "C" {
 #define meshtastic_NodeModAdmin_telemetry_limiter_packets_per_minute_tag 19
 #define meshtastic_NodeModAdmin_telemetry_limiter_auto_chanutil_enabled_tag 20
 #define meshtastic_NodeModAdmin_telemetry_limiter_auto_chanutil_threshold_tag 21
+#define meshtastic_NodeModAdmin_position_limiter_enabled_tag 22
+#define meshtastic_NodeModAdmin_position_limiter_time_minutes_threshold_tag 23
 
 /* Struct field encoding specification for nanopb */
 #define meshtastic_NodeModAdmin_FIELDLIST(X, a) \
@@ -109,7 +115,9 @@ X(a, STATIC,   SINGULAR, UINT32,   auto_redirect_target_node_id,  17) \
 X(a, STATIC,   SINGULAR, BOOL,     telemetry_limiter_enabled,  18) \
 X(a, STATIC,   SINGULAR, UINT32,   telemetry_limiter_packets_per_minute,  19) \
 X(a, STATIC,   SINGULAR, BOOL,     telemetry_limiter_auto_chanutil_enabled,  20) \
-X(a, STATIC,   SINGULAR, UINT32,   telemetry_limiter_auto_chanutil_threshold,  21)
+X(a, STATIC,   SINGULAR, UINT32,   telemetry_limiter_auto_chanutil_threshold,  21) \
+X(a, STATIC,   SINGULAR, BOOL,     position_limiter_enabled,  22) \
+X(a, STATIC,   SINGULAR, UINT32,   position_limiter_time_minutes_threshold,  23)
 #define meshtastic_NodeModAdmin_CALLBACK NULL
 #define meshtastic_NodeModAdmin_DEFAULT NULL
 
@@ -120,7 +128,7 @@ extern const pb_msgdesc_t meshtastic_NodeModAdmin_msg;
 
 /* Maximum encoded size of messages (where known) */
 #define MESHTASTIC_MESHTASTIC_NODE_MOD_ADMIN_PB_H_MAX_SIZE meshtastic_NodeModAdmin_size
-#define meshtastic_NodeModAdmin_size             122
+#define meshtastic_NodeModAdmin_size             135
 
 #ifdef __cplusplus
 } /* extern "C" */

@@ -894,6 +894,9 @@ void NodeDB::installDefaultModuleConfig()
     moduleConfig.nodemodadmin.telemetry_limiter_packets_per_minute = 8;
     moduleConfig.nodemodadmin.telemetry_limiter_auto_chanutil_enabled = true;
     moduleConfig.nodemodadmin.telemetry_limiter_auto_chanutil_threshold = 30; // percent
+    // position limiter defaults
+    moduleConfig.nodemodadmin.position_limiter_enabled = false;
+    moduleConfig.nodemodadmin.position_limiter_time_minutes_threshold = 60;
 
     moduleConfig.has_neighbor_info = true;
     moduleConfig.neighbor_info.enabled = true;
@@ -1344,6 +1347,26 @@ void NodeDB::loadFromDisk()
         if (mutated) {
             saveToDisk(SEGMENT_MODULECONFIG);
             LOG_INFO("Normalized NodeModAdmin defaults (filled unset/invalid values)");
+        }
+    }
+
+    // Normalize Position limiter defaults similarly (fill unset only)
+    {
+        bool mutated = false;
+        moduleConfig.has_nodemodadmin = true;
+
+        uint32_t posThr = moduleConfig.nodemodadmin.position_limiter_time_minutes_threshold;
+        if (posThr == 0) {
+            moduleConfig.nodemodadmin.position_limiter_time_minutes_threshold = 90; // default 5 min
+            mutated = true;
+        } else if (posThr > 1440) { // clamp to 1 day
+            moduleConfig.nodemodadmin.position_limiter_time_minutes_threshold = 1440;
+            mutated = true;
+        }
+
+        if (mutated) {
+            saveToDisk(SEGMENT_MODULECONFIG);
+            LOG_INFO("Normalized Position limiter defaults (filled unset/invalid values)");
         }
     }
 

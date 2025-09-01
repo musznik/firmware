@@ -86,6 +86,13 @@ void FloodingRouter::perhapsRebroadcast(const meshtastic_MeshPacket *p)
                         return; // limit reached: do not rebroadcast telemetry
                     }
                 }
+                // If position limiter is enabled and this is POSITION_APP broadcast with unchanged position within threshold, block
+                if (p->which_payload_variant == meshtastic_MeshPacket_decoded_tag &&
+                    p->decoded.portnum == meshtastic_PortNum_POSITION_APP) {
+                    if (!isPositionRebroadcastAllowed(p)) {
+                        return; // too frequent unchanged position broadcast: do not rebroadcast
+                    }
+                }
                 meshtastic_MeshPacket *tosend = packetPool.allocCopy(*p); // keep a copy because we will be sending it
 
                 tosend->hop_limit--; // bump down the hop count
@@ -127,7 +134,6 @@ void FloodingRouter::sniffReceived(const meshtastic_MeshPacket *p, const meshtas
     // handle the packet as normal
     Router::sniffReceived(p, c);
 }
-
 bool FloodingRouter::isTelemetryRebroadcastLimited(const meshtastic_MeshPacket *p)
 {
     // Read admin config from global moduleConfig
@@ -164,4 +170,75 @@ bool FloodingRouter::isTelemetryRebroadcastLimited(const meshtastic_MeshPacket *
     // count only when we actually rebroadcast (we're about to)
     telemetryPacketsInWindow++;
     return true;
+}
+
+bool FloodingRouter::isPositionRebroadcastAllowed(const meshtastic_MeshPacket *p)
+{
+    if (!moduleConfig.has_nodemodadmin) return true;
+    if (!moduleConfig.nodemodadmin.position_limiter_enabled) return true;
+    if (p->which_payload_variant != meshtastic_MeshPacket_decoded_tag) return true;
+    if (p->decoded.portnum != meshtastic_PortNum_POSITION_APP) return true;
+    if (!isBroadcast(p->to) || isFromUs(p)) return true; // only throttle broadcast relays of others
+
+    meshtastic_Position pos = meshtastic_Position_init_default;
+    if (!pb_decode_from_bytes(p->decoded.payload.bytes, p->decoded.payload.size, &meshtastic_Position_msg, &pos)) {
+        return true; // if we can't decode, fail-open
+    }
+
+    // If position coordinates are not present (0,0) but that's uncommon; still apply logic directly
+    uint32_t thresholdMin = moduleConfig.nodemodadmin.position_limiter_time_minutes_threshold;
+    if (thresholdMin == 0) return true; // unset threshold means no throttling
+    uint32_t thresholdMs = thresholdMin * 60000UL;
+    uint32_t now = millis();
+
+    // Find existing entry
+    for (size_t i = 0; i < recentForwardedPositionsCount; ++i) {
+        if (recentForwardedPositions[i].nodeId == p->from) {
+            bool sameCoords = (recentForwardedPositions[i].lastLat_i == pos.latitude_i) &&
+                              (recentForwardedPositions[i].lastLon_i == pos.longitude_i);
+            if (sameCoords && (now - recentForwardedPositions[i].lastRebroadcastMs) < thresholdMs) {
+                // Still within threshold with unchanged position → block
+                return false;
+            }
+            // Update LRU / values and allow
+            upsertPositionEntryLRU(p->from, pos.latitude_i, pos.longitude_i, now);
+            return true;
+        }
+    }
+
+    // No existing entry → add and allow
+    upsertPositionEntryLRU(p->from, pos.latitude_i, pos.longitude_i, now);
+    return true;
+}
+
+void FloodingRouter::upsertPositionEntryLRU(uint32_t nodeId, int32_t lat_i, int32_t lon_i, uint32_t nowMs)
+{
+    // Find existing index
+    size_t found = kMaxPositionEntries;
+    for (size_t i = 0; i < recentForwardedPositionsCount; ++i) {
+        if (recentForwardedPositions[i].nodeId == nodeId) { found = i; break; }
+    }
+
+    ForwardedPositionEntry entry;
+    entry.nodeId = nodeId;
+    entry.lastLat_i = lat_i;
+    entry.lastLon_i = lon_i;
+    entry.lastRebroadcastMs = nowMs;
+
+    if (found < kMaxPositionEntries) {
+        // Shift down to make room at front
+        for (size_t i = found; i > 0; --i) {
+            recentForwardedPositions[i] = recentForwardedPositions[i - 1];
+        }
+        recentForwardedPositions[0] = entry;
+    } else {
+        // Insert new at front
+        size_t limit = recentForwardedPositionsCount < kMaxPositionEntries ? recentForwardedPositionsCount : (kMaxPositionEntries - 1);
+        // Shift right up to limit
+        for (size_t i = limit; i > 0; --i) {
+            recentForwardedPositions[i] = recentForwardedPositions[i - 1];
+        }
+        recentForwardedPositions[0] = entry;
+        if (recentForwardedPositionsCount < kMaxPositionEntries) recentForwardedPositionsCount++;
+    }
 }

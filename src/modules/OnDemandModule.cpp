@@ -21,7 +21,7 @@ static const int MAX_PACKET_SIZE = 190;
 #define NUM_ONLINE_SECS (60 * 60 * 2) 
 #define MAGIC_USB_BATTERY_LEVEL 101
 
-#define FW_PLUS_VERSION 15
+#define FW_PLUS_VERSION 16
 
 int32_t OnDemandModule::runOnce()
 {
@@ -343,6 +343,9 @@ meshtastic_OnDemand OnDemandModule::prepareNodeStats()
     onDemand.variant.response.response_data.node_stats.fw_plus_version = FW_PLUS_VERSION;
     onDemand.variant.response.response_data.node_stats.rebroadcast_mode = config.device.rebroadcast_mode;
     strncpy(onDemand.variant.response.response_data.node_stats.firmware_version, optstr(APP_VERSION_SHORT), sizeof(onDemand.variant.response.response_data.node_stats.firmware_version));
+    onDemand.variant.response.response_data.node_stats.telemetry_limiter_enabled = moduleConfig.nodemodadmin.telemetry_limiter_enabled;
+    onDemand.variant.response.response_data.node_stats.position_limiter_enabled = moduleConfig.nodemodadmin.position_limiter_enabled;
+
     
     bool valid = false;
     meshtastic_Telemetry m = meshtastic_Telemetry_init_zero;
