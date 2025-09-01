@@ -40,7 +40,7 @@ class OnDemandModule : private concurrency::OSThread, public ProtobufModule<mesh
     void sendPacketToRequester(const meshtastic_OnDemand &demand_packet,const meshtastic_MeshPacket &mp, bool wantAck=true);
 
     bool fitsInPacket(const meshtastic_OnDemand &onDemand, size_t maxSize);
-    std::vector<std::unique_ptr<meshtastic_OnDemand>> createSegmentedNodeList();
+    std::vector<std::unique_ptr<meshtastic_OnDemand>> createSegmentedNodeList(bool directOnly = false);
     meshtastic_OnDemand prepareNodeList(uint32_t packetIndex);
     static uint32_t getLastHeard(const meshtastic_NodeInfoLite* node);
     uint32_t sinceLastSeen(const meshtastic_NodeInfoLite *n);

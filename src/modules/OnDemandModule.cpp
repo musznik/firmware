@@ -21,11 +21,10 @@ static const int MAX_PACKET_SIZE = 190;
 #define NUM_ONLINE_SECS (60 * 60 * 2) 
 #define MAGIC_USB_BATTERY_LEVEL 101
 
-#define FW_PLUS_VERSION 16
+#define FW_PLUS_VERSION 17
 
 int32_t OnDemandModule::runOnce()
 {
-    refreshUptime();
     return default_broadcast_interval_secs;
 }
 
@@ -64,11 +63,19 @@ bool OnDemandModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, mes
                 break;
             }
             case meshtastic_OnDemandType_REQUEST_NODES_ONLINE: {
-                auto packets = createSegmentedNodeList();
+                auto packets = createSegmentedNodeList(false);
                 for (auto &pkt : packets)
                 {
                     sendPacketToRequester(*pkt, mp);
                 } 
+                break;
+            }
+            case meshtastic_OnDemandType_REQUEST_NODES_DIRECT_ONLINE: {
+                auto packets = createSegmentedNodeList(true);
+                for (auto &pkt : packets)
+                {
+                    sendPacketToRequester(*pkt, mp);
+                }
                 break;
             }
             case meshtastic_OnDemandType_REQUEST_PING: {
@@ -122,7 +129,7 @@ uint32_t OnDemandModule::sinceLastSeen(const meshtastic_NodeInfoLite *n)
     return delta;
 }
 
-std::vector<std::unique_ptr<meshtastic_OnDemand>> OnDemandModule::createSegmentedNodeList()
+std::vector<std::unique_ptr<meshtastic_OnDemand>> OnDemandModule::createSegmentedNodeList(bool directOnly)
 {
     std::vector<std::unique_ptr<meshtastic_OnDemand>> packets;
 
@@ -136,7 +143,7 @@ std::vector<std::unique_ptr<meshtastic_OnDemand>> OnDemandModule::createSegmente
         *onDemand = meshtastic_OnDemand_init_zero;
 
         onDemand->which_variant = meshtastic_OnDemand_response_tag;
-        onDemand->variant.response.response_type = meshtastic_OnDemandType_RESPONSE_NODES_ONLINE;
+        onDemand->variant.response.response_type = meshtastic_OnDemandType_RESPONSE_NODES_ONLINE; // payload type unchanged
         onDemand->variant.response.which_response_data = meshtastic_OnDemandResponse_node_list_tag;
 
         onDemand->has_packet_index=true;
@@ -149,6 +156,14 @@ std::vector<std::unique_ptr<meshtastic_OnDemand>> OnDemandModule::createSegmente
         while (currentIndex < totalNodes)
         {
             meshtastic_NodeInfoLite *node = nodeDB->getMeshNodeByIndex(currentIndex);
+            // filter: direct only if requested (hop==0 and not via mqtt)
+            if (directOnly) {
+                if (!(node->hops_away == 0 && !node->via_mqtt)) {
+                    currentIndex++;
+                    continue;
+                }
+            }
+
             meshtastic_NodeEntry entry = meshtastic_NodeEntry_init_zero;
 
              if (sinceLastSeen(node) >= NUM_ONLINE_SECS){
@@ -343,9 +358,6 @@ meshtastic_OnDemand OnDemandModule::prepareNodeStats()
     onDemand.variant.response.response_data.node_stats.fw_plus_version = FW_PLUS_VERSION;
     onDemand.variant.response.response_data.node_stats.rebroadcast_mode = config.device.rebroadcast_mode;
     strncpy(onDemand.variant.response.response_data.node_stats.firmware_version, optstr(APP_VERSION_SHORT), sizeof(onDemand.variant.response.response_data.node_stats.firmware_version));
-    onDemand.variant.response.response_data.node_stats.telemetry_limiter_enabled = moduleConfig.nodemodadmin.telemetry_limiter_enabled;
-    onDemand.variant.response.response_data.node_stats.position_limiter_enabled = moduleConfig.nodemodadmin.position_limiter_enabled;
-
     
     bool valid = false;
     meshtastic_Telemetry m = meshtastic_Telemetry_init_zero;
