@@ -1386,6 +1386,33 @@ void NodeDB::loadFromDisk()
         }
     }
 
+    // fw+: Normalize Opportunistic/Selective Flooding defaults (fill unset/zero only)
+    {
+        bool mutated = false;
+        moduleConfig.has_nodemodadmin = true;
+        auto &adm = moduleConfig.nodemodadmin;
+
+        // Enable opportunistic flooding by default if unset (we treat explicit false as user choice)
+        // Note: protobuf 'bool' has no tri-state; rely on values being zeroed on first run, and we set defaults then.
+        if (!adm.opportunistic_flooding_enabled) {
+            adm.opportunistic_flooding_enabled = true;
+            mutated = true;
+        }
+
+        // Parameters: if zero, set to sensible defaults
+        if (adm.base_delay_ms == 0) { adm.base_delay_ms = 60; mutated = true; }
+        if (adm.hop_delay_ms == 0) { adm.hop_delay_ms = 30; mutated = true; }
+        if (adm.snr_gain_ms == 0) { adm.snr_gain_ms = 8; mutated = true; }
+        if (adm.jitter_ms == 0) { adm.jitter_ms = 40; mutated = true; }
+        // cancel_on_first_hear: default to true only if currently false (first run)
+        if (!adm.cancel_on_first_hear) { adm.cancel_on_first_hear = true; mutated = true; }
+
+        if (mutated) {
+            saveToDisk(SEGMENT_MODULECONFIG);
+            LOG_INFO("Normalized Opportunistic Flooding defaults (filled unset/zero values)");
+        }
+    }
+
     state = loadProto(channelFileName, meshtastic_ChannelFile_size, sizeof(meshtastic_ChannelFile), &meshtastic_ChannelFile_msg,
                       &channelFile);
     if (state != LoadFileResult::LOAD_SUCCESS) {

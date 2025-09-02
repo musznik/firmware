@@ -220,8 +220,8 @@ bool FloodingRouter::hasBackboneNeighbor() const
     double selfLat = self->position.latitude_i * 1e-7;
     double selfLon = self->position.longitude_i * 1e-7;
 
-    // distance threshold: 5 km (configurable in the future)
-    const float thresholdMeters = 5000.0f;
+    // distance threshold: 10 km (configurable in the future), backbone?
+    const float thresholdMeters = 10000.0f;
 
     size_t total = nodeDB->getNumMeshNodes();
     for (size_t i = 0; i < total; ++i) {
