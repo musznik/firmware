@@ -1735,7 +1735,8 @@ bool NodeDB::updateUser(uint32_t nodeId, meshtastic_User &p, uint8_t channelInde
                 sprintf(cn->message, warning, p.long_name);
                 service->sendClientNotification(cn);
             }
-            return false;
+            //fw+ allow always, some people use the same key on their devices
+            //return false;
         }
     }
     if (info->user.public_key.size == 32) { // if we have a key for this user already, don't overwrite with a new one

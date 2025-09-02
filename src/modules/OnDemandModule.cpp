@@ -21,7 +21,7 @@ static const int MAX_PACKET_SIZE = 190;
 #define NUM_ONLINE_SECS (60 * 60 * 2) 
 #define MAGIC_USB_BATTERY_LEVEL 101
 
-#define FW_PLUS_VERSION 17
+#define FW_PLUS_VERSION 18
 
 int32_t OnDemandModule::runOnce()
 {
@@ -187,6 +187,14 @@ std::vector<std::unique_ptr<meshtastic_OnDemand>> OnDemandModule::createSegmente
             
             strncpy(entry.long_name, node->user.long_name, sizeof(entry.long_name) - 1);
             strncpy(entry.short_name, node->user.short_name, sizeof(entry.short_name) - 1);
+
+            // Populate optional integer latitude/longitude if available
+            if (nodeDB->hasValidPosition(node)) {
+                entry.has_latitude_i = true;
+                entry.latitude_i = node->position.latitude_i;
+                entry.has_longitude_i = true;
+                entry.longitude_i = node->position.longitude_i;
+            }
 
             int pos = listRef.node_list_count;
             listRef.node_list[pos] = entry;

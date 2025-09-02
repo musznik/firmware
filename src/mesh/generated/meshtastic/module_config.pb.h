@@ -459,7 +459,7 @@ typedef struct _meshtastic_ModuleConfig_NodeModAdminConfig {
     /* position limiter, enabled */
     bool position_limiter_enabled;
     /* position limiter, time threshold */
-    uint8_t position_limiter_time_minutes_threshold;
+    uint32_t position_limiter_time_minutes_threshold;
 } meshtastic_ModuleConfig_NodeModAdminConfig;
 
 typedef PB_BYTES_ARRAY_T(1) meshtastic_ModuleConfig_IdleGameAlliance_morale_bonus_t;
@@ -1226,7 +1226,7 @@ extern const pb_msgdesc_t meshtastic_RemoteHardwarePin_msg;
 #define meshtastic_ModuleConfig_MQTTConfig_size  224
 #define meshtastic_ModuleConfig_MapReportSettings_size 14
 #define meshtastic_ModuleConfig_NeighborInfoConfig_size 10
-#define meshtastic_ModuleConfig_NodeModAdminConfig_size 132
+#define meshtastic_ModuleConfig_NodeModAdminConfig_size 135
 #define meshtastic_ModuleConfig_NodeModConfig_size 207
 #define meshtastic_ModuleConfig_PaxcounterConfig_size 30
 #define meshtastic_ModuleConfig_RangeTestConfig_size 10

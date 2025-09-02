@@ -167,6 +167,11 @@ typedef struct _meshtastic_NodeEntry {
     uint32_t last_heard;
     float snr;
     uint32_t hops;
+    int32_t rx_rssi;
+    bool has_latitude_i;
+    int32_t latitude_i;
+    bool has_longitude_i;
+    int32_t longitude_i;
 } meshtastic_NodeEntry;
 
 typedef struct _meshtastic_ExchangeEntry {
@@ -267,7 +272,7 @@ extern "C" {
 #define meshtastic_RoutingErrorsHistory_init_default {0, {meshtastic_RoutingErrorEntry_init_default, meshtastic_RoutingErrorEntry_init_default, meshtastic_RoutingErrorEntry_init_default, meshtastic_RoutingErrorEntry_init_default, meshtastic_RoutingErrorEntry_init_default, meshtastic_RoutingErrorEntry_init_default, meshtastic_RoutingErrorEntry_init_default, meshtastic_RoutingErrorEntry_init_default, meshtastic_RoutingErrorEntry_init_default, meshtastic_RoutingErrorEntry_init_default, meshtastic_RoutingErrorEntry_init_default, meshtastic_RoutingErrorEntry_init_default, meshtastic_RoutingErrorEntry_init_default, meshtastic_RoutingErrorEntry_init_default, meshtastic_RoutingErrorEntry_init_default, meshtastic_RoutingErrorEntry_init_default, meshtastic_RoutingErrorEntry_init_default, meshtastic_RoutingErrorEntry_init_default, meshtastic_RoutingErrorEntry_init_default, meshtastic_RoutingErrorEntry_init_default, meshtastic_RoutingErrorEntry_init_default, meshtastic_RoutingErrorEntry_init_default, meshtastic_RoutingErrorEntry_init_default, meshtastic_RoutingErrorEntry_init_default, meshtastic_RoutingErrorEntry_init_default, meshtastic_RoutingErrorEntry_init_default, meshtastic_RoutingErrorEntry_init_default, meshtastic_RoutingErrorEntry_init_default, meshtastic_RoutingErrorEntry_init_default, meshtastic_RoutingErrorEntry_init_default, meshtastic_RoutingErrorEntry_init_default, meshtastic_RoutingErrorEntry_init_default, meshtastic_RoutingErrorEntry_init_default, meshtastic_RoutingErrorEntry_init_default, meshtastic_RoutingErrorEntry_init_default, meshtastic_RoutingErrorEntry_init_default, meshtastic_RoutingErrorEntry_init_default, meshtastic_RoutingErrorEntry_init_default, meshtastic_RoutingErrorEntry_init_default, meshtastic_RoutingErrorEntry_init_default}}
 #define meshtastic_AirActivityEntry_init_default {0, 0, 0}
 #define meshtastic_AirActivityHistory_init_default {0, {meshtastic_AirActivityEntry_init_default, meshtastic_AirActivityEntry_init_default, meshtastic_AirActivityEntry_init_default, meshtastic_AirActivityEntry_init_default, meshtastic_AirActivityEntry_init_default, meshtastic_AirActivityEntry_init_default, meshtastic_AirActivityEntry_init_default, meshtastic_AirActivityEntry_init_default, meshtastic_AirActivityEntry_init_default, meshtastic_AirActivityEntry_init_default}}
-#define meshtastic_NodeEntry_init_default        {0, "", "", 0, 0, 0}
+#define meshtastic_NodeEntry_init_default        {0, "", "", 0, 0, 0, 0, false, 0, false, 0}
 #define meshtastic_ExchangeEntry_init_default    {0, 0, 0}
 #define meshtastic_ExchangeList_init_default     {0, {meshtastic_ExchangeEntry_init_default, meshtastic_ExchangeEntry_init_default, meshtastic_ExchangeEntry_init_default, meshtastic_ExchangeEntry_init_default, meshtastic_ExchangeEntry_init_default, meshtastic_ExchangeEntry_init_default, meshtastic_ExchangeEntry_init_default, meshtastic_ExchangeEntry_init_default, meshtastic_ExchangeEntry_init_default, meshtastic_ExchangeEntry_init_default, meshtastic_ExchangeEntry_init_default, meshtastic_ExchangeEntry_init_default}}
 #define meshtastic_NodesList_init_default        {0, {meshtastic_NodeEntry_init_default, meshtastic_NodeEntry_init_default, meshtastic_NodeEntry_init_default, meshtastic_NodeEntry_init_default, meshtastic_NodeEntry_init_default, meshtastic_NodeEntry_init_default, meshtastic_NodeEntry_init_default, meshtastic_NodeEntry_init_default, meshtastic_NodeEntry_init_default, meshtastic_NodeEntry_init_default}}
@@ -285,7 +290,7 @@ extern "C" {
 #define meshtastic_RoutingErrorsHistory_init_zero {0, {meshtastic_RoutingErrorEntry_init_zero, meshtastic_RoutingErrorEntry_init_zero, meshtastic_RoutingErrorEntry_init_zero, meshtastic_RoutingErrorEntry_init_zero, meshtastic_RoutingErrorEntry_init_zero, meshtastic_RoutingErrorEntry_init_zero, meshtastic_RoutingErrorEntry_init_zero, meshtastic_RoutingErrorEntry_init_zero, meshtastic_RoutingErrorEntry_init_zero, meshtastic_RoutingErrorEntry_init_zero, meshtastic_RoutingErrorEntry_init_zero, meshtastic_RoutingErrorEntry_init_zero, meshtastic_RoutingErrorEntry_init_zero, meshtastic_RoutingErrorEntry_init_zero, meshtastic_RoutingErrorEntry_init_zero, meshtastic_RoutingErrorEntry_init_zero, meshtastic_RoutingErrorEntry_init_zero, meshtastic_RoutingErrorEntry_init_zero, meshtastic_RoutingErrorEntry_init_zero, meshtastic_RoutingErrorEntry_init_zero, meshtastic_RoutingErrorEntry_init_zero, meshtastic_RoutingErrorEntry_init_zero, meshtastic_RoutingErrorEntry_init_zero, meshtastic_RoutingErrorEntry_init_zero, meshtastic_RoutingErrorEntry_init_zero, meshtastic_RoutingErrorEntry_init_zero, meshtastic_RoutingErrorEntry_init_zero, meshtastic_RoutingErrorEntry_init_zero, meshtastic_RoutingErrorEntry_init_zero, meshtastic_RoutingErrorEntry_init_zero, meshtastic_RoutingErrorEntry_init_zero, meshtastic_RoutingErrorEntry_init_zero, meshtastic_RoutingErrorEntry_init_zero, meshtastic_RoutingErrorEntry_init_zero, meshtastic_RoutingErrorEntry_init_zero, meshtastic_RoutingErrorEntry_init_zero, meshtastic_RoutingErrorEntry_init_zero, meshtastic_RoutingErrorEntry_init_zero, meshtastic_RoutingErrorEntry_init_zero, meshtastic_RoutingErrorEntry_init_zero}}
 #define meshtastic_AirActivityEntry_init_zero    {0, 0, 0}
 #define meshtastic_AirActivityHistory_init_zero  {0, {meshtastic_AirActivityEntry_init_zero, meshtastic_AirActivityEntry_init_zero, meshtastic_AirActivityEntry_init_zero, meshtastic_AirActivityEntry_init_zero, meshtastic_AirActivityEntry_init_zero, meshtastic_AirActivityEntry_init_zero, meshtastic_AirActivityEntry_init_zero, meshtastic_AirActivityEntry_init_zero, meshtastic_AirActivityEntry_init_zero, meshtastic_AirActivityEntry_init_zero}}
-#define meshtastic_NodeEntry_init_zero           {0, "", "", 0, 0, 0}
+#define meshtastic_NodeEntry_init_zero           {0, "", "", 0, 0, 0, 0, false, 0, false, 0}
 #define meshtastic_ExchangeEntry_init_zero       {0, 0, 0}
 #define meshtastic_ExchangeList_init_zero        {0, {meshtastic_ExchangeEntry_init_zero, meshtastic_ExchangeEntry_init_zero, meshtastic_ExchangeEntry_init_zero, meshtastic_ExchangeEntry_init_zero, meshtastic_ExchangeEntry_init_zero, meshtastic_ExchangeEntry_init_zero, meshtastic_ExchangeEntry_init_zero, meshtastic_ExchangeEntry_init_zero, meshtastic_ExchangeEntry_init_zero, meshtastic_ExchangeEntry_init_zero, meshtastic_ExchangeEntry_init_zero, meshtastic_ExchangeEntry_init_zero}}
 #define meshtastic_NodesList_init_zero           {0, {meshtastic_NodeEntry_init_zero, meshtastic_NodeEntry_init_zero, meshtastic_NodeEntry_init_zero, meshtastic_NodeEntry_init_zero, meshtastic_NodeEntry_init_zero, meshtastic_NodeEntry_init_zero, meshtastic_NodeEntry_init_zero, meshtastic_NodeEntry_init_zero, meshtastic_NodeEntry_init_zero, meshtastic_NodeEntry_init_zero}}
@@ -351,6 +356,9 @@ extern "C" {
 #define meshtastic_NodeEntry_last_heard_tag      4
 #define meshtastic_NodeEntry_snr_tag             5
 #define meshtastic_NodeEntry_hops_tag            6
+#define meshtastic_NodeEntry_rx_rssi_tag         7
+#define meshtastic_NodeEntry_latitude_i_tag      8
+#define meshtastic_NodeEntry_longitude_i_tag     9
 #define meshtastic_ExchangeEntry_from_node_tag   1
 #define meshtastic_ExchangeEntry_to_node_tag     2
 #define meshtastic_ExchangeEntry_port_num_tag    3
@@ -475,7 +483,10 @@ X(a, STATIC,   SINGULAR, STRING,   long_name,         2) \
 X(a, STATIC,   SINGULAR, STRING,   short_name,        3) \
 X(a, STATIC,   SINGULAR, FIXED32,  last_heard,        4) \
 X(a, STATIC,   SINGULAR, FLOAT,    snr,               5) \
-X(a, STATIC,   SINGULAR, UINT32,   hops,              6)
+X(a, STATIC,   SINGULAR, UINT32,   hops,              6) \
+X(a, STATIC,   SINGULAR, INT32,    rx_rssi,           7) \
+X(a, STATIC,   OPTIONAL, SFIXED32, latitude_i,        8) \
+X(a, STATIC,   OPTIONAL, SFIXED32, longitude_i,       9)
 #define meshtastic_NodeEntry_CALLBACK NULL
 #define meshtastic_NodeEntry_DEFAULT NULL
 
@@ -590,12 +601,12 @@ extern const pb_msgdesc_t meshtastic_OnDemand_msg;
 #define meshtastic_ExchangeEntry_size            18
 #define meshtastic_ExchangeList_size             240
 #define meshtastic_FwPlusVersion_size            6
-#define meshtastic_NodeEntry_size                69
+#define meshtastic_NodeEntry_size                90
 #define meshtastic_NodeStats_size                240
-#define meshtastic_NodesList_size                710
+#define meshtastic_NodesList_size                920
 #define meshtastic_OnDemandRequest_size          2
-#define meshtastic_OnDemandResponse_size         715
-#define meshtastic_OnDemand_size                 724
+#define meshtastic_OnDemandResponse_size         925
+#define meshtastic_OnDemand_size                 934
 #define meshtastic_Ping_size                     16
 #define meshtastic_PortCounterEntry_size         12
 #define meshtastic_PortCountersHistory_size      280
