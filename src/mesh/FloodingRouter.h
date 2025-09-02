@@ -49,6 +49,16 @@ class FloodingRouter : public Router
     bool isPositionRebroadcastAllowed(const meshtastic_MeshPacket *p);
     void upsertPositionEntryLRU(uint32_t nodeId, int32_t lat_i, int32_t lon_i, uint32_t nowMs);
 
+    // Opportunistic/selective flooding helpers
+    bool isOpportunisticEnabled() const;
+    uint32_t computeOpportunisticDelayMs(const meshtastic_MeshPacket *p) const;
+    uint32_t clampDelay(uint32_t d) const;
+    bool hasBackboneNeighbor() const;
+
+    // Counters for diagnostics
+    uint32_t opportunistic_scheduled = 0;
+    uint32_t opportunistic_canceled = 0;
+
   public:
     /**
      * Constructor

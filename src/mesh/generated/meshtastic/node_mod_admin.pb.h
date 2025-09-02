@@ -57,6 +57,12 @@ typedef struct _meshtastic_NodeModAdmin {
     bool position_limiter_enabled;
     /* position limiter, time threshold */
     uint32_t position_limiter_time_minutes_threshold;
+    bool opportunistic_flooding_enabled;
+    uint32_t base_delay_ms;
+    uint32_t hop_delay_ms;
+    uint32_t snr_gain_ms;
+    uint32_t jitter_ms;
+    bool cancel_on_first_hear;
 } meshtastic_NodeModAdmin;
 
 
@@ -65,8 +71,8 @@ extern "C" {
 #endif
 
 /* Initializer values for message structs */
-#define meshtastic_NodeModAdmin_init_default     {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "", 0, 0, 0, 0, 0, 0, 0, 0}
-#define meshtastic_NodeModAdmin_init_zero        {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "", 0, 0, 0, 0, 0, 0, 0, 0}
+#define meshtastic_NodeModAdmin_init_default     {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+#define meshtastic_NodeModAdmin_init_zero        {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define meshtastic_NodeModAdmin_sniffer_enabled_tag 1
@@ -92,6 +98,12 @@ extern "C" {
 #define meshtastic_NodeModAdmin_telemetry_limiter_auto_chanutil_threshold_tag 21
 #define meshtastic_NodeModAdmin_position_limiter_enabled_tag 22
 #define meshtastic_NodeModAdmin_position_limiter_time_minutes_threshold_tag 23
+#define meshtastic_NodeModAdmin_opportunistic_flooding_enabled_tag 24
+#define meshtastic_NodeModAdmin_base_delay_ms_tag 25
+#define meshtastic_NodeModAdmin_hop_delay_ms_tag 26
+#define meshtastic_NodeModAdmin_snr_gain_ms_tag  27
+#define meshtastic_NodeModAdmin_jitter_ms_tag    28
+#define meshtastic_NodeModAdmin_cancel_on_first_hear_tag 29
 
 /* Struct field encoding specification for nanopb */
 #define meshtastic_NodeModAdmin_FIELDLIST(X, a) \
@@ -117,7 +129,13 @@ X(a, STATIC,   SINGULAR, UINT32,   telemetry_limiter_packets_per_minute,  19) \
 X(a, STATIC,   SINGULAR, BOOL,     telemetry_limiter_auto_chanutil_enabled,  20) \
 X(a, STATIC,   SINGULAR, UINT32,   telemetry_limiter_auto_chanutil_threshold,  21) \
 X(a, STATIC,   SINGULAR, BOOL,     position_limiter_enabled,  22) \
-X(a, STATIC,   SINGULAR, UINT32,   position_limiter_time_minutes_threshold,  23)
+X(a, STATIC,   SINGULAR, UINT32,   position_limiter_time_minutes_threshold,  23) \
+X(a, STATIC,   SINGULAR, BOOL,     opportunistic_flooding_enabled,  24) \
+X(a, STATIC,   SINGULAR, UINT32,   base_delay_ms,    25) \
+X(a, STATIC,   SINGULAR, UINT32,   hop_delay_ms,     26) \
+X(a, STATIC,   SINGULAR, UINT32,   snr_gain_ms,      27) \
+X(a, STATIC,   SINGULAR, UINT32,   jitter_ms,        28) \
+X(a, STATIC,   SINGULAR, BOOL,     cancel_on_first_hear,  29)
 #define meshtastic_NodeModAdmin_CALLBACK NULL
 #define meshtastic_NodeModAdmin_DEFAULT NULL
 
@@ -128,7 +146,7 @@ extern const pb_msgdesc_t meshtastic_NodeModAdmin_msg;
 
 /* Maximum encoded size of messages (where known) */
 #define MESHTASTIC_MESHTASTIC_NODE_MOD_ADMIN_PB_H_MAX_SIZE meshtastic_NodeModAdmin_size
-#define meshtastic_NodeModAdmin_size             135
+#define meshtastic_NodeModAdmin_size             169
 
 #ifdef __cplusplus
 } /* extern "C" */

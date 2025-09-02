@@ -898,6 +898,15 @@ void NodeDB::installDefaultModuleConfig()
     moduleConfig.nodemodadmin.position_limiter_enabled = false;
     moduleConfig.nodemodadmin.position_limiter_time_minutes_threshold = 60;
 
+    // opportunistic flooding defaults
+    moduleConfig.has_nodemodadmin = true; // ensure presence
+    moduleConfig.nodemodadmin.opportunistic_flooding_enabled = true;
+    moduleConfig.nodemodadmin.base_delay_ms = 60;
+    moduleConfig.nodemodadmin.hop_delay_ms = 30;
+    moduleConfig.nodemodadmin.snr_gain_ms = 8;
+    moduleConfig.nodemodadmin.jitter_ms = 40;
+    moduleConfig.nodemodadmin.cancel_on_first_hear = true;
+
     moduleConfig.has_neighbor_info = true;
     moduleConfig.neighbor_info.enabled = true;
     moduleConfig.neighbor_info.transmit_over_lora = true;
@@ -926,15 +935,22 @@ void NodeDB::installRoleDefaults(meshtastic_Config_DeviceConfig_Role role)
         config.device.rebroadcast_mode = meshtastic_Config_DeviceConfig_RebroadcastMode_ALL;
         owner.has_is_unmessagable = true;
         owner.is_unmessagable = true;
+        // Opportunistic flooding enabled by default for router roles
+        moduleConfig.has_nodemodadmin = true;
+        moduleConfig.nodemodadmin.opportunistic_flooding_enabled = true;
     } else if (role == meshtastic_Config_DeviceConfig_Role_ROUTER_LATE) {
         moduleConfig.telemetry.device_update_interval = ONE_DAY;
         owner.has_is_unmessagable = true;
         owner.is_unmessagable = true;
+        moduleConfig.has_nodemodadmin = true;
+        moduleConfig.nodemodadmin.opportunistic_flooding_enabled = true;
     } else if (role == meshtastic_Config_DeviceConfig_Role_REPEATER) {
         owner.has_is_unmessagable = true;
         owner.is_unmessagable = true;
         config.display.screen_on_secs = 1;
         config.device.rebroadcast_mode = meshtastic_Config_DeviceConfig_RebroadcastMode_ALL;
+        moduleConfig.has_nodemodadmin = true;
+        moduleConfig.nodemodadmin.opportunistic_flooding_enabled = true;
     } else if (role == meshtastic_Config_DeviceConfig_Role_SENSOR) {
         owner.has_is_unmessagable = true;
         owner.is_unmessagable = true;
