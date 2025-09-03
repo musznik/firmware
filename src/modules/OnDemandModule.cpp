@@ -366,7 +366,12 @@ meshtastic_OnDemand OnDemandModule::prepareNodeStats()
     onDemand.variant.response.response_data.node_stats.fw_plus_version = FW_PLUS_VERSION;
     onDemand.variant.response.response_data.node_stats.rebroadcast_mode = config.device.rebroadcast_mode;
     strncpy(onDemand.variant.response.response_data.node_stats.firmware_version, optstr(APP_VERSION_SHORT), sizeof(onDemand.variant.response.response_data.node_stats.firmware_version));
-    
+    onDemand.variant.response.response_data.node_stats.has_opportunistic_enabled = true;
+    onDemand.variant.response.response_data.node_stats.opportunistic_enabled =  router->getOpportunisticEnabled();
+    onDemand.variant.response.response_data.node_stats.has_opportunistic_mode = true;
+    onDemand.variant.response.response_data.node_stats.opportunistic_mode = router->getOpportunisticProfile();
+
+
     bool valid = false;
     meshtastic_Telemetry m = meshtastic_Telemetry_init_zero;
     m.time = getTime();

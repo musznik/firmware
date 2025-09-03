@@ -77,6 +77,10 @@ class Router : protected concurrency::OSThread, protected PacketHistory
      */
     virtual void enqueueReceivedMessage(meshtastic_MeshPacket *p);
 
+    // Opportunistic flooding info (defaults for routers without this feature)
+    virtual uint32_t getOpportunisticProfile() const { return 0; }
+    virtual bool getOpportunisticEnabled() const { return false; }
+
     /**
      * Send a packet on a suitable interface.  This routine will
      * later free() the packet to pool.  This routine is not allowed to stall.

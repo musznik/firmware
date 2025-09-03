@@ -112,6 +112,10 @@ class FloodingRouter : public Router
      * If the txmit queue is full it might return an error
      */
     virtual ErrorCode send(meshtastic_MeshPacket *p) override;
+
+    // Expose opportunistic info for OnDemand
+    virtual uint32_t getOpportunisticProfile() const override { return (uint32_t)currentProfile; }
+    virtual bool getOpportunisticEnabled() const override { return isOpportunisticEnabled(); }
     /**
      * Should this incoming filter be dropped?
      *
