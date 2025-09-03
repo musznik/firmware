@@ -150,6 +150,55 @@ void NextHopRouter::sniffReceived(const meshtastic_MeshPacket *p, const meshtast
         }
     }
 
+    // fw+ traceroute learning: if this is a traceroute/routing control with route info, learn next-hop hints
+    if (p->which_payload_variant == meshtastic_MeshPacket_decoded_tag) {
+        // Two possible containers: direct TRACEROUTE_APP in Data.payload as Routing with route_(request|reply),
+        // or ROUTING_APP containing Routing. Prefer decoding when portnum matches and payload not empty.
+        if (p->decoded.portnum == meshtastic_PortNum_TRACEROUTE_APP || p->decoded.portnum == meshtastic_PortNum_ROUTING_APP) {
+            meshtastic_Routing routing = meshtastic_Routing_init_default;
+            if (pb_decode_from_bytes(p->decoded.payload.bytes, p->decoded.payload.size, &meshtastic_Routing_msg, &routing)) {
+                const meshtastic_RouteDiscovery *rd = NULL;
+                if (routing.which_variant == meshtastic_Routing_route_reply_tag) rd = &routing.route_reply;
+                else if (routing.which_variant == meshtastic_Routing_route_request_tag) rd = &routing.route_request;
+
+                if (rd) {
+                    // Determine which path list to use: prefer route_back if present (reply path), otherwise route
+                    const pb_size_t maxHops = rd->route_back_count ? rd->route_back_count : rd->route_count;
+                    const uint32_t *path = rd->route_back_count ? rd->route_back : rd->route;
+                    const pb_size_t maxSnr = rd->snr_back_count ? rd->snr_back_count : rd->snr_towards_count;
+                    const int8_t *snrList = rd->snr_back_count ? rd->snr_back : rd->snr_towards;
+
+                    if (path && maxHops >= 2) {
+                        uint32_t self = getNodeNum();
+                        // find our index in the path
+                        int selfIdx = -1;
+                        for (pb_size_t i = 0; i < maxHops; ++i) {
+                            if (path[i] == self) { selfIdx = (int)i; break; }
+                        }
+                        if (selfIdx >= 0 && (selfIdx + 1) < (int)maxHops) {
+                            uint32_t dest = path[maxHops - 1];
+                            uint8_t nextHop = (uint8_t)(path[selfIdx + 1] & 0xFF);
+                            // derive per-link ETX from SNR if available for this segment
+                            float linkEtx = 2.0f;
+                            if (snrList && maxSnr > (pb_size_t)selfIdx) {
+                                // snr is in dB scaled by 4
+                                float snr = (float)snrList[selfIdx] / 4.0f;
+                                linkEtx = estimateEtxFromSnr(snr);
+                            } else {
+                                // fall back to rx_snr observed on this packet (rough hint)
+                                linkEtx = estimateEtxFromSnr(p->rx_snr);
+                            }
+                            // Add a simple ahead cost estimate: remaining hops count
+                            int remainingHops = (int)maxHops - selfIdx - 1;
+                            float observedCost = linkEtx + (remainingHops > 1 ? (remainingHops - 1) * 1.0f : 0.0f);
+                            learnRoute(dest, nextHop, observedCost);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     perhapsRelay(p);
 
     // handle the packet as normal

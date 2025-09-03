@@ -159,6 +159,7 @@ void Channels::initDefaultChannel(ChannelIndex chIndex)
 #ifdef USERPREFS_CHANNEL_0_DOWNLINK_ENABLED
         channelSettings.downlink_enabled = USERPREFS_CHANNEL_0_DOWNLINK_ENABLED;
 #endif
+        channelSettings.uplink_enabled = true;
         break;
     case 1:
 #ifdef USERPREFS_CHANNEL_1_PSK
