@@ -97,6 +97,22 @@ class NextHopRouter : public FloodingRouter
      */
     std::unordered_map<GlobalPacketId, PendingPacket, GlobalPacketIdHashFunction> pending;
 
+    //fw+ dv-etx, passive DV-ETX (lightweight, optional)
+    struct RouteEntry {
+        uint8_t next_hop = NO_NEXT_HOP_PREFERENCE; // last-byte id
+        float aggregated_cost = 0.0f;               // simple scalar cost
+        uint8_t confidence = 0;                    // how sure we are (seen successes)
+        uint32_t lastUpdatedMs = 0;
+    };
+
+    std::unordered_map<uint32_t, RouteEntry> routes; // dest_node_id -> route
+    //fw+ dv-etx
+    bool lookupRoute(uint32_t dest, RouteEntry &out);
+    void learnRoute(uint32_t dest, uint8_t viaHop, float observedCost);
+    void invalidateRoute(uint32_t dest, float penalty = 1.0f);
+    float estimateEtxFromSnr(float snr) const;
+    
+
     /**
      * Should this incoming filter be dropped?
      *

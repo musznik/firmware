@@ -1,6 +1,51 @@
 #include "NextHopRouter.h"
 
 NextHopRouter::NextHopRouter() {}
+//fw+ dv-etx
+bool NextHopRouter::lookupRoute(uint32_t dest, RouteEntry &out)
+{
+    auto it = routes.find(dest);
+    if (it == routes.end()) return false;
+    const RouteEntry &r = it->second;
+    // TTL and minimal confidence gate
+    if (millis() - r.lastUpdatedMs > 20UL * 60UL * 1000UL) return false; // 20 min TTL
+    if (r.confidence < 2) return false;
+    out = r;
+    return (out.next_hop != NO_NEXT_HOP_PREFERENCE);
+}
+//fw+ dv-etx
+void NextHopRouter::learnRoute(uint32_t dest, uint8_t viaHop, float observedCost)
+{
+    if (viaHop == NO_NEXT_HOP_PREFERENCE) return;
+    RouteEntry &r = routes[dest];
+    if (r.confidence == 0) {
+        r.aggregated_cost = observedCost;
+    } else {
+        // Smooth update
+        r.aggregated_cost = 0.7f * r.aggregated_cost + 0.3f * observedCost;
+    }
+    r.next_hop = viaHop;
+    r.lastUpdatedMs = millis();
+    if (r.confidence < 255) r.confidence++;
+}
+//fw+ dv-etx
+void NextHopRouter::invalidateRoute(uint32_t dest, float penalty)
+{
+    auto it = routes.find(dest);
+    if (it == routes.end()) return;
+    RouteEntry &r = it->second;
+    r.aggregated_cost += penalty;
+    if (r.confidence > 0) r.confidence--;
+    r.lastUpdatedMs = millis();
+}
+//fw+ dv-etx
+float NextHopRouter::estimateEtxFromSnr(float snr) const
+{
+    if (snr >= 10.0f) return 1.2f;
+    if (snr >= 5.0f) return 1.6f;
+    if (snr >= 0.0f) return 2.2f;
+    return 3.0f;
+}
 
 PendingPacket::PendingPacket(meshtastic_MeshPacket *p, uint8_t numRetransmissions)
 {
@@ -18,8 +63,20 @@ ErrorCode NextHopRouter::send(meshtastic_MeshPacket *p)
     p->relay_node = nodeDB->getLastByteOfNodeNum(getNodeNum()); // First set the relayer to us
     wasSeenRecently(p);                                         // FIXME, move this to a sniffSent method
 
-    p->next_hop = getNextHop(p->to, p->relay_node); // set the next hop
-    LOG_DEBUG("Setting next hop for packet with dest %x to %x", p->to, p->next_hop);
+    // fw+, for unicasts, try passive DV-ETX route first; else fallback to legacy next_hop/none
+    if (!isBroadcast(p->to) && !isToUs(p)) {
+        RouteEntry r;
+        if (lookupRoute(p->to, r)) {
+            p->next_hop = r.next_hop;
+            LOG_INFO("DV-ETX next hop for %x -> %x (cost=%.2f, conf=%u)", p->to, p->next_hop, r.aggregated_cost, r.confidence);
+        } else {
+            p->next_hop = getNextHop(p->to, p->relay_node);
+            LOG_DEBUG("Legacy next hop for %x -> %x", p->to, p->next_hop);
+        }
+    } else {
+        p->next_hop = getNextHop(p->to, p->relay_node);
+        LOG_DEBUG("Setting next hop for packet with dest %x to %x", p->to, p->next_hop);
+    }
 
     // If it's from us, ReliableRouter already handles retransmissions if want_ack is set. If a next hop is set and hop limit is
     // not 0 or want_ack is set, start retransmissions
@@ -74,12 +131,15 @@ void NextHopRouter::sniffReceived(const meshtastic_MeshPacket *p, const meshtast
             if (origTx) {
                 // Either relayer of ACK was also a relayer of the packet, or we were the relayer and the ACK came directly from
                 // the destination
-                if (wasRelayer(p->relay_node, p->decoded.request_id, p->to) ||
-                    (wasRelayer(ourRelayID, p->decoded.request_id, p->to) && p->hop_start != 0 && p->hop_start == p->hop_limit)) {
-                    if (origTx->next_hop != p->relay_node) { // Not already set
-                        LOG_INFO("Update next hop of 0x%x to 0x%x based on ACK/reply", p->from, p->relay_node);
-                        origTx->next_hop = p->relay_node;
-                    }
+                //fw+ dv-etx mod
+                bool weRelayedOriginal = wasRelayer(ourRelayID, p->decoded.request_id, p->to);
+                bool ackRelayerWasOnPath = wasRelayer(p->relay_node, p->decoded.request_id, p->to);
+                if (ackRelayerWasOnPath || (weRelayedOriginal && p->hop_start != 0 && p->hop_start == p->hop_limit)) {
+                    // Passive learn: dest is p->from (original sender) or p->to depending on context; for DM replies, p->to tends do wskazuje na nas
+                    uint32_t destNode = origTx->num; // original transmitter node id (peer)
+                    float hopCost = estimateEtxFromSnr(p->rx_snr) + 1.0f; // local hop + ahead estimate
+                    learnRoute(destNode, p->relay_node, hopCost);
+                    origTx->next_hop = p->relay_node; // keep legacy hint too
                 }
             }
         }
