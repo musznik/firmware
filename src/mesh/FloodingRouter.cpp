@@ -7,7 +7,32 @@
 #include "NodeDB.h"
 #include "gps/GeoCoord.h"
 
-FloodingRouter::FloodingRouter() {}
+FloodingRouter::FloodingRouter() {
+    // Initialize profile defaults (no designated initializers to keep C++11 compatible)
+    profileParamsSparse.base = 10;
+    profileParamsSparse.hop = 0;
+    profileParamsSparse.snrGain = 6;
+    profileParamsSparse.jitter = 10;
+    profileParamsSparse.backboneBias = 0;
+
+    profileParamsBalanced.base = 60;
+    profileParamsBalanced.hop = 30;
+    profileParamsBalanced.snrGain = 8;
+    profileParamsBalanced.jitter = 40;
+    profileParamsBalanced.backboneBias = 0;
+
+    profileParamsDense.base = 120;
+    profileParamsDense.hop = 50;
+    profileParamsDense.snrGain = 10;
+    profileParamsDense.jitter = 80;
+    profileParamsDense.backboneBias = 0;
+
+    profileParamsBridge.base = 60;
+    profileParamsBridge.hop = 30;
+    profileParamsBridge.snrGain = 8;
+    profileParamsBridge.jitter = 40;
+    profileParamsBridge.backboneBias = 20;
+}
 
 /**
  * Send a packet on a suitable interface.  This routine will
@@ -52,7 +77,7 @@ void FloodingRouter::perhapsCancelDupe(const meshtastic_MeshPacket *p)
 {
     bool allowCancel = (p->transport_mechanism == meshtastic_MeshPacket_TransportMechanism_TRANSPORT_LORA);
     if (allowCancel) {
-        if (isOpportunisticEnabled() && moduleConfig.nodemodadmin.cancel_on_first_hear) {
+        if (isOpportunisticEnabled() && moduleConfig.nodemodadmin.opportunistic_cancel_on_first_hear) {
             if (Router::cancelSending(p->from, p->id)) {
                 txRelayCanceled++;
                 opportunistic_canceled++;
@@ -148,6 +173,91 @@ void FloodingRouter::sniffReceived(const meshtastic_MeshPacket *p, const meshtas
 
     // handle the packet as normal
     Router::sniffReceived(p, c);
+
+    // Opportunistic profile: observe RX and maybe recompute every window
+    observeRxForProfile(p);
+    maybeRecomputeProfile(millis());
+}
+
+void FloodingRouter::observeRxForProfile(const meshtastic_MeshPacket *p)
+{
+    // Initialize window if needed
+    if (profileWindowStartMs == 0) {
+        profileWindowStartMs = millis();
+        lastRxDupeCounter = rxDupe;
+        chanUtilEma = airTime->channelUtilizationPercent();
+    }
+
+    // Track non-duplicate broadcast count in this window
+    if (isBroadcast(p->to)) {
+        // wasSeenRecently()  sniffReceived rcvd nonduplicates?
+        windowBroadcastNonDup++;
+    }
+
+    // Smooth channel utilization
+    float util = airTime->channelUtilizationPercent();
+    const float alpha = 0.2f;
+    chanUtilEma = (1.0f - alpha) * chanUtilEma + alpha * util;
+}
+
+void FloodingRouter::maybeRecomputeProfile(uint32_t nowMs)
+{
+    if (profileWindowStartMs == 0) return;
+    if (nowMs - profileWindowStartMs < profileWindowMs) return;
+
+    // Compute window metrics
+    uint32_t dupes = rxDupe - lastRxDupeCounter;
+    float dupeRatio = 0.0f;
+    if (windowBroadcastNonDup > 0) {
+        dupeRatio = (float)dupes / (float)windowBroadcastNonDup;
+    }
+
+    // Estimate neighbors 1-hop (non-MQTT)
+    neighborsWin = 0;
+    size_t total = nodeDB->getNumMeshNodes();
+    for (size_t i = 0; i < total; ++i) {
+        const meshtastic_NodeInfoLite *n = nodeDB->getMeshNodeByIndex(i);
+        if (!n) continue;
+        if (n->hops_away == 0 && !n->via_mqtt && n->num != nodeDB->getNodeNum()) neighborsWin++;
+    }
+
+    // Select target profile with simple thresholds; BACKBONE_BRIDGE overrides
+    OpportunisticProfile newTarget = OpportunisticProfile::BALANCED;
+    bool hasBackbone = hasBackboneNeighbor();
+    if (hasBackbone) {
+        newTarget = OpportunisticProfile::BACKBONE_BRIDGE;
+    } else if (neighborsWin <= 1 && dupeRatio < 0.05f && chanUtilEma < 10.0f) {
+        newTarget = OpportunisticProfile::SPARSE;
+    } else if (neighborsWin >= 4 || dupeRatio >= 0.20f || chanUtilEma >= 30.0f) {
+        newTarget = OpportunisticProfile::DENSE;
+    }
+
+    if (newTarget == targetProfile) {
+        stableWindows++;
+    } else {
+        targetProfile = newTarget;
+        stableWindows = 0;
+    }
+
+    if (stableWindows >= requiredStableWindows) {
+        currentProfile = targetProfile;
+    }
+
+    // Reset window
+    profileWindowStartMs = nowMs;
+    lastRxDupeCounter = rxDupe;
+    windowBroadcastNonDup = 0;
+}
+
+const FloodingRouter::ProfileParams &FloodingRouter::getParamsFor(OpportunisticProfile p) const
+{
+    switch (p) {
+        case OpportunisticProfile::SPARSE: return profileParamsSparse;
+        case OpportunisticProfile::DENSE: return profileParamsDense;
+        case OpportunisticProfile::BACKBONE_BRIDGE: return profileParamsBridge;
+        case OpportunisticProfile::BALANCED:
+        default: return profileParamsBalanced;
+    }
 }
 
 //fw+
@@ -156,6 +266,13 @@ bool FloodingRouter::isOpportunisticEnabled() const
     if (!moduleConfig.has_nodemodadmin)
         return false;
     return moduleConfig.nodemodadmin.opportunistic_flooding_enabled;
+}
+
+bool FloodingRouter::isOpportunisticAuto() const
+{
+    if (!moduleConfig.has_nodemodadmin)
+        return true; // default to auto when section missing
+    return moduleConfig.nodemodadmin.opportunistic_auto;
 }
 
 //fw+
@@ -176,10 +293,10 @@ uint32_t FloodingRouter::computeOpportunisticDelayMs(const meshtastic_MeshPacket
         return 0;
 
     const auto &adm = moduleConfig.nodemodadmin;
-    uint32_t base = adm.base_delay_ms;
-    uint32_t hop = adm.hop_delay_ms;
-    uint32_t snrGain = adm.snr_gain_ms;
-    uint32_t jitter = adm.jitter_ms;
+    uint32_t base = adm.opportunistic_base_delay_ms;
+    uint32_t hop = adm.opportunistic_hop_delay_ms;
+    uint32_t snrGain = adm.opportunistic_snr_gain_ms;
+    uint32_t jitter = adm.opportunistic_jitter_ms;
 
     // if no parameters set, skip
     if (base == 0 && hop == 0 && snrGain == 0 && jitter == 0)
@@ -200,11 +317,21 @@ uint32_t FloodingRouter::computeOpportunisticDelayMs(const meshtastic_MeshPacket
     // Random jitter [0..jitter]?
     uint32_t rj = jitter ? (random(jitter + 1)) : 0;
 
-    // Optional backbone bias: if we have a rare/distant neighbor, transmit a bit earlier
-    int32_t backboneBias = hasBackboneNeighbor() ? 20 : 0; // ms, small but helps win race
-
-    // D = base + hop*usedHops - snrGain*snr + jitter - backboneBias
-    int32_t d = (int32_t)base + (int32_t)(hop * usedHops) - (int32_t)(snrGain * (int32_t)snr) + (int32_t)rj - backboneBias;
+    int32_t d = 0;
+    if (isOpportunisticAuto()) {
+        const ProfileParams &pp = getParamsFor(currentProfile);
+        uint16_t pBase = pp.base;
+        uint16_t pHop = pp.hop;
+        uint8_t pSnr = pp.snrGain;
+        int32_t backboneBias = (int32_t)pp.backboneBias;
+        d = (int32_t)pBase + (int32_t)(pHop * usedHops) - (int32_t)(pSnr * (int32_t)snr) + (int32_t)rj - backboneBias;
+    } else {
+        // Manual override path (admin-config values)
+        uint16_t pBase = base ? base : 60;
+        uint16_t pHop = hop ? hop : 30;
+        uint8_t pSnr = snrGain ? (uint8_t)snrGain : 8;
+        d = (int32_t)pBase + (int32_t)(pHop * usedHops) - (int32_t)(pSnr * (int32_t)snr) + (int32_t)rj;
+    }
     if (d <= 0) return (uint32_t)rj; // ensure non-negative, allow pure jitter
     return clampDelay((uint32_t)d);
 }

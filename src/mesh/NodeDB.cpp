@@ -901,11 +901,12 @@ void NodeDB::installDefaultModuleConfig()
     // opportunistic flooding defaults
     moduleConfig.has_nodemodadmin = true; // ensure presence
     moduleConfig.nodemodadmin.opportunistic_flooding_enabled = true;
-    moduleConfig.nodemodadmin.base_delay_ms = 60;
-    moduleConfig.nodemodadmin.hop_delay_ms = 30;
-    moduleConfig.nodemodadmin.snr_gain_ms = 8;
-    moduleConfig.nodemodadmin.jitter_ms = 40;
-    moduleConfig.nodemodadmin.cancel_on_first_hear = true;
+    moduleConfig.nodemodadmin.opportunistic_auto = true;
+    moduleConfig.nodemodadmin.opportunistic_base_delay_ms = 60;
+    moduleConfig.nodemodadmin.opportunistic_hop_delay_ms = 30;
+    moduleConfig.nodemodadmin.opportunistic_snr_gain_ms = 8;
+    moduleConfig.nodemodadmin.opportunistic_jitter_ms = 40;
+    moduleConfig.nodemodadmin.opportunistic_cancel_on_first_hear = true;
 
     moduleConfig.has_neighbor_info = true;
     moduleConfig.neighbor_info.enabled = true;
@@ -1392,20 +1393,17 @@ void NodeDB::loadFromDisk()
         moduleConfig.has_nodemodadmin = true;
         auto &adm = moduleConfig.nodemodadmin;
 
-        // Enable opportunistic flooding by default if unset (we treat explicit false as user choice)
-        // Note: protobuf 'bool' has no tri-state; rely on values being zeroed on first run, and we set defaults then.
-        if (!adm.opportunistic_flooding_enabled) {
-            adm.opportunistic_flooding_enabled = true;
-            mutated = true;
-        }
+        // Enable opportunistic flooding and auto mode by default if unset
+        if (!adm.opportunistic_flooding_enabled) { adm.opportunistic_flooding_enabled = true; mutated = true; }
+        if (!adm.opportunistic_auto) { adm.opportunistic_auto = true; mutated = true; }
 
         // Parameters: if zero, set to sensible defaults
-        if (adm.base_delay_ms == 0) { adm.base_delay_ms = 60; mutated = true; }
-        if (adm.hop_delay_ms == 0) { adm.hop_delay_ms = 30; mutated = true; }
-        if (adm.snr_gain_ms == 0) { adm.snr_gain_ms = 8; mutated = true; }
-        if (adm.jitter_ms == 0) { adm.jitter_ms = 40; mutated = true; }
-        // cancel_on_first_hear: default to true only if currently false (first run)
-        if (!adm.cancel_on_first_hear) { adm.cancel_on_first_hear = true; mutated = true; }
+        if (adm.opportunistic_base_delay_ms == 0) { adm.opportunistic_base_delay_ms = 60; mutated = true; }
+        if (adm.opportunistic_hop_delay_ms == 0) { adm.opportunistic_hop_delay_ms = 30; mutated = true; }
+        if (adm.opportunistic_snr_gain_ms == 0) { adm.opportunistic_snr_gain_ms = 8; mutated = true; }
+        if (adm.opportunistic_jitter_ms == 0) { adm.opportunistic_jitter_ms = 40; mutated = true; }
+        // opportunistic_cancel_on_first_hear: default to true only if currently false (first run)
+        if (!adm.opportunistic_cancel_on_first_hear) { adm.opportunistic_cancel_on_first_hear = true; mutated = true; }
 
         if (mutated) {
             saveToDisk(SEGMENT_MODULECONFIG);

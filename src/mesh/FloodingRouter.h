@@ -51,6 +51,7 @@ class FloodingRouter : public Router
 
     // Opportunistic/selective flooding helpers
     bool isOpportunisticEnabled() const;
+    bool isOpportunisticAuto() const;
     uint32_t computeOpportunisticDelayMs(const meshtastic_MeshPacket *p) const;
     uint32_t clampDelay(uint32_t d) const;
     bool hasBackboneNeighbor() const;
@@ -66,14 +67,51 @@ class FloodingRouter : public Router
      */
     FloodingRouter();
 
+    // Opportunistic profile categories
+    enum class OpportunisticProfile : uint8_t { SPARSE = 0, BALANCED = 1, DENSE = 2, BACKBONE_BRIDGE = 3 };
+
+    struct ProfileParams {
+      uint16_t base = 60;
+      uint16_t hop = 30;
+      uint8_t snrGain = 8;
+      uint16_t jitter = 40;
+      uint8_t backboneBias = 0; // extra earlier ms if backbone
+      // Future: cancelDeferMs, cancelMinDupes
+    };
+
+  private:
+    // Adaptive profile state (windowed)
+    OpportunisticProfile currentProfile = OpportunisticProfile::BALANCED;
+    OpportunisticProfile targetProfile = OpportunisticProfile::BALANCED;
+    uint32_t profileWindowStartMs = 0;
+    uint32_t profileWindowMs = 60000; // 60s
+    uint8_t stableWindows = 0;
+    uint8_t requiredStableWindows = 2;
+
+    // Window metrics
+    uint16_t windowBroadcastNonDup = 0; // non-duplicate broadcasts seen in window
+    uint32_t lastRxDupeCounter = 0;     // snapshot of Router::rxDupe at window start
+    uint8_t neighborsWin = 0;           // estimated local neighbor count
+    float chanUtilEma = 0.0f;           // EMA of channel utilization
+
+    // Per-profile params (can be tuned later) - set in constructor
+    ProfileParams profileParamsSparse;
+    ProfileParams profileParamsBalanced;
+    ProfileParams profileParamsDense;
+    ProfileParams profileParamsBridge;
+
+    // Adaptive helpers
+    void observeRxForProfile(const meshtastic_MeshPacket *p);
+    void maybeRecomputeProfile(uint32_t nowMs);
+    const ProfileParams &getParamsFor(OpportunisticProfile p) const;
+
+  protected:
     /**
      * Send a packet on a suitable interface.  This routine will
      * later free() the packet to pool.  This routine is not allowed to stall.
      * If the txmit queue is full it might return an error
      */
     virtual ErrorCode send(meshtastic_MeshPacket *p) override;
-
-  protected:
     /**
      * Should this incoming filter be dropped?
      *

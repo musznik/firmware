@@ -63,6 +63,7 @@ typedef struct _meshtastic_NodeModAdmin {
     uint32_t snr_gain_ms;
     uint32_t jitter_ms;
     bool cancel_on_first_hear;
+    bool opportunistic_auto;
 } meshtastic_NodeModAdmin;
 
 
@@ -71,8 +72,8 @@ extern "C" {
 #endif
 
 /* Initializer values for message structs */
-#define meshtastic_NodeModAdmin_init_default     {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
-#define meshtastic_NodeModAdmin_init_zero        {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+#define meshtastic_NodeModAdmin_init_default     {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+#define meshtastic_NodeModAdmin_init_zero        {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define meshtastic_NodeModAdmin_sniffer_enabled_tag 1
@@ -104,6 +105,7 @@ extern "C" {
 #define meshtastic_NodeModAdmin_snr_gain_ms_tag  27
 #define meshtastic_NodeModAdmin_jitter_ms_tag    28
 #define meshtastic_NodeModAdmin_cancel_on_first_hear_tag 29
+#define meshtastic_NodeModAdmin_opportunistic_auto_tag 30
 
 /* Struct field encoding specification for nanopb */
 #define meshtastic_NodeModAdmin_FIELDLIST(X, a) \
@@ -135,7 +137,8 @@ X(a, STATIC,   SINGULAR, UINT32,   base_delay_ms,    25) \
 X(a, STATIC,   SINGULAR, UINT32,   hop_delay_ms,     26) \
 X(a, STATIC,   SINGULAR, UINT32,   snr_gain_ms,      27) \
 X(a, STATIC,   SINGULAR, UINT32,   jitter_ms,        28) \
-X(a, STATIC,   SINGULAR, BOOL,     cancel_on_first_hear,  29)
+X(a, STATIC,   SINGULAR, BOOL,     cancel_on_first_hear,  29) \
+X(a, STATIC,   SINGULAR, BOOL,     opportunistic_auto,  30)
 #define meshtastic_NodeModAdmin_CALLBACK NULL
 #define meshtastic_NodeModAdmin_DEFAULT NULL
 
@@ -146,7 +149,7 @@ extern const pb_msgdesc_t meshtastic_NodeModAdmin_msg;
 
 /* Maximum encoded size of messages (where known) */
 #define MESHTASTIC_MESHTASTIC_NODE_MOD_ADMIN_PB_H_MAX_SIZE meshtastic_NodeModAdmin_size
-#define meshtastic_NodeModAdmin_size             169
+#define meshtastic_NodeModAdmin_size             172
 
 #ifdef __cplusplus
 } /* extern "C" */
