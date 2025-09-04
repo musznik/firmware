@@ -146,6 +146,12 @@ class NextHopRouter : public FloodingRouter
     void learnRoute(uint32_t dest, uint8_t viaHop, float observedCost);
     void invalidateRoute(uint32_t dest, float penalty = 1.0f);
     float estimateEtxFromSnr(float snr) const;
+    // fw+ nexthop snif
+    void learnFromRouteDiscoveryPayload(const meshtastic_MeshPacket *p);
+    void learnFromRoutingPayload(const meshtastic_MeshPacket *p);
+    void processPathAndLearn(const uint32_t *path, size_t maxHops,
+                             const int8_t *snrList, size_t maxSnr,
+                             const meshtastic_MeshPacket *p);
     
 
     /**
@@ -241,7 +247,8 @@ class NextHopRouter : public FloodingRouter
             if (!includeStale) {
                 uint32_t ttlMs = computeRouteTtlMs(r.confidence);
                 if (now - r.lastUpdatedMs > ttlMs) continue;
-                if (r.confidence < 2) continue;
+                // Relax visibility: show entries once we have at least a single observation
+                if (r.confidence < 1) continue;
             }
             PublicRouteEntry e{dest, r.next_hop, r.aggregated_cost, r.confidence, r.lastUpdatedMs};
             out.push_back(e);
