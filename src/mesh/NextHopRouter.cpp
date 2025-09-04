@@ -20,6 +20,12 @@ void NextHopRouter::processPathAndLearn(const uint32_t *path, size_t maxHops,
     uint32_t dest = path[maxHops - 1];
     uint8_t nextHop = (uint8_t)(path[selfIdx + 1] & 0xFF);
 
+    // Gate on direct neighbor presence for the candidate last byte
+    if (!isDirectNeighborLastByte(nextHop)) {
+        LOG_DEBUG("Skip learnRoute: nextHop 0x%x is not a direct neighbor", nextHop);
+        return;
+    }
+
     float linkEtx = 2.0f;
     if (snrList && maxSnr > (size_t)selfIdx) {
         float snr = (float)snrList[selfIdx] / 4.0f;
@@ -158,8 +164,14 @@ ErrorCode NextHopRouter::send(meshtastic_MeshPacket *p)
 
     // If it's from us, ReliableRouter already handles retransmissions if want_ack is set. If a next hop is set and hop limit is
     // not 0 or want_ack is set, start retransmissions
-    if ((!isFromUs(p) || !p->want_ack) && p->next_hop != NO_NEXT_HOP_PREFERENCE && (p->hop_limit > 0 || p->want_ack))
+    if ((!isFromUs(p) || !p->want_ack) && p->next_hop != NO_NEXT_HOP_PREFERENCE && (p->hop_limit > 0 || p->want_ack)) {
+        // Safety: ensure chosen next_hop corresponds to some direct neighbor; else fallback to flooding
+        if (!isDirectNeighborLastByte(p->next_hop)) {
+            LOG_INFO("DV-ETX next_hop 0x%x not a direct neighbor; fallback to flooding", p->next_hop);
+            p->next_hop = NO_NEXT_HOP_PREFERENCE;
+        }
         startRetransmission(packetPool.allocCopy(*p)); // start retransmission for relayed packet
+    }
 
     return Router::send(p);
 }
@@ -220,7 +232,8 @@ void NextHopRouter::sniffReceived(const meshtastic_MeshPacket *p, const meshtast
                 //fw+ dv-etx mod
                 bool weRelayedOriginal = wasRelayer(ourRelayID, p->decoded.request_id, p->to);
                 bool ackRelayerWasOnPath = wasRelayer(p->relay_node, p->decoded.request_id, p->to);
-                if (ackRelayerWasOnPath || (weRelayedOriginal && p->hop_start != 0 && p->hop_start == p->hop_limit)) {
+                if ((ackRelayerWasOnPath || (weRelayedOriginal && p->hop_start != 0 && p->hop_start == p->hop_limit)) &&
+                    isDirectNeighborLastByte(p->relay_node)) {
                     // Passive learn: dest is p->from (original sender) or p->to depending on context; for DM replies, p->to tends do wskazuje na nas
                     uint32_t destNode = origTx->num; // original transmitter node id (peer)
                     float hopCost = estimateEtxFromSnr(p->rx_snr) + 1.0f; // local hop + ahead estimate

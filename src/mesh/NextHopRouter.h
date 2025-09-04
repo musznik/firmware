@@ -152,6 +152,17 @@ class NextHopRouter : public FloodingRouter
     void processPathAndLearn(const uint32_t *path, size_t maxHops,
                              const int8_t *snrList, size_t maxSnr,
                              const meshtastic_MeshPacket *p);
+    bool isDirectNeighborLastByte(uint8_t lastByte) const
+    {
+        // Scan known nodes for any with matching last byte that are direct (hops_away == 0)
+        int totalNodes = nodeDB->getNumMeshNodes();
+        for (int i = 0; i < totalNodes; ++i) {
+            meshtastic_NodeInfoLite *n = nodeDB->getMeshNodeByIndex(i);
+            if (!n) continue;
+            if (n->hops_away == 0 && (uint8_t)(n->num & 0xFF) == lastByte) return true;
+        }
+        return false;
+    }
     
 
     /**
