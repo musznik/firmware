@@ -6,6 +6,7 @@
 #include "RTC.h"
 #include "RadioLibInterface.h"
 #include "Router.h"
+#include "NextHopRouter.h"
 #include "configuration.h"
 #include "main.h"
 #include <meshUtils.h>
@@ -90,12 +91,20 @@ bool OnDemandModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, mes
                 sendPacketToRequester(prepareRoutingErrorResponse(), mp, true);
                 break;
             }
+            case meshtastic_OnDemandType_REQUEST_ROUTING_TABLE: {
+                auto packets = createSegmentedRoutingTable();
+                for (auto &pkt : packets)
+                {
+                    sendPacketToRequester(*pkt, mp);
+                }
+                break;
+            }
             default:
                 meshtastic_OnDemand unknown_ondemand = meshtastic_OnDemand_init_zero;
                 unknown_ondemand.which_variant = meshtastic_OnDemand_response_tag;
                 unknown_ondemand.variant.response.response_type = meshtastic_OnDemandType_UNKNOWN_TYPE;
                 sendPacketToRequester(unknown_ondemand, mp);
-            break;
+                break;
           }
     }
 
@@ -520,6 +529,84 @@ void OnDemandModule::sendPacketToRequester(const meshtastic_OnDemand &demand_pac
     }else{
         service->sendToMesh(p, RX_SRC_LOCAL, false);
     }
+}
+
+std::vector<std::unique_ptr<meshtastic_OnDemand>> OnDemandModule::createSegmentedRoutingTable()
+{
+    std::vector<std::unique_ptr<meshtastic_OnDemand>> packets;
+
+    if (!router)
+        return packets;
+    auto nh = static_cast<NextHopRouter *>(router);
+
+    auto snapshot = nh->getRouteSnapshot(false);
+    int currentIndex = 0;
+    int packetIndex = 1;
+
+    while (currentIndex < (int)snapshot.size())
+    {
+        std::unique_ptr<meshtastic_OnDemand> onDemand(new meshtastic_OnDemand);
+        *onDemand = meshtastic_OnDemand_init_zero;
+
+        onDemand->which_variant = meshtastic_OnDemand_response_tag;
+        onDemand->variant.response.response_type = meshtastic_OnDemandType_RESPONSE_ROUTING_TABLE;
+        onDemand->variant.response.which_response_data = meshtastic_OnDemandResponse_routing_table_tag;
+
+        onDemand->has_packet_index = true;
+        onDemand->has_packet_total = true;
+        onDemand->packet_index = packetIndex;
+
+        meshtastic_RoutingTable &listRef = onDemand->variant.response.response_data.routing_table;
+        listRef.routes_count = 0;
+
+        while (currentIndex < (int)snapshot.size())
+        {
+            const auto &e = snapshot[currentIndex];
+            meshtastic_RoutingTableEntry entry = meshtastic_RoutingTableEntry_init_zero;
+            entry.dest = e.dest;
+            entry.next_hop = e.next_hop;
+            entry.cost = e.aggregated_cost;
+            entry.confidence = e.confidence;
+            uint32_t now = millis();
+            entry.age_secs = (now >= e.lastUpdatedMs) ? (now - e.lastUpdatedMs) / 1000 : 0;
+
+            int pos = listRef.routes_count;
+            listRef.routes[pos] = entry;
+            listRef.routes_count++;
+
+            if (!fitsInPacket(*onDemand, MAX_PACKET_SIZE))
+            {
+                listRef.routes_count--;
+                break;
+            }
+            currentIndex++;
+        }
+
+        packets.push_back(std::move(onDemand));
+        packetIndex++;
+    }
+
+    uint32_t totalPackets = packetIndex - 1;
+    for (auto &pkt : packets)
+    {
+        pkt->packet_total = totalPackets;
+    }
+
+    if (packets.empty())
+    {
+        std::unique_ptr<meshtastic_OnDemand> onDemand(new meshtastic_OnDemand);
+        *onDemand = meshtastic_OnDemand_init_zero;
+        onDemand->which_variant = meshtastic_OnDemand_response_tag;
+        onDemand->variant.response.response_type = meshtastic_OnDemandType_RESPONSE_ROUTING_TABLE;
+        onDemand->variant.response.which_response_data = meshtastic_OnDemandResponse_routing_table_tag;
+        onDemand->has_packet_index = true;
+        onDemand->has_packet_total = true;
+        onDemand->packet_index = 1;
+        onDemand->packet_total = 1;
+        packets.push_back(std::move(onDemand));
+    }
+
+    return packets;
 }
 
 meshtastic_MeshPacket *OnDemandModule::allocReply()

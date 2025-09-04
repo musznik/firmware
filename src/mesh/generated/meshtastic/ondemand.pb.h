@@ -34,7 +34,9 @@ typedef enum _meshtastic_OnDemandType {
     meshtastic_OnDemandType_RESPONSE_ROUTING_ERRORS = 20,
     meshtastic_OnDemandType_REQUEST_PING_ACK = 21,
     meshtastic_OnDemandType_RESPONSE_PING_ACK = 22,
-    meshtastic_OnDemandType_REQUEST_NODES_DIRECT_ONLINE = 23
+    meshtastic_OnDemandType_REQUEST_NODES_DIRECT_ONLINE = 23,
+    meshtastic_OnDemandType_REQUEST_ROUTING_TABLE = 24,
+    meshtastic_OnDemandType_RESPONSE_ROUTING_TABLE = 25
 } meshtastic_OnDemandType;
 
 /* Struct definitions */
@@ -205,6 +207,20 @@ typedef struct _meshtastic_OnDemandRequest {
     meshtastic_OnDemandType request_type;
 } meshtastic_OnDemandRequest;
 
+/* Routing table structures for UI */
+typedef struct _meshtastic_RoutingTableEntry {
+    uint32_t dest;
+    uint32_t next_hop; /* last-byte id of next hop */
+    float cost; /* aggregated ETX-like cost */
+    uint32_t confidence; /* how sure we are */
+    uint32_t age_secs; /* age of entry in seconds */
+} meshtastic_RoutingTableEntry;
+
+typedef struct _meshtastic_RoutingTable {
+    pb_size_t routes_count;
+    meshtastic_RoutingTableEntry routes[40];
+} meshtastic_RoutingTable;
+
 typedef struct _meshtastic_OnDemandResponse {
     meshtastic_OnDemandType response_type;
     pb_size_t which_response_data;
@@ -219,6 +235,7 @@ typedef struct _meshtastic_OnDemandResponse {
         meshtastic_NodeStats node_stats;
         meshtastic_FwPlusVersion fw_plus_version;
         meshtastic_RoutingErrorsHistory routing_errors;
+        meshtastic_RoutingTable routing_table;
     } response_data;
 } meshtastic_OnDemandResponse;
 
@@ -241,8 +258,8 @@ extern "C" {
 
 /* Helper constants for enums */
 #define _meshtastic_OnDemandType_MIN meshtastic_OnDemandType_UNKNOWN_TYPE
-#define _meshtastic_OnDemandType_MAX meshtastic_OnDemandType_REQUEST_NODES_DIRECT_ONLINE
-#define _meshtastic_OnDemandType_ARRAYSIZE ((meshtastic_OnDemandType)(meshtastic_OnDemandType_REQUEST_NODES_DIRECT_ONLINE+1))
+#define _meshtastic_OnDemandType_MAX meshtastic_OnDemandType_RESPONSE_ROUTING_TABLE
+#define _meshtastic_OnDemandType_ARRAYSIZE ((meshtastic_OnDemandType)(meshtastic_OnDemandType_RESPONSE_ROUTING_TABLE+1))
 
 
 
@@ -265,6 +282,8 @@ extern "C" {
 
 
 
+
+
 /* Initializer values for message structs */
 #define meshtastic_FwPlusVersion_init_default    {0}
 #define meshtastic_NodeStats_init_default        {false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, "", false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0}
@@ -284,6 +303,8 @@ extern "C" {
 #define meshtastic_OnDemandRequest_init_default  {_meshtastic_OnDemandType_MIN}
 #define meshtastic_OnDemandResponse_init_default {_meshtastic_OnDemandType_MIN, 0, {meshtastic_RxPacketHistory_init_default}}
 #define meshtastic_OnDemand_init_default         {false, 0, false, 0, 0, {meshtastic_OnDemandRequest_init_default}}
+#define meshtastic_RoutingTableEntry_init_default {0, 0, 0, 0, 0}
+#define meshtastic_RoutingTable_init_default     {0, {meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default}}
 #define meshtastic_FwPlusVersion_init_zero       {0}
 #define meshtastic_NodeStats_init_zero           {false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, "", false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0}
 #define meshtastic_RxPacketHistory_init_zero     {0, {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}}
@@ -302,6 +323,8 @@ extern "C" {
 #define meshtastic_OnDemandRequest_init_zero     {_meshtastic_OnDemandType_MIN}
 #define meshtastic_OnDemandResponse_init_zero    {_meshtastic_OnDemandType_MIN, 0, {meshtastic_RxPacketHistory_init_zero}}
 #define meshtastic_OnDemand_init_zero            {false, 0, false, 0, 0, {meshtastic_OnDemandRequest_init_zero}}
+#define meshtastic_RoutingTableEntry_init_zero   {0, 0, 0, 0, 0}
+#define meshtastic_RoutingTable_init_zero        {0, {meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero}}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define meshtastic_FwPlusVersion_version_number_tag 1
@@ -373,6 +396,12 @@ extern "C" {
 #define meshtastic_Ping_rx_rssi_tag              1
 #define meshtastic_Ping_snr_tag                  2
 #define meshtastic_OnDemandRequest_request_type_tag 1
+#define meshtastic_RoutingTableEntry_dest_tag    1
+#define meshtastic_RoutingTableEntry_next_hop_tag 2
+#define meshtastic_RoutingTableEntry_cost_tag    3
+#define meshtastic_RoutingTableEntry_confidence_tag 4
+#define meshtastic_RoutingTableEntry_age_secs_tag 5
+#define meshtastic_RoutingTable_routes_tag       1
 #define meshtastic_OnDemandResponse_response_type_tag 1
 #define meshtastic_OnDemandResponse_rx_packet_history_tag 2
 #define meshtastic_OnDemandResponse_node_list_tag 3
@@ -384,6 +413,7 @@ extern "C" {
 #define meshtastic_OnDemandResponse_node_stats_tag 9
 #define meshtastic_OnDemandResponse_fw_plus_version_tag 10
 #define meshtastic_OnDemandResponse_routing_errors_tag 11
+#define meshtastic_OnDemandResponse_routing_table_tag 12
 #define meshtastic_OnDemand_packet_index_tag     1
 #define meshtastic_OnDemand_packet_total_tag     2
 #define meshtastic_OnDemand_request_tag          3
@@ -539,7 +569,8 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (response_data,exchange_packet_log,response_d
 X(a, STATIC,   ONEOF,    MESSAGE,  (response_data,air_activity_history,response_data.air_activity_history),   8) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (response_data,node_stats,response_data.node_stats),   9) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (response_data,fw_plus_version,response_data.fw_plus_version),  10) \
-X(a, STATIC,   ONEOF,    MESSAGE,  (response_data,routing_errors,response_data.routing_errors),  11)
+X(a, STATIC,   ONEOF,    MESSAGE,  (response_data,routing_errors,response_data.routing_errors),  11) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (response_data,routing_table,response_data.routing_table),  12)
 #define meshtastic_OnDemandResponse_CALLBACK NULL
 #define meshtastic_OnDemandResponse_DEFAULT NULL
 #define meshtastic_OnDemandResponse_response_data_rx_packet_history_MSGTYPE meshtastic_RxPacketHistory
@@ -552,6 +583,7 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (response_data,routing_errors,response_data.r
 #define meshtastic_OnDemandResponse_response_data_node_stats_MSGTYPE meshtastic_NodeStats
 #define meshtastic_OnDemandResponse_response_data_fw_plus_version_MSGTYPE meshtastic_FwPlusVersion
 #define meshtastic_OnDemandResponse_response_data_routing_errors_MSGTYPE meshtastic_RoutingErrorsHistory
+#define meshtastic_OnDemandResponse_response_data_routing_table_MSGTYPE meshtastic_RoutingTable
 
 #define meshtastic_OnDemand_FIELDLIST(X, a) \
 X(a, STATIC,   OPTIONAL, UINT32,   packet_index,      1) \
@@ -562,6 +594,21 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (variant,response,variant.response),   4)
 #define meshtastic_OnDemand_DEFAULT NULL
 #define meshtastic_OnDemand_variant_request_MSGTYPE meshtastic_OnDemandRequest
 #define meshtastic_OnDemand_variant_response_MSGTYPE meshtastic_OnDemandResponse
+
+#define meshtastic_RoutingTableEntry_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, UINT32,   dest,              1) \
+X(a, STATIC,   SINGULAR, UINT32,   next_hop,          2) \
+X(a, STATIC,   SINGULAR, FLOAT,    cost,              3) \
+X(a, STATIC,   SINGULAR, UINT32,   confidence,        4) \
+X(a, STATIC,   SINGULAR, UINT32,   age_secs,          5)
+#define meshtastic_RoutingTableEntry_CALLBACK NULL
+#define meshtastic_RoutingTableEntry_DEFAULT NULL
+
+#define meshtastic_RoutingTable_FIELDLIST(X, a) \
+X(a, STATIC,   REPEATED, MESSAGE,  routes,            1)
+#define meshtastic_RoutingTable_CALLBACK NULL
+#define meshtastic_RoutingTable_DEFAULT NULL
+#define meshtastic_RoutingTable_routes_MSGTYPE meshtastic_RoutingTableEntry
 
 extern const pb_msgdesc_t meshtastic_FwPlusVersion_msg;
 extern const pb_msgdesc_t meshtastic_NodeStats_msg;
@@ -581,6 +628,8 @@ extern const pb_msgdesc_t meshtastic_Ping_msg;
 extern const pb_msgdesc_t meshtastic_OnDemandRequest_msg;
 extern const pb_msgdesc_t meshtastic_OnDemandResponse_msg;
 extern const pb_msgdesc_t meshtastic_OnDemand_msg;
+extern const pb_msgdesc_t meshtastic_RoutingTableEntry_msg;
+extern const pb_msgdesc_t meshtastic_RoutingTable_msg;
 
 /* Defines for backwards compatibility with code written before nanopb-0.4.0 */
 #define meshtastic_FwPlusVersion_fields &meshtastic_FwPlusVersion_msg
@@ -601,6 +650,8 @@ extern const pb_msgdesc_t meshtastic_OnDemand_msg;
 #define meshtastic_OnDemandRequest_fields &meshtastic_OnDemandRequest_msg
 #define meshtastic_OnDemandResponse_fields &meshtastic_OnDemandResponse_msg
 #define meshtastic_OnDemand_fields &meshtastic_OnDemand_msg
+#define meshtastic_RoutingTableEntry_fields &meshtastic_RoutingTableEntry_msg
+#define meshtastic_RoutingTable_fields &meshtastic_RoutingTable_msg
 
 /* Maximum encoded size of messages (where known) */
 #define MESHTASTIC_MESHTASTIC_ONDEMAND_PB_H_MAX_SIZE meshtastic_OnDemand_size
@@ -613,13 +664,15 @@ extern const pb_msgdesc_t meshtastic_OnDemand_msg;
 #define meshtastic_NodeStats_size                247
 #define meshtastic_NodesList_size                920
 #define meshtastic_OnDemandRequest_size          2
-#define meshtastic_OnDemandResponse_size         925
-#define meshtastic_OnDemand_size                 934
+#define meshtastic_OnDemandResponse_size         1245
+#define meshtastic_OnDemand_size                 1254
 #define meshtastic_Ping_size                     16
 #define meshtastic_PortCounterEntry_size         12
 #define meshtastic_PortCountersHistory_size      280
 #define meshtastic_RoutingErrorEntry_size        12
 #define meshtastic_RoutingErrorsHistory_size     560
+#define meshtastic_RoutingTableEntry_size        29
+#define meshtastic_RoutingTable_size             1240
 #define meshtastic_RxAvgTimeHistory_size         240
 #define meshtastic_RxPacketHistory_size          240
 

@@ -164,4 +164,44 @@ class NextHopRouter : public FloodingRouter
     /** Check if we should be relaying this packet if so, do so.
      *  @return true if we did relay */
     bool perhapsRelay(const meshtastic_MeshPacket *p);
+
+  public:
+    struct PublicRouteEntry {
+        uint32_t dest;
+        uint8_t next_hop;
+        float aggregated_cost;
+        uint8_t confidence;
+        uint32_t lastUpdatedMs;
+    };
+
+    // Adaptive TTL: base + per-confidence increment, clamped to max
+    constexpr static uint32_t ROUTE_TTL_BASE_MS = 3UL * 60UL * 60UL * 1000UL;    // 3 hours
+    constexpr static uint32_t ROUTE_TTL_PER_CONF_MS = 30UL * 60UL * 1000UL;      // +30 minutes per confidence
+    constexpr static uint32_t ROUTE_TTL_MAX_MS = 24UL * 60UL * 60UL * 1000UL;    // cap at 24 hours
+
+    static uint32_t computeRouteTtlMs(uint8_t confidence)
+    {
+        uint64_t ttl = ROUTE_TTL_BASE_MS + (uint64_t)confidence * ROUTE_TTL_PER_CONF_MS;
+        if (ttl > ROUTE_TTL_MAX_MS) ttl = ROUTE_TTL_MAX_MS;
+        return (uint32_t)ttl;
+    }
+
+    std::vector<PublicRouteEntry> getRouteSnapshot(bool includeStale = false) const
+    {
+        std::vector<PublicRouteEntry> out;
+        out.reserve(routes.size());
+        uint32_t now = millis();
+        for (const auto &kv : routes) {
+            const uint32_t dest = kv.first;
+            const RouteEntry &r = kv.second;
+            if (!includeStale) {
+                uint32_t ttlMs = computeRouteTtlMs(r.confidence);
+                if (now - r.lastUpdatedMs > ttlMs) continue;
+                if (r.confidence < 2) continue;
+            }
+            PublicRouteEntry e{dest, r.next_hop, r.aggregated_cost, r.confidence, r.lastUpdatedMs};
+            out.push_back(e);
+        }
+        return out;
+    }
 };

@@ -7,8 +7,8 @@ bool NextHopRouter::lookupRoute(uint32_t dest, RouteEntry &out)
     auto it = routes.find(dest);
     if (it == routes.end()) return false;
     const RouteEntry &r = it->second;
-    // TTL and minimal confidence gate
-    if (millis() - r.lastUpdatedMs > 20UL * 60UL * 1000UL) return false; // 20 min TTL
+    // TTL (adaptive) and minimal confidence gate
+    if (millis() - r.lastUpdatedMs > computeRouteTtlMs(r.confidence)) return false;
     if (r.confidence < 2) return false;
     out = r;
     return (out.next_hop != NO_NEXT_HOP_PREFERENCE);
