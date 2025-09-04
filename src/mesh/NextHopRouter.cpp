@@ -24,7 +24,27 @@ void NextHopRouter::learnRoute(uint32_t dest, uint8_t viaHop, float observedCost
         // Smooth update
         r.aggregated_cost = 0.7f * r.aggregated_cost + 0.3f * observedCost;
     }
-    r.next_hop = viaHop;
+    // Update backup if the new candidate is different and better than current
+    if (r.next_hop != viaHop) {
+        if (r.next_hop == NO_NEXT_HOP_PREFERENCE) {
+            r.next_hop = viaHop;
+        } else {
+            // Decide which is primary/backup by cost
+            if (observedCost < r.aggregated_cost) {
+                // Promote new as primary, demote old to backup
+                r.backup_next_hop = r.next_hop;
+                r.backup_cost = r.aggregated_cost;
+                r.next_hop = viaHop;
+                r.aggregated_cost = observedCost;
+            } else {
+                // Keep current primary, maybe store/upgrade backup
+                if (r.backup_next_hop == NO_NEXT_HOP_PREFERENCE || observedCost < r.backup_cost || r.backup_next_hop == viaHop) {
+                    r.backup_next_hop = viaHop;
+                    r.backup_cost = observedCost;
+                }
+            }
+        }
+    }
     r.lastUpdatedMs = millis();
     if (r.confidence < 255) r.confidence++;
 }
@@ -346,15 +366,26 @@ int32_t NextHopRouter::doRetransmissions()
 
                 if (!isBroadcast(p.packet->to)) {
                     if (p.numRetransmissions == 1) {
-                        // Last retransmission, reset next_hop (fallback to FloodingRouter)
-                        p.packet->next_hop = NO_NEXT_HOP_PREFERENCE;
-                        // Also reset it in the nodeDB
-                        meshtastic_NodeInfoLite *sentTo = nodeDB->getMeshNode(p.packet->to);
-                        if (sentTo) {
-                            LOG_INFO("Resetting next hop for packet with dest 0x%x\n", p.packet->to);
-                            sentTo->next_hop = NO_NEXT_HOP_PREFERENCE;
+                        // Last retransmission: try backup next-hop; if none, fallback to FloodingRouter
+                        RouteEntry rSnapshot;
+                        bool usedBackup = false;
+                        if (lookupRoute(p.packet->to, rSnapshot) && rSnapshot.backup_next_hop != NO_NEXT_HOP_PREFERENCE) {
+                            meshtastic_MeshPacket *tryBackup = packetPool.allocCopy(*p.packet);
+                            tryBackup->next_hop = rSnapshot.backup_next_hop;
+                            LOG_INFO("Retry final with backup next hop for dest 0x%x -> 0x%x", p.packet->to, tryBackup->next_hop);
+                            NextHopRouter::send(tryBackup);
+                            usedBackup = true;
                         }
-                        FloodingRouter::send(packetPool.allocCopy(*p.packet));
+                        if (!usedBackup) {
+                            p.packet->next_hop = NO_NEXT_HOP_PREFERENCE;
+                            // Also reset it in the nodeDB
+                            meshtastic_NodeInfoLite *sentTo = nodeDB->getMeshNode(p.packet->to);
+                            if (sentTo) {
+                                LOG_INFO("Resetting next hop for packet with dest 0x%x\n", p.packet->to);
+                                sentTo->next_hop = NO_NEXT_HOP_PREFERENCE;
+                            }
+                            FloodingRouter::send(packetPool.allocCopy(*p.packet));
+                        }
                     } else {
                         NextHopRouter::send(packetPool.allocCopy(*p.packet));
                     }

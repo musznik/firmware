@@ -103,6 +103,8 @@ class NextHopRouter : public FloodingRouter
         float aggregated_cost = 0.0f;               // simple scalar cost
         uint8_t confidence = 0;                    // how sure we are (seen successes)
         uint32_t lastUpdatedMs = 0;
+        uint8_t backup_next_hop = NO_NEXT_HOP_PREFERENCE; // secondary candidate
+        float backup_cost = 0.0f;
     };
 
     std::unordered_map<uint32_t, RouteEntry> routes; // dest_node_id -> route
@@ -175,9 +177,9 @@ class NextHopRouter : public FloodingRouter
     };
 
     // Adaptive TTL: base + per-confidence increment, clamped to max
-    constexpr static uint32_t ROUTE_TTL_BASE_MS = 3UL * 60UL * 60UL * 1000UL;    // 3 hours
-    constexpr static uint32_t ROUTE_TTL_PER_CONF_MS = 30UL * 60UL * 1000UL;      // +30 minutes per confidence
-    constexpr static uint32_t ROUTE_TTL_MAX_MS = 24UL * 60UL * 60UL * 1000UL;    // cap at 24 hours
+    constexpr static uint32_t ROUTE_TTL_BASE_MS = 24UL * 60UL * 60UL * 1000UL;   // 24 hours
+    constexpr static uint32_t ROUTE_TTL_PER_CONF_MS = 12UL * 60UL * 60UL * 1000UL; // +12 hours per confidence
+    constexpr static uint32_t ROUTE_TTL_MAX_MS = 7UL * 24UL * 60UL * 60UL * 1000UL; // cap at 7 days
 
     static uint32_t computeRouteTtlMs(uint8_t confidence)
     {
