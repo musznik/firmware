@@ -108,6 +108,39 @@ class NextHopRouter : public FloodingRouter
     };
 
     std::unordered_map<uint32_t, RouteEntry> routes; // dest_node_id -> route
+
+    //fw+ proactive traceroute scheduler state
+    uint32_t lastHeardTracerouteMs = 0;
+    uint32_t lastProbeGlobalMs = 0;
+    uint32_t probesTodayCounter = 0;
+    uint32_t probesDayStartMs = 0;
+    std::unordered_map<uint32_t, uint32_t> perDestLastHeardRouteMs; // dest -> last heard traceroute time
+    std::unordered_map<uint32_t, uint32_t> perDestLastProbeMs;      // dest -> last probe time
+
+    bool isRouteStale(const RouteEntry &r, uint32_t now) const
+    {
+        uint32_t ttlMs = computeRouteTtlMs(r.confidence);
+        // Treat as stale if age exceeds 75% of TTL
+        return (now - r.lastUpdatedMs) > (ttlMs - ttlMs / 4);
+    }
+
+    float computeStaleRatio(uint32_t now) const
+    {
+        size_t total = 0, stale = 0;
+        for (const auto &kv : routes) {
+            const RouteEntry &r = kv.second;
+            if (r.next_hop == NO_NEXT_HOP_PREFERENCE) continue;
+            total++;
+            if (isRouteStale(r, now)) stale++;
+        }
+        if (total == 0) return 0.0f;
+        return (float)stale * 100.0f / (float)total;
+    }
+
+    bool canProbeGlobal(uint32_t now) const;
+    bool canProbeDest(uint32_t dest, uint32_t now) const;
+    bool maybeScheduleTraceroute(uint32_t now);
+    bool sendTracerouteTo(uint32_t dest);
     //fw+ dv-etx
     bool lookupRoute(uint32_t dest, RouteEntry &out);
     void learnRoute(uint32_t dest, uint8_t viaHop, float observedCost);
@@ -183,8 +216,17 @@ class NextHopRouter : public FloodingRouter
 
     static uint32_t computeRouteTtlMs(uint8_t confidence)
     {
-        uint64_t ttl = ROUTE_TTL_BASE_MS + (uint64_t)confidence * ROUTE_TTL_PER_CONF_MS;
-        if (ttl > ROUTE_TTL_MAX_MS) ttl = ROUTE_TTL_MAX_MS;
+        // Allow admin overrides if set (>0)
+        uint32_t baseMs = ROUTE_TTL_BASE_MS;
+        uint32_t perConfMs = ROUTE_TTL_PER_CONF_MS;
+        uint32_t maxMs = ROUTE_TTL_MAX_MS;
+        if (moduleConfig.has_nodemodadmin) {
+            if (moduleConfig.nodemodadmin.route_ttl_base_hours) baseMs = moduleConfig.nodemodadmin.route_ttl_base_hours * 3600000UL;
+            if (moduleConfig.nodemodadmin.route_ttl_per_conf_hours) perConfMs = moduleConfig.nodemodadmin.route_ttl_per_conf_hours * 3600000UL;
+            if (moduleConfig.nodemodadmin.route_ttl_max_hours) maxMs = moduleConfig.nodemodadmin.route_ttl_max_hours * 3600000UL;
+        }
+        uint64_t ttl = baseMs + (uint64_t)confidence * perConfMs;
+        if (ttl > maxMs) ttl = maxMs;
         return (uint32_t)ttl;
     }
 

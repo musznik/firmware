@@ -471,6 +471,20 @@ typedef struct _meshtastic_ModuleConfig_NodeModAdminConfig {
     uint32_t opportunistic_jitter_ms;
     bool opportunistic_cancel_on_first_hear;
     bool opportunistic_auto;
+    /* Proactive traceroute scheduling and TTL controls (FW+) */
+    bool proactive_traceroute_enabled;
+    uint32_t traceroute_stale_ratio_threshold_percent;
+    uint32_t traceroute_global_cooldown_hours;
+    uint32_t traceroute_per_dest_cooldown_hours;
+    uint32_t traceroute_chanutil_threshold_percent;
+    uint32_t traceroute_max_per_day;
+    uint32_t traceroute_expanding_ring_initial_hop;
+    uint32_t traceroute_expanding_ring_max_hops;
+    uint32_t traceroute_probe_jitter_ms;
+    /* Optional TTL override (hours); 0 means use firmware defaults */
+    uint32_t route_ttl_base_hours;
+    uint32_t route_ttl_per_conf_hours;
+    uint32_t route_ttl_max_hours;
 } meshtastic_ModuleConfig_NodeModAdminConfig;
 
 typedef PB_BYTES_ARRAY_T(1) meshtastic_ModuleConfig_IdleGameAlliance_morale_bonus_t;
@@ -668,7 +682,7 @@ extern "C" {
 #define meshtastic_ModuleConfig_CannedMessageConfig_init_default {0, 0, 0, 0, _meshtastic_ModuleConfig_CannedMessageConfig_InputEventChar_MIN, _meshtastic_ModuleConfig_CannedMessageConfig_InputEventChar_MIN, _meshtastic_ModuleConfig_CannedMessageConfig_InputEventChar_MIN, 0, 0, "", 0}
 #define meshtastic_ModuleConfig_AmbientLightingConfig_init_default {0, 0, 0, 0, 0}
 #define meshtastic_ModuleConfig_NodeModConfig_init_default {"", ""}
-#define meshtastic_ModuleConfig_NodeModAdminConfig_init_default {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+#define meshtastic_ModuleConfig_NodeModAdminConfig_init_default {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 #define meshtastic_ModuleConfig_IdleGameKnownVillages_init_default {0, {meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default}}
 #define meshtastic_ModuleConfig_IdleGameAlliance_init_default {0, 0, {0, {0}}}
 #define meshtastic_ModuleConfig_IdleGamePatron_init_default {0, 0}
@@ -693,7 +707,7 @@ extern "C" {
 #define meshtastic_ModuleConfig_CannedMessageConfig_init_zero {0, 0, 0, 0, _meshtastic_ModuleConfig_CannedMessageConfig_InputEventChar_MIN, _meshtastic_ModuleConfig_CannedMessageConfig_InputEventChar_MIN, _meshtastic_ModuleConfig_CannedMessageConfig_InputEventChar_MIN, 0, 0, "", 0}
 #define meshtastic_ModuleConfig_AmbientLightingConfig_init_zero {0, 0, 0, 0, 0}
 #define meshtastic_ModuleConfig_NodeModConfig_init_zero {"", ""}
-#define meshtastic_ModuleConfig_NodeModAdminConfig_init_zero {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+#define meshtastic_ModuleConfig_NodeModAdminConfig_init_zero {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 #define meshtastic_ModuleConfig_IdleGameKnownVillages_init_zero {0, {meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero}}
 #define meshtastic_ModuleConfig_IdleGameAlliance_init_zero {0, 0, {0, {0}}}
 #define meshtastic_ModuleConfig_IdleGamePatron_init_zero {0, 0}
@@ -834,6 +848,18 @@ extern "C" {
 #define meshtastic_ModuleConfig_NodeModAdminConfig_opportunistic_jitter_ms_tag 28
 #define meshtastic_ModuleConfig_NodeModAdminConfig_opportunistic_cancel_on_first_hear_tag 29
 #define meshtastic_ModuleConfig_NodeModAdminConfig_opportunistic_auto_tag 30
+#define meshtastic_ModuleConfig_NodeModAdminConfig_proactive_traceroute_enabled_tag 31
+#define meshtastic_ModuleConfig_NodeModAdminConfig_traceroute_stale_ratio_threshold_percent_tag 32
+#define meshtastic_ModuleConfig_NodeModAdminConfig_traceroute_global_cooldown_hours_tag 33
+#define meshtastic_ModuleConfig_NodeModAdminConfig_traceroute_per_dest_cooldown_hours_tag 34
+#define meshtastic_ModuleConfig_NodeModAdminConfig_traceroute_chanutil_threshold_percent_tag 35
+#define meshtastic_ModuleConfig_NodeModAdminConfig_traceroute_max_per_day_tag 36
+#define meshtastic_ModuleConfig_NodeModAdminConfig_traceroute_expanding_ring_initial_hop_tag 37
+#define meshtastic_ModuleConfig_NodeModAdminConfig_traceroute_expanding_ring_max_hops_tag 38
+#define meshtastic_ModuleConfig_NodeModAdminConfig_traceroute_probe_jitter_ms_tag 39
+#define meshtastic_ModuleConfig_NodeModAdminConfig_route_ttl_base_hours_tag 40
+#define meshtastic_ModuleConfig_NodeModAdminConfig_route_ttl_per_conf_hours_tag 41
+#define meshtastic_ModuleConfig_NodeModAdminConfig_route_ttl_max_hours_tag 42
 #define meshtastic_ModuleConfig_IdleGameAlliance_node_id_tag 1
 #define meshtastic_ModuleConfig_IdleGameAlliance_started_at_tag 2
 #define meshtastic_ModuleConfig_IdleGameAlliance_morale_bonus_tag 3
@@ -1113,7 +1139,19 @@ X(a, STATIC,   SINGULAR, UINT32,   opportunistic_hop_delay_ms,  26) \
 X(a, STATIC,   SINGULAR, UINT32,   opportunistic_snr_gain_ms,  27) \
 X(a, STATIC,   SINGULAR, UINT32,   opportunistic_jitter_ms,  28) \
 X(a, STATIC,   SINGULAR, BOOL,     opportunistic_cancel_on_first_hear,  29) \
-X(a, STATIC,   SINGULAR, BOOL,     opportunistic_auto,  30)
+X(a, STATIC,   SINGULAR, BOOL,     opportunistic_auto,  30) \
+X(a, STATIC,   SINGULAR, BOOL,     proactive_traceroute_enabled,  31) \
+X(a, STATIC,   SINGULAR, UINT32,   traceroute_stale_ratio_threshold_percent,  32) \
+X(a, STATIC,   SINGULAR, UINT32,   traceroute_global_cooldown_hours,  33) \
+X(a, STATIC,   SINGULAR, UINT32,   traceroute_per_dest_cooldown_hours,  34) \
+X(a, STATIC,   SINGULAR, UINT32,   traceroute_chanutil_threshold_percent,  35) \
+X(a, STATIC,   SINGULAR, UINT32,   traceroute_max_per_day,  36) \
+X(a, STATIC,   SINGULAR, UINT32,   traceroute_expanding_ring_initial_hop,  37) \
+X(a, STATIC,   SINGULAR, UINT32,   traceroute_expanding_ring_max_hops,  38) \
+X(a, STATIC,   SINGULAR, UINT32,   traceroute_probe_jitter_ms,  39) \
+X(a, STATIC,   SINGULAR, UINT32,   route_ttl_base_hours,  40) \
+X(a, STATIC,   SINGULAR, UINT32,   route_ttl_per_conf_hours,  41) \
+X(a, STATIC,   SINGULAR, UINT32,   route_ttl_max_hours,  42)
 #define meshtastic_ModuleConfig_NodeModAdminConfig_CALLBACK NULL
 #define meshtastic_ModuleConfig_NodeModAdminConfig_DEFAULT NULL
 
@@ -1253,7 +1291,7 @@ extern const pb_msgdesc_t meshtastic_RemoteHardwarePin_msg;
 #define meshtastic_ModuleConfig_MQTTConfig_size  224
 #define meshtastic_ModuleConfig_MapReportSettings_size 14
 #define meshtastic_ModuleConfig_NeighborInfoConfig_size 10
-#define meshtastic_ModuleConfig_NodeModAdminConfig_size 172
+#define meshtastic_ModuleConfig_NodeModAdminConfig_size 252
 #define meshtastic_ModuleConfig_NodeModConfig_size 207
 #define meshtastic_ModuleConfig_PaxcounterConfig_size 30
 #define meshtastic_ModuleConfig_RangeTestConfig_size 12

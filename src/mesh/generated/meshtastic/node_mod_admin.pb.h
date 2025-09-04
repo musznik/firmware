@@ -58,12 +58,26 @@ typedef struct _meshtastic_NodeModAdmin {
     /* position limiter, time threshold */
     uint32_t position_limiter_time_minutes_threshold;
     bool opportunistic_flooding_enabled;
-    uint32_t base_delay_ms;
-    uint32_t hop_delay_ms;
-    uint32_t snr_gain_ms;
-    uint32_t jitter_ms;
-    bool cancel_on_first_hear;
+    uint32_t opportunistic_base_delay_ms;
+    uint32_t opportunistic_hop_delay_ms;
+    uint32_t opportunistic_snr_gain_ms;
+    uint32_t opportunistic_jitter_ms;
+    bool opportunistic_cancel_on_first_hear;
     bool opportunistic_auto;
+    /* Proactive traceroute scheduling and TTL controls (FW+) */
+    bool proactive_traceroute_enabled;
+    uint32_t traceroute_stale_ratio_threshold_percent;
+    uint32_t traceroute_global_cooldown_hours;
+    uint32_t traceroute_per_dest_cooldown_hours;
+    uint32_t traceroute_chanutil_threshold_percent;
+    uint32_t traceroute_max_per_day;
+    uint32_t traceroute_expanding_ring_initial_hop;
+    uint32_t traceroute_expanding_ring_max_hops;
+    uint32_t traceroute_probe_jitter_ms;
+    /* Optional TTL override (hours); 0 means use firmware defaults */
+    uint32_t route_ttl_base_hours;
+    uint32_t route_ttl_per_conf_hours;
+    uint32_t route_ttl_max_hours;
 } meshtastic_NodeModAdmin;
 
 
@@ -72,8 +86,8 @@ extern "C" {
 #endif
 
 /* Initializer values for message structs */
-#define meshtastic_NodeModAdmin_init_default     {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
-#define meshtastic_NodeModAdmin_init_zero        {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+#define meshtastic_NodeModAdmin_init_default     {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+#define meshtastic_NodeModAdmin_init_zero        {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define meshtastic_NodeModAdmin_sniffer_enabled_tag 1
@@ -100,12 +114,24 @@ extern "C" {
 #define meshtastic_NodeModAdmin_position_limiter_enabled_tag 22
 #define meshtastic_NodeModAdmin_position_limiter_time_minutes_threshold_tag 23
 #define meshtastic_NodeModAdmin_opportunistic_flooding_enabled_tag 24
-#define meshtastic_NodeModAdmin_base_delay_ms_tag 25
-#define meshtastic_NodeModAdmin_hop_delay_ms_tag 26
-#define meshtastic_NodeModAdmin_snr_gain_ms_tag  27
-#define meshtastic_NodeModAdmin_jitter_ms_tag    28
-#define meshtastic_NodeModAdmin_cancel_on_first_hear_tag 29
+#define meshtastic_NodeModAdmin_opportunistic_base_delay_ms_tag 25
+#define meshtastic_NodeModAdmin_opportunistic_hop_delay_ms_tag 26
+#define meshtastic_NodeModAdmin_opportunistic_snr_gain_ms_tag 27
+#define meshtastic_NodeModAdmin_opportunistic_jitter_ms_tag 28
+#define meshtastic_NodeModAdmin_opportunistic_cancel_on_first_hear_tag 29
 #define meshtastic_NodeModAdmin_opportunistic_auto_tag 30
+#define meshtastic_NodeModAdmin_proactive_traceroute_enabled_tag 31
+#define meshtastic_NodeModAdmin_traceroute_stale_ratio_threshold_percent_tag 32
+#define meshtastic_NodeModAdmin_traceroute_global_cooldown_hours_tag 33
+#define meshtastic_NodeModAdmin_traceroute_per_dest_cooldown_hours_tag 34
+#define meshtastic_NodeModAdmin_traceroute_chanutil_threshold_percent_tag 35
+#define meshtastic_NodeModAdmin_traceroute_max_per_day_tag 36
+#define meshtastic_NodeModAdmin_traceroute_expanding_ring_initial_hop_tag 37
+#define meshtastic_NodeModAdmin_traceroute_expanding_ring_max_hops_tag 38
+#define meshtastic_NodeModAdmin_traceroute_probe_jitter_ms_tag 39
+#define meshtastic_NodeModAdmin_route_ttl_base_hours_tag 40
+#define meshtastic_NodeModAdmin_route_ttl_per_conf_hours_tag 41
+#define meshtastic_NodeModAdmin_route_ttl_max_hours_tag 42
 
 /* Struct field encoding specification for nanopb */
 #define meshtastic_NodeModAdmin_FIELDLIST(X, a) \
@@ -133,12 +159,24 @@ X(a, STATIC,   SINGULAR, UINT32,   telemetry_limiter_auto_chanutil_threshold,  2
 X(a, STATIC,   SINGULAR, BOOL,     position_limiter_enabled,  22) \
 X(a, STATIC,   SINGULAR, UINT32,   position_limiter_time_minutes_threshold,  23) \
 X(a, STATIC,   SINGULAR, BOOL,     opportunistic_flooding_enabled,  24) \
-X(a, STATIC,   SINGULAR, UINT32,   base_delay_ms,    25) \
-X(a, STATIC,   SINGULAR, UINT32,   hop_delay_ms,     26) \
-X(a, STATIC,   SINGULAR, UINT32,   snr_gain_ms,      27) \
-X(a, STATIC,   SINGULAR, UINT32,   jitter_ms,        28) \
-X(a, STATIC,   SINGULAR, BOOL,     cancel_on_first_hear,  29) \
-X(a, STATIC,   SINGULAR, BOOL,     opportunistic_auto,  30)
+X(a, STATIC,   SINGULAR, UINT32,   opportunistic_base_delay_ms,  25) \
+X(a, STATIC,   SINGULAR, UINT32,   opportunistic_hop_delay_ms,  26) \
+X(a, STATIC,   SINGULAR, UINT32,   opportunistic_snr_gain_ms,  27) \
+X(a, STATIC,   SINGULAR, UINT32,   opportunistic_jitter_ms,  28) \
+X(a, STATIC,   SINGULAR, BOOL,     opportunistic_cancel_on_first_hear,  29) \
+X(a, STATIC,   SINGULAR, BOOL,     opportunistic_auto,  30) \
+X(a, STATIC,   SINGULAR, BOOL,     proactive_traceroute_enabled,  31) \
+X(a, STATIC,   SINGULAR, UINT32,   traceroute_stale_ratio_threshold_percent,  32) \
+X(a, STATIC,   SINGULAR, UINT32,   traceroute_global_cooldown_hours,  33) \
+X(a, STATIC,   SINGULAR, UINT32,   traceroute_per_dest_cooldown_hours,  34) \
+X(a, STATIC,   SINGULAR, UINT32,   traceroute_chanutil_threshold_percent,  35) \
+X(a, STATIC,   SINGULAR, UINT32,   traceroute_max_per_day,  36) \
+X(a, STATIC,   SINGULAR, UINT32,   traceroute_expanding_ring_initial_hop,  37) \
+X(a, STATIC,   SINGULAR, UINT32,   traceroute_expanding_ring_max_hops,  38) \
+X(a, STATIC,   SINGULAR, UINT32,   traceroute_probe_jitter_ms,  39) \
+X(a, STATIC,   SINGULAR, UINT32,   route_ttl_base_hours,  40) \
+X(a, STATIC,   SINGULAR, UINT32,   route_ttl_per_conf_hours,  41) \
+X(a, STATIC,   SINGULAR, UINT32,   route_ttl_max_hours,  42)
 #define meshtastic_NodeModAdmin_CALLBACK NULL
 #define meshtastic_NodeModAdmin_DEFAULT NULL
 
@@ -149,7 +187,7 @@ extern const pb_msgdesc_t meshtastic_NodeModAdmin_msg;
 
 /* Maximum encoded size of messages (where known) */
 #define MESHTASTIC_MESHTASTIC_NODE_MOD_ADMIN_PB_H_MAX_SIZE meshtastic_NodeModAdmin_size
-#define meshtastic_NodeModAdmin_size             172
+#define meshtastic_NodeModAdmin_size             252
 
 #ifdef __cplusplus
 } /* extern "C" */
