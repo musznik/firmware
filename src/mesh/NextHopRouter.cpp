@@ -87,7 +87,7 @@ bool NextHopRouter::lookupRoute(uint32_t dest, RouteEntry &out)
     const RouteEntry &r = it->second;
     // TTL (adaptive) and minimal confidence gate
     if (millis() - r.lastUpdatedMs > computeRouteTtlMs(r.confidence)) return false;
-    if (r.confidence < 1) return false;
+    if (r.confidence < getMinConfidenceToUse()) return false;
     out = r;
     return (out.next_hop != NO_NEXT_HOP_PREFERENCE);
 }
@@ -108,7 +108,7 @@ void NextHopRouter::learnRoute(uint32_t dest, uint8_t viaHop, float observedCost
             r.next_hop = viaHop;
         } else {
             // Decide which is primary/backup by cost
-            if (observedCost < (r.aggregated_cost - 0.5f)) {
+            if (observedCost < (r.aggregated_cost - getHysteresisThreshold())) {
                 // Promote new as primary, demote old to backup
                 r.backup_next_hop = r.next_hop;
                 r.backup_cost = r.aggregated_cost;
@@ -135,6 +135,24 @@ void NextHopRouter::invalidateRoute(uint32_t dest, float penalty)
     r.aggregated_cost += penalty;
     if (r.confidence > 0) r.confidence--;
     r.lastUpdatedMs = millis();
+}
+//fw+
+float NextHopRouter::getHysteresisThreshold() const
+{
+    float thr = 0.5f;
+    if (moduleConfig.has_nodemodadmin && moduleConfig.nodemodadmin.hysteresis_cost_threshold_tenths) {
+        thr = (float)moduleConfig.nodemodadmin.hysteresis_cost_threshold_tenths / 10.0f;
+    }
+    return thr;
+}
+//fw+
+uint8_t NextHopRouter::getMinConfidenceToUse() const
+{
+    uint8_t minConf = 1;
+    if (moduleConfig.has_nodemodadmin && moduleConfig.nodemodadmin.min_confidence_to_use) {
+        minConf = moduleConfig.nodemodadmin.min_confidence_to_use;
+    }
+    return minConf;
 }
 //fw+ dv-etx
 float NextHopRouter::estimateEtxFromSnr(float snr) const

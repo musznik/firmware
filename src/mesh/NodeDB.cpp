@@ -922,6 +922,9 @@ void NodeDB::installDefaultModuleConfig()
     moduleConfig.nodemodadmin.route_ttl_base_hours = 168;     // 3 days
     moduleConfig.nodemodadmin.route_ttl_per_conf_hours = 24; // +1 day per confidence
     moduleConfig.nodemodadmin.route_ttl_max_hours = 720;     // 30 days
+    // Routing learning thresholds defaults (FW+)
+    moduleConfig.nodemodadmin.min_confidence_to_use = 1; // start using after first good observation
+    moduleConfig.nodemodadmin.hysteresis_cost_threshold_tenths = 5; // 0.5 cost units
 
     moduleConfig.has_neighbor_info = true;
     moduleConfig.neighbor_info.enabled = true;

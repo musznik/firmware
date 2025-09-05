@@ -141,6 +141,9 @@ class NextHopRouter : public FloodingRouter
     bool canProbeDest(uint32_t dest, uint32_t now) const;
     bool maybeScheduleTraceroute(uint32_t now);
     bool sendTracerouteTo(uint32_t dest);
+    // Config-driven thresholds
+    float getHysteresisThreshold() const;
+    uint8_t getMinConfidenceToUse() const;
     //fw+ dv-etx
     bool lookupRoute(uint32_t dest, RouteEntry &out);
     void learnRoute(uint32_t dest, uint8_t viaHop, float observedCost);
@@ -258,8 +261,8 @@ class NextHopRouter : public FloodingRouter
             if (!includeStale) {
                 uint32_t ttlMs = computeRouteTtlMs(r.confidence);
                 if (now - r.lastUpdatedMs > ttlMs) continue;
-                // Relax visibility: show entries once we have at least a single observation
-                if (r.confidence < 1) continue;
+                // Visibility threshold aligned with routing usage threshold
+                if (r.confidence < getMinConfidenceToUse()) continue;
             }
             PublicRouteEntry e{dest, r.next_hop, r.aggregated_cost, r.confidence, r.lastUpdatedMs};
             out.push_back(e);

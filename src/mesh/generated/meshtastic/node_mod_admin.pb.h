@@ -78,6 +78,12 @@ typedef struct _meshtastic_NodeModAdmin {
     uint32_t route_ttl_base_hours;
     uint32_t route_ttl_per_conf_hours;
     uint32_t route_ttl_max_hours;
+    /* Routing learning thresholds (FW+)
+ Minimal confidence required to use a learned route. 0 means firmware default (1). */
+    uint32_t min_confidence_to_use;
+    /* Hysteresis threshold for next-hop promotion in tenths of a cost unit (ETX).
+ 0 means firmware default (5 => 0.5 cost units). */
+    uint32_t hysteresis_cost_threshold_tenths;
 } meshtastic_NodeModAdmin;
 
 
@@ -86,8 +92,8 @@ extern "C" {
 #endif
 
 /* Initializer values for message structs */
-#define meshtastic_NodeModAdmin_init_default     {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
-#define meshtastic_NodeModAdmin_init_zero        {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+#define meshtastic_NodeModAdmin_init_default     {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+#define meshtastic_NodeModAdmin_init_zero        {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define meshtastic_NodeModAdmin_sniffer_enabled_tag 1
@@ -132,6 +138,8 @@ extern "C" {
 #define meshtastic_NodeModAdmin_route_ttl_base_hours_tag 40
 #define meshtastic_NodeModAdmin_route_ttl_per_conf_hours_tag 41
 #define meshtastic_NodeModAdmin_route_ttl_max_hours_tag 42
+#define meshtastic_NodeModAdmin_min_confidence_to_use_tag 43
+#define meshtastic_NodeModAdmin_hysteresis_cost_threshold_tenths_tag 44
 
 /* Struct field encoding specification for nanopb */
 #define meshtastic_NodeModAdmin_FIELDLIST(X, a) \
@@ -176,7 +184,9 @@ X(a, STATIC,   SINGULAR, UINT32,   traceroute_expanding_ring_max_hops,  38) \
 X(a, STATIC,   SINGULAR, UINT32,   traceroute_probe_jitter_ms,  39) \
 X(a, STATIC,   SINGULAR, UINT32,   route_ttl_base_hours,  40) \
 X(a, STATIC,   SINGULAR, UINT32,   route_ttl_per_conf_hours,  41) \
-X(a, STATIC,   SINGULAR, UINT32,   route_ttl_max_hours,  42)
+X(a, STATIC,   SINGULAR, UINT32,   route_ttl_max_hours,  42) \
+X(a, STATIC,   SINGULAR, UINT32,   min_confidence_to_use,  43) \
+X(a, STATIC,   SINGULAR, UINT32,   hysteresis_cost_threshold_tenths,  44)
 #define meshtastic_NodeModAdmin_CALLBACK NULL
 #define meshtastic_NodeModAdmin_DEFAULT NULL
 
@@ -187,7 +197,7 @@ extern const pb_msgdesc_t meshtastic_NodeModAdmin_msg;
 
 /* Maximum encoded size of messages (where known) */
 #define MESHTASTIC_MESHTASTIC_NODE_MOD_ADMIN_PB_H_MAX_SIZE meshtastic_NodeModAdmin_size
-#define meshtastic_NodeModAdmin_size             252
+#define meshtastic_NodeModAdmin_size             266
 
 #ifdef __cplusplus
 } /* extern "C" */
