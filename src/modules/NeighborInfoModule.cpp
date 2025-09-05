@@ -3,6 +3,7 @@
 #include "MeshService.h"
 #include "NodeDB.h"
 #include "RTC.h"
+#include "configuration.h"
 #include <Throttle.h>
 
 NeighborInfoModule *neighborInfoModule;
@@ -44,8 +45,17 @@ NeighborInfoModule::NeighborInfoModule()
 
     if (moduleConfig.neighbor_info.enabled) {
         isPromiscuous = true; // Update neighbors from all packets
-        setIntervalFromNow(Default::getConfiguredOrDefaultMs(moduleConfig.neighbor_info.update_interval,
-                                                             default_telemetry_broadcast_interval_secs));
+        // Compute initial interval with light scaling for non-router roles
+        uint32_t baseSecs = Default::getConfiguredOrDefault(moduleConfig.neighbor_info.update_interval,
+                                                            default_neighbor_info_broadcast_secs);
+        uint32_t effectiveMs = 0;
+        if (config.device.role == meshtastic_Config_DeviceConfig_Role_ROUTER) {
+            effectiveMs = baseSecs * 1000;
+        } else {
+            uint32_t numOnline = nodeDB->getNumOnlineMeshNodes(true);
+            effectiveMs = Default::getLightlyScaledWindowMs(baseSecs, numOnline, true);
+        }
+        setIntervalFromNow(effectiveMs);
     } else {
         LOG_DEBUG("NeighborInfoModule is disabled");
         disable();
@@ -62,8 +72,17 @@ uint32_t NeighborInfoModule::collectNeighborInfo(meshtastic_NeighborInfo *neighb
     NodeNum my_node_id = nodeDB->getNodeNum();
     neighborInfo->node_id = my_node_id;
     neighborInfo->last_sent_by_id = my_node_id;
-    neighborInfo->node_broadcast_interval_secs =
-        Default::getConfiguredOrDefault(moduleConfig.neighbor_info.update_interval, default_telemetry_broadcast_interval_secs);
+    // Report the effective (possibly scaled) interval we use locally
+    uint32_t baseSecs = Default::getConfiguredOrDefault(moduleConfig.neighbor_info.update_interval,
+                                                        default_neighbor_info_broadcast_secs);
+    uint32_t effectiveMs = 0;
+    if (config.device.role == meshtastic_Config_DeviceConfig_Role_ROUTER) {
+        effectiveMs = baseSecs * 1000;
+    } else {
+        uint32_t numOnline = nodeDB->getNumOnlineMeshNodes(true);
+        effectiveMs = Default::getLightlyScaledWindowMs(baseSecs, numOnline, true);
+    }
+    neighborInfo->node_broadcast_interval_secs = effectiveMs / 1000;
 
     cleanUpNeighbors();
 
@@ -128,7 +147,15 @@ int32_t NeighborInfoModule::runOnce()
     } else {
         sendNeighborInfo(NODENUM_BROADCAST_NO_LORA, false);
     }
-    return Default::getConfiguredOrDefaultMs(moduleConfig.neighbor_info.update_interval, default_neighbor_info_broadcast_secs);
+    // Return scaled interval for scheduling
+    uint32_t baseSecs = Default::getConfiguredOrDefault(moduleConfig.neighbor_info.update_interval,
+                                                        default_neighbor_info_broadcast_secs);
+    if (config.device.role == meshtastic_Config_DeviceConfig_Role_ROUTER) {
+        return baseSecs * 1000;
+    } else {
+        uint32_t numOnline = nodeDB->getNumOnlineMeshNodes(true);
+        return Default::getLightlyScaledWindowMs(baseSecs, numOnline, true);
+    }
 }
 
 /*
