@@ -48,6 +48,20 @@ void NextHopRouter::learnFromRouteDiscoveryPayload(const meshtastic_MeshPacket *
     const size_t maxSnr = rd.snr_back_count ? rd.snr_back_count : rd.snr_towards_count;
     const int8_t *snrList = rd.snr_back_count ? rd.snr_back : rd.snr_towards;
     processPathAndLearn(path, maxHops, snrList, maxSnr, p);
+    if (isToUs(p) && rd.route_count > 0) {
+        uint8_t firstHop = (uint8_t)(rd.route[0] & 0xFF);
+        if (isDirectNeighborLastByte(firstHop)) {
+            uint32_t destNode = rd.route[rd.route_count - 1];
+            float linkEtx = estimateEtxFromSnr(p->rx_snr);
+            if (rd.snr_towards_count > 0 && rd.snr_towards[0] != INT8_MIN) {
+                linkEtx = estimateEtxFromSnr((float)rd.snr_towards[0] / 4.0f);
+            }
+            int remainingHops = (int)rd.route_count;
+            float observedCost = linkEtx + (remainingHops > 1 ? (remainingHops - 1) * 1.0f : 0.0f);
+            learnRoute(destNode, firstHop, observedCost);
+            learnRoute(destNode, firstHop, observedCost);
+        }
+    }
 }
 //fw+
 void NextHopRouter::learnFromRoutingPayload(const meshtastic_MeshPacket *p)
@@ -73,7 +87,7 @@ bool NextHopRouter::lookupRoute(uint32_t dest, RouteEntry &out)
     const RouteEntry &r = it->second;
     // TTL (adaptive) and minimal confidence gate
     if (millis() - r.lastUpdatedMs > computeRouteTtlMs(r.confidence)) return false;
-    if (r.confidence < 2) return false;
+    if (r.confidence < 1) return false;
     out = r;
     return (out.next_hop != NO_NEXT_HOP_PREFERENCE);
 }
@@ -94,7 +108,7 @@ void NextHopRouter::learnRoute(uint32_t dest, uint8_t viaHop, float observedCost
             r.next_hop = viaHop;
         } else {
             // Decide which is primary/backup by cost
-            if (observedCost < r.aggregated_cost) {
+            if (observedCost < (r.aggregated_cost - 0.5f)) {
                 // Promote new as primary, demote old to backup
                 r.backup_next_hop = r.next_hop;
                 r.backup_cost = r.aggregated_cost;
