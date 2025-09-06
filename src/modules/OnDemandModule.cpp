@@ -205,6 +205,12 @@ std::vector<std::unique_ptr<meshtastic_OnDemand>> OnDemandModule::createSegmente
                 entry.longitude_i = node->position.longitude_i;
             }
 
+            // capacity guard for nanopb repeated field
+            const size_t cap = sizeof(listRef.node_list) / sizeof(listRef.node_list[0]);
+            if (listRef.node_list_count >= (pb_size_t)cap) {
+                // this packet is full; try in next segment
+                break;
+            }
             int pos = listRef.node_list_count;
             listRef.node_list[pos] = entry;
             listRef.node_list_count++;
@@ -212,6 +218,10 @@ std::vector<std::unique_ptr<meshtastic_OnDemand>> OnDemandModule::createSegmente
             if (!fitsInPacket(*onDemand, MAX_PACKET_SIZE))
             {
                 listRef.node_list_count--;
+                // if nothing fits into this segment, advance index to avoid infinite loop on this entry
+                if (listRef.node_list_count == 0) {
+                    currentIndex++;
+                }
                 break;
             }
             currentIndex++;
@@ -239,10 +249,14 @@ meshtastic_OnDemand OnDemandModule::prepareRoutingErrorResponse()
     onDemand.variant.response.response_type = meshtastic_OnDemandType_RESPONSE_ROUTING_ERRORS;
     onDemand.variant.response.which_response_data = meshtastic_OnDemandResponse_routing_errors_tag;
 
-    onDemand.variant.response.response_data.routing_errors.routing_errors_count=39;
-    for (uint16_t i = 0; i < 38; i++) {
-            onDemand.variant.response.response_data.routing_errors.routing_errors[i].num = i;
-            onDemand.variant.response.response_data.routing_errors.routing_errors[i].counter = router->packetErrorCounters[i];
+    auto &re = onDemand.variant.response.response_data.routing_errors;
+    const size_t cap = sizeof(re.routing_errors) / sizeof(re.routing_errors[0]);
+    size_t fill = 38; // currently we fill 0..37
+    if (fill > cap) fill = cap;
+    re.routing_errors_count = (pb_size_t)fill;
+    for (size_t i = 0; i < fill; i++) {
+        re.routing_errors[i].num = (uint32_t)i;
+        re.routing_errors[i].counter = router->packetErrorCounters[i];
     }
     return onDemand;
 }
@@ -304,9 +318,12 @@ meshtastic_OnDemand OnDemandModule::prepareRxAvgTimeHistory()
 
     onDemand.variant.response.response_type = meshtastic_OnDemandType_RESPONSE_RX_AVG_TIME;
     onDemand.variant.response.which_response_data = meshtastic_OnDemandResponse_rx_avg_time_history_tag;
-    onDemand.variant.response.response_data.rx_avg_time_history.rx_avg_history_count = 40;
- 
-    memcpy(onDemand.variant.response.response_data.rx_avg_time_history.rx_avg_history, airTime->rxWindowAverages, 40 * sizeof(uint32_t));
+    auto &hist = onDemand.variant.response.response_data.rx_avg_time_history;
+    const size_t cap = sizeof(hist.rx_avg_history) / sizeof(hist.rx_avg_history[0]);
+    size_t count = 40;
+    if (count > cap) count = cap;
+    hist.rx_avg_history_count = (pb_size_t)count;
+    memcpy(hist.rx_avg_history, airTime->rxWindowAverages, count * sizeof(hist.rx_avg_history[0]));
 
     return onDemand;
 }
@@ -469,11 +486,15 @@ meshtastic_OnDemand OnDemandModule::preparePacketHistoryLog()
     onDemand.variant.response.response_type = meshtastic_OnDemandType_RESPONSE_PACKET_EXCHANGE_HISTORY;
     onDemand.variant.response.which_response_data = meshtastic_OnDemandResponse_exchange_packet_log_tag;
 
-    onDemand.variant.response.response_data.exchange_packet_log.exchange_list_count=12;
-    for (uint16_t i = 0; i < 12; i++) {
-            onDemand.variant.response.response_data.exchange_packet_log.exchange_list[i].port_num = nodeDB->packetHistoryLog.entries[i].port_num;
-            onDemand.variant.response.response_data.exchange_packet_log.exchange_list[i].from_node = nodeDB->packetHistoryLog.entries[i].from_node;
-            onDemand.variant.response.response_data.exchange_packet_log.exchange_list[i].to_node = nodeDB->packetHistoryLog.entries[i].to_node;   
+    auto &elog = onDemand.variant.response.response_data.exchange_packet_log;
+    const size_t capE = sizeof(elog.exchange_list) / sizeof(elog.exchange_list[0]);
+    size_t countE = 12;
+    if (countE > capE) countE = capE;
+    elog.exchange_list_count = (pb_size_t)countE;
+    for (size_t i = 0; i < countE; i++) {
+        elog.exchange_list[i].port_num = nodeDB->packetHistoryLog.entries[i].port_num;
+        elog.exchange_list[i].from_node = nodeDB->packetHistoryLog.entries[i].from_node;
+        elog.exchange_list[i].to_node = nodeDB->packetHistoryLog.entries[i].to_node;
     }
     return onDemand;
 }
@@ -485,17 +506,19 @@ meshtastic_OnDemand OnDemandModule::preparePortCounterHistory()
     onDemand.variant.response.response_type = meshtastic_OnDemandType_RESPONSE_PORT_COUNTER_HISTORY;
     onDemand.variant.response.which_response_data = meshtastic_OnDemandResponse_port_counter_history_tag;
 
+    auto &pch = onDemand.variant.response.response_data.port_counter_history;
+    const size_t cap = sizeof(pch.port_counter_history) / sizeof(pch.port_counter_history[0]);
     uint8_t entryCount = 0;
-    for (uint16_t i = 0; i < MAX_PORTS && entryCount < 20; i++) {
+    for (uint16_t i = 0; i < MAX_PORTS && entryCount < cap; i++) {
         if (portCounters[i] > 0) 
         {
-            onDemand.variant.response.response_data.port_counter_history.port_counter_history[entryCount].port = i;
-            onDemand.variant.response.response_data.port_counter_history.port_counter_history[entryCount].count = portCounters[i];
+            pch.port_counter_history[entryCount].port = i;
+            pch.port_counter_history[entryCount].count = portCounters[i];
             entryCount++;
         }
     }
  
-    onDemand.variant.response.response_data.port_counter_history.port_counter_history_count = entryCount;
+    pch.port_counter_history_count = entryCount;
 
     return onDemand;
 }
@@ -507,9 +530,12 @@ meshtastic_OnDemand OnDemandModule::prepareRxPacketHistory()
 
     onDemand.variant.response.response_type = meshtastic_OnDemandType_RESPONSE_PACKET_RX_HISTORY;
     onDemand.variant.response.which_response_data = meshtastic_OnDemandResponse_rx_packet_history_tag;
-    onDemand.variant.response.response_data.rx_packet_history.rx_packet_history_count = RXTXALL_ACTIVITY_COUNT;
- 
-    memcpy(onDemand.variant.response.response_data.rx_packet_history.rx_packet_history, airTime->rxTxAllActivities, RXTXALL_ACTIVITY_COUNT * sizeof(uint32_t));
+    auto &rxh = onDemand.variant.response.response_data.rx_packet_history;
+    const size_t cap = sizeof(rxh.rx_packet_history) / sizeof(rxh.rx_packet_history[0]);
+    size_t count = RXTXALL_ACTIVITY_COUNT;
+    if (count > cap) count = cap;
+    rxh.rx_packet_history_count = (pb_size_t)count;
+    memcpy(rxh.rx_packet_history, airTime->rxTxAllActivities, count * sizeof(rxh.rx_packet_history[0]));
 
     return onDemand;
 }
@@ -570,6 +596,11 @@ std::vector<std::unique_ptr<meshtastic_OnDemand>> OnDemandModule::createSegmente
             uint32_t now = millis();
             entry.age_secs = (now >= e.lastUpdatedMs) ? (now - e.lastUpdatedMs) / 1000 : 0;
 
+            // capacity guard for nanopb repeated field
+            const size_t cap = sizeof(listRef.routes) / sizeof(listRef.routes[0]);
+            if (listRef.routes_count >= (pb_size_t)cap) {
+                break;
+            }
             int pos = listRef.routes_count;
             listRef.routes[pos] = entry;
             listRef.routes_count++;
@@ -577,6 +608,9 @@ std::vector<std::unique_ptr<meshtastic_OnDemand>> OnDemandModule::createSegmente
             if (!fitsInPacket(*onDemand, MAX_PACKET_SIZE))
             {
                 listRef.routes_count--;
+                if (listRef.routes_count == 0) {
+                    currentIndex++;
+                }
                 break;
             }
             currentIndex++;
