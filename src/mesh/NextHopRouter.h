@@ -2,6 +2,7 @@
 
 #include "FloodingRouter.h"
 #include <unordered_map>
+#include "mesh/generated/meshtastic/heard.pb.h" //fw+
 
 /**
  * An identifier for a globally unique message - a pair of the sending nodenum and the packet id assigned
@@ -167,6 +168,19 @@ class NextHopRouter : public FloodingRouter
         return false;
     }
     
+    //fw+ HeardAssist throttle state
+    struct HeardThrottlePolicy {
+        uint8_t percent_per_ring[8] = {0}; // index 1..7 used
+        uint32_t jitter_base_ms = 0;
+        uint32_t jitter_slope_ms = 0;
+        uint8_t scope_min_ring = 0;
+        uint32_t active_until_ms = 0;
+        bool isActive(uint32_t now) const { return now < active_until_ms; }
+    };
+    HeardThrottlePolicy heardThrottle;
+
+    bool shouldRelayTextWithThrottle(const meshtastic_MeshPacket *p, uint32_t &outJitterMs) const; //fw+
+
 
     /**
      * Should this incoming filter be dropped?

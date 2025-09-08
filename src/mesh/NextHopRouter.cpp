@@ -1,5 +1,26 @@
 #include "NextHopRouter.h"
 #include "MeshService.h"
+#include "mesh/generated/meshtastic/heard.pb.h" //fw+
+#include <pb.h>
+#include <pb_decode.h>
+
+//fw+ decode callback for HeardAssist.percent_per_ring
+struct HeardPercDecodeCtx {
+    uint8_t *percent_per_ring; // index 1..7 used
+    uint8_t nextIdx;
+};
+
+static bool decodeHeardPerc(pb_istream_t *stream, const pb_field_t * /*field*/, void **arg)
+{
+    HeardPercDecodeCtx *ctx = static_cast<HeardPercDecodeCtx *>(*arg);
+    uint64_t v = 0;
+    if (!pb_decode_varint(stream, &v)) return false;
+    if (ctx->percent_per_ring && ctx->nextIdx <= 7) {
+        ctx->percent_per_ring[ctx->nextIdx] = (uint8_t)v;
+        ctx->nextIdx++;
+    }
+    return true;
+}
 #include <pb_encode.h>
 #include <pb_decode.h>
 
@@ -249,6 +270,39 @@ bool NextHopRouter::shouldFilterReceived(const meshtastic_MeshPacket *p)
     }
     return r;
 }
+//fw+ compute ring and apply HeardAssist policy
+bool NextHopRouter::shouldRelayTextWithThrottle(const meshtastic_MeshPacket *p, uint32_t &outJitterMs) const
+{
+    outJitterMs = 0;
+    uint32_t now = millis();
+    if (!heardThrottle.isActive(now)) return true; // no policy → allow
+    // compute ring from hop_start and hop_limit if available
+    uint32_t ring = 0;
+    if (p->hop_start != 0 && p->hop_limit <= p->hop_start) ring = (uint32_t)(p->hop_start - p->hop_limit);
+    if (ring == 0) return true;
+    if (heardThrottle.scope_min_ring && ring < heardThrottle.scope_min_ring) {
+        // near area: strong suppression (only 1 elected ideally)
+        // Fall through to election anyway with very low percent if configured 0
+    }
+    uint8_t pct = heardThrottle.percent_per_ring[ring];
+    if (pct == 0) {
+        // cluster policy fallback: near/mid/far groups
+        if (ring <= 2) pct = 1;         // near (r1-2)
+        else if (ring <= 4) pct = 2;    // mid (r3-4)
+        else pct = 3;                   // far (r5-7)
+    }
+    // deterministic election: hash(packet_id, our_last_byte, ring) % 100 < pct
+    uint32_t h = 1469598103u;
+    auto mix = [&](uint32_t v) { h ^= v; h *= 16777619u; };
+    mix(p->id);
+    mix(nodeDB->getLastByteOfNodeNum(nodeDB->getNodeNum()));
+    mix(ring);
+    bool elected = (h % 100) < pct;
+    if (!elected) return false;
+    outJitterMs = heardThrottle.jitter_base_ms + ring * heardThrottle.jitter_slope_ms + (random(33));
+    return true;
+}
+
 
 void NextHopRouter::sniffReceived(const meshtastic_MeshPacket *p, const meshtastic_Routing *c)
 {
@@ -290,6 +344,23 @@ void NextHopRouter::sniffReceived(const meshtastic_MeshPacket *p, const meshtast
             learnFromRouteDiscoveryPayload(p);
         } else if (p->decoded.portnum == meshtastic_PortNum_ROUTING_APP) {
             learnFromRoutingPayload(p);
+        } else if (p->decoded.portnum == meshtastic_PortNum_HEARD_APP) {
+            // fw+ decode HeardAssist control and store policy with short TTL
+            meshtastic_HeardAssist assist = meshtastic_HeardAssist_init_zero;
+            // set decode callback for percent_per_ring
+            HeardPercDecodeCtx ctx{ heardThrottle.percent_per_ring, 1 };
+            assist.percent_per_ring.funcs.decode = decodeHeardPerc;
+            assist.percent_per_ring.arg = &ctx;
+            if (pb_decode_from_bytes(p->decoded.payload.bytes, p->decoded.payload.size, &meshtastic_HeardAssist_msg, &assist)) {
+                // Reset policy
+                heardThrottle = HeardThrottlePolicy{};
+                // Copy scalar params
+                heardThrottle.jitter_base_ms = assist.jitter_base_ms;
+                heardThrottle.jitter_slope_ms = assist.jitter_slope_ms;
+                heardThrottle.scope_min_ring = (uint8_t)assist.scope_min_ring;
+                heardThrottle.active_until_ms = millis() + 2000; // short-lived policy window
+                // percent_per_ring already filled via decode callback into heardThrottle.percent_per_ring
+            }
         }
     }
 
@@ -400,6 +471,20 @@ bool NextHopRouter::perhapsRelay(const meshtastic_MeshPacket *p)
     }
 
     if (!isToUs(p) && !isFromUs(p) && p->hop_limit > 0) {
+        // fw+ Optional throttle for text broadcasts based on HeardAssist
+        if (p->which_payload_variant == meshtastic_MeshPacket_decoded_tag && p->decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP) {
+            uint32_t jitter = 0;
+            if (shouldRelayTextWithThrottle(p, jitter)) {
+                // delay relay by jitter
+                meshtastic_MeshPacket *tosend = packetPool.allocCopy(*p);
+                tosend->hop_limit--;
+                if (jitter) tosend->tx_after = millis() + jitter;
+                NextHopRouter::send(tosend);
+                return true;
+            } else {
+                return false; // suppressed by throttle
+            }
+        }
         if (p->next_hop == NO_NEXT_HOP_PREFERENCE || p->next_hop == nodeDB->getLastByteOfNodeNum(getNodeNum())) {
             if (isRebroadcaster()) {
                 meshtastic_MeshPacket *tosend = packetPool.allocCopy(*p); // keep a copy because we will be sending it
