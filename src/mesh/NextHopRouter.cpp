@@ -316,18 +316,24 @@ void NextHopRouter::sniffReceived(const meshtastic_MeshPacket *p, const meshtast
         if (p->from != 0) {
             meshtastic_NodeInfoLite *origTx = nodeDB->getMeshNode(p->from);
             if (origTx) {
-                // Either relayer of ACK was also a relayer of the packet, or we were the relayer and the ACK came directly from
-                // the destination
-                //fw+ dv-etx mod
-                bool weRelayedOriginal = wasRelayer(ourRelayID, p->decoded.request_id, p->to);
-                bool ackRelayerWasOnPath = wasRelayer(p->relay_node, p->decoded.request_id, p->to);
-                if ((ackRelayerWasOnPath || (weRelayedOriginal && p->hop_start != 0 && p->hop_start == p->hop_limit)) &&
-                    isDirectNeighborLastByte(p->relay_node)) {
-                    // Passive learn: dest is p->from (original sender) or p->to depending on context; for DM replies, p->to tends do wskazuje na nas
-                    uint32_t destNode = origTx->num; // original transmitter node id (peer)
-                    float hopCost = estimateEtxFromSnr(p->rx_snr) + 1.0f; // local hop + ahead estimate
-                    learnRoute(destNode, p->relay_node, hopCost);
-                    origTx->next_hop = p->relay_node; // keep legacy hint too
+                // Upstream condition: ACK relayer was a relayer of the original packet OR
+                // we were the sole relayer and ACK came directly from destination
+                bool ackRelayerWasOriginalRelayer = wasRelayer(p->relay_node, p->decoded.request_id, p->to);
+                bool weWereSoleRelayerAndAckFromDest =
+                    (p->hop_start != 0 && p->hop_start == p->hop_limit &&
+                     wasSoleRelayer(ourRelayID, p->decoded.request_id, p->to));
+
+                if (ackRelayerWasOriginalRelayer || weWereSoleRelayerAndAckFromDest) {
+                    if (origTx->next_hop != p->relay_node) { // Not already set
+                        LOG_INFO("Update next hop of 0x%x to 0x%x based on ACK/reply", p->from, p->relay_node);
+                        origTx->next_hop = p->relay_node;
+                    }
+
+                    // FW+: lightweight DV-ETX hint only if the relayer is a direct neighbor
+                    if (isDirectNeighborLastByte(p->relay_node)) {
+                        float hopCost = estimateEtxFromSnr(p->rx_snr) + 1.0f; // local hop + ahead estimate
+                        learnRoute(origTx->num, p->relay_node, hopCost);
+                    }
                 }
             }
         }
