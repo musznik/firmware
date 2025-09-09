@@ -264,6 +264,10 @@ ErrorCode Router::send(meshtastic_MeshPacket *p)
     p->from = getFrom(p);
 
     p->relay_node = nodeDB->getLastByteOfNodeNum(getNodeNum()); // set the relayer to us
+    // fw+ sniffer: forward our own TX to phone (originator only), but not for broadcasts (broadcasts są dostarczane lokalnie)
+    if (moduleConfig.has_nodemodadmin && moduleConfig.nodemodadmin.sniffer_enabled && isFromUs(p) && !isBroadcast(p->to)) {
+        service->sendPacketToPhoneRaw(packetPool.allocCopy(*p));
+    }
     // If we are the original transmitter, set the hop limit with which we start
     if (isFromUs(p))
         p->hop_start = p->hop_limit;

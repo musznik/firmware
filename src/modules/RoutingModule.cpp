@@ -42,11 +42,16 @@ bool RoutingModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, mesh
             ++portCounters[511];
     }
 
-    if ((isBroadcast(mp.to) || isToUs(&mp)) && (mp.from != 0)) {
+    const bool bcast = isBroadcast(mp.to);
+    const bool toUs = isToUs(&mp);
+    const bool fromUs = isFromUs(&mp);
+
+    if ((bcast || toUs) && (mp.from != 0)) {
         printPacket("Delivering rx packet", &mp);
         service->handleFromRadio(&mp);
-    }else{
-        if(moduleConfig.nodemodadmin.sniffer_enabled && moduleConfig.has_nodemodadmin){
+    } else {
+        // fw+ sniffer: forward transit (not to us, not local broadcast) once
+        if (moduleConfig.has_nodemodadmin && moduleConfig.nodemodadmin.sniffer_enabled && (mp.from != 0) && !fromUs) {
             service->sendPacketToPhoneRaw(packetPool.allocCopy(mp));
         }
     }
