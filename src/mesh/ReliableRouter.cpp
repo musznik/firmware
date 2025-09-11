@@ -7,10 +7,17 @@
 #include "modules/NodeInfoModule.h"
 #include "modules/RoutingModule.h"
 #include <stdlib.h>
-//fw+ ACK election & suppression helpers (kept separate to minimize diffs)
+//fw+ Opportunistic ACK: RSSI-based election + duplicate suppression (kept separate to minimize diffs)
 namespace fwplus_ack
 {
-    // Lightweight ACK suppression cache
+    /*
+     * Small, allocation-free helpers implementing "opportunistic ACK":
+     *  - RSSI-biased backoff elects the best neighbor to ACK first
+     *  - Cache-based suppression prevents ACK implosion
+     *  - Deterministic jitter from id bits avoids using libc rand()
+     * Design goals: tiny, deterministic, no protocol changes
+     */
+    // Lightweight ACK suppression cache (from,id pairs with short TTL)
     static const uint32_t TTL_MS = 300; // keep ACKs for this message id for a short time
     static const int CAP = 32;
     struct Entry { uint32_t from, id, expires; };
@@ -29,7 +36,7 @@ namespace fwplus_ack
         idx = (idx + 1) % CAP;
     }
 
-    //fw+ keep tiny and avoid pulling libc rand(); jitter is derived from id bits
+    //fw+ keep tiny; derive jitter from id bits to avoid RNG/cost
     static int delayMsForRssi(uint32_t id, int rssi)
     {
         int base = 8; // ms
@@ -39,14 +46,14 @@ namespace fwplus_ack
         return base + extra + jitter;
     }
 
-    // perform backoff/election; returns true if caller should send the ACK now
+    // Perform listen-before-ACK backoff/election; true -> caller should transmit the ACK now
     static __attribute__((noinline)) bool shouldSend(uint32_t prev, uint32_t id, int rssi)
     {
         uint32_t now = millis();
-        if (seen(prev, id, now)) return false;
+        if (seen(prev, id, now)) return false; // short-circuit if already observed
         delay(delayMsForRssi(id, rssi));
         now = millis();
-        if (seen(prev, id, now)) return false;
+        if (seen(prev, id, now)) return false; // another node won the election
         return true;
     }
 }
@@ -148,14 +155,14 @@ void ReliableRouter::sniffReceived(const meshtastic_MeshPacket *p, const meshtas
                 // A response may be set to want_ack for retransmissions, but we don't need to ACK a response if it received an
                 // implicit ACK already. If we received it directly, only ACK with a hop limit of 0
                 if (!p->decoded.request_id) {
-                    //fw+ ACK election with backoff & suppression
+                    //fw+ Opportunistic ACK: RSSI-based election with duplicate suppression
                     if (fwplus_ack::shouldSend(getFrom(p), p->id, p->rx_rssi)) {
                         sendAckNak(meshtastic_Routing_Error_NONE, getFrom(p), p->id, p->channel,
                                    routingModule->getHopLimitForResponse(p->hop_start, p->hop_limit));
                         fwplus_ack::mark(getFrom(p), p->id, millis());
                     }
                 } else if (p->hop_start > 0 && p->hop_start == p->hop_limit) {
-                    //fw+ terminal response case
+                    //fw+ Terminal response: collapse to local ACK with hop limit 0 if not seen
                     if (!fwplus_ack::seen(getFrom(p), p->id, millis())) {
                         sendAckNak(meshtastic_Routing_Error_NONE, getFrom(p), p->id, p->channel, 0);
                         fwplus_ack::mark(getFrom(p), p->id, millis());
@@ -190,7 +197,7 @@ void ReliableRouter::sniffReceived(const meshtastic_MeshPacket *p, const meshtas
             LOG_DEBUG("Received a %s for 0x%x, stopping retransmissions", ackId ? "ACK" : "NAK", ackId);
             if (ackId) {
                 stopRetransmission(p->to, ackId);
-                //fw+ remember this ACK to suppress followers
+                //fw+ Remember ACK to suppress followers
                 fwplus_ack::mark(getFrom(p), ackId, millis());
             } else {
                 stopRetransmission(p->to, nakId);
