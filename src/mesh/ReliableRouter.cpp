@@ -5,6 +5,50 @@
 #include "mesh-pb-constants.h"
 #include "modules/NodeInfoModule.h"
 #include "modules/RoutingModule.h"
+#include <stdlib.h>
+//fw+ ACK election & suppression helpers (kept separate to minimize diffs)
+namespace fwplus_ack
+{
+    // Lightweight ACK suppression cache
+    static const uint32_t TTL_MS = 300; // keep ACKs for this message id for a short time
+    static const int CAP = 32;
+    struct Entry { uint32_t from, id, expires; };
+    static Entry cache[CAP];
+
+    static bool seen(uint32_t from, uint32_t id, uint32_t now)
+    {
+        for (int i = 0; i < CAP; ++i) if (cache[i].id == id && cache[i].from == from && now <= cache[i].expires) return true;
+        return false;
+    }
+
+    static void mark(uint32_t from, uint32_t id, uint32_t now)
+    {
+        static int idx = 0;
+        cache[idx] = {from, id, now + TTL_MS};
+        idx = (idx + 1) % CAP;
+    }
+
+    //fw+ keep tiny and avoid pulling libc rand(); jitter is derived from id bits
+    static int delayMsForRssi(uint32_t id, int rssi)
+    {
+        int base = 8; // ms
+        int extra = 0;
+        if (rssi < -40) extra = (-40 - rssi) / 2; // weaker → longer
+        int jitter = (int)(id & 0x07); // 0..7 ms
+        return base + extra + jitter;
+    }
+
+    // perform backoff/election; returns true if caller should send the ACK now
+    static __attribute__((noinline)) bool shouldSend(uint32_t prev, uint32_t id, int rssi)
+    {
+        uint32_t now = millis();
+        if (seen(prev, id, now)) return false;
+        delay(delayMsForRssi(id, rssi));
+        now = millis();
+        if (seen(prev, id, now)) return false;
+        return true;
+    }
+}
 
 // ReliableRouter::ReliableRouter() {}
 
@@ -100,11 +144,20 @@ void ReliableRouter::sniffReceived(const meshtastic_MeshPacket *p, const meshtas
             } else if (p->which_payload_variant == meshtastic_MeshPacket_decoded_tag) {
                 // A response may be set to want_ack for retransmissions, but we don't need to ACK a response if it received an
                 // implicit ACK already. If we received it directly, only ACK with a hop limit of 0
-                if (!p->decoded.request_id)
-                    sendAckNak(meshtastic_Routing_Error_NONE, getFrom(p), p->id, p->channel,
-                               routingModule->getHopLimitForResponse(p->hop_start, p->hop_limit));
-                else if (p->hop_start > 0 && p->hop_start == p->hop_limit)
-                    sendAckNak(meshtastic_Routing_Error_NONE, getFrom(p), p->id, p->channel, 0);
+                if (!p->decoded.request_id) {
+                    //fw+ ACK election with backoff & suppression
+                    if (fwplus_ack::shouldSend(getFrom(p), p->id, p->rx_rssi)) {
+                        sendAckNak(meshtastic_Routing_Error_NONE, getFrom(p), p->id, p->channel,
+                                   routingModule->getHopLimitForResponse(p->hop_start, p->hop_limit));
+                        fwplus_ack::mark(getFrom(p), p->id, millis());
+                    }
+                } else if (p->hop_start > 0 && p->hop_start == p->hop_limit) {
+                    //fw+ terminal response case
+                    if (!fwplus_ack::seen(getFrom(p), p->id, millis())) {
+                        sendAckNak(meshtastic_Routing_Error_NONE, getFrom(p), p->id, p->channel, 0);
+                        fwplus_ack::mark(getFrom(p), p->id, millis());
+                    }
+                }
             } else if (p->which_payload_variant == meshtastic_MeshPacket_encrypted_tag && p->channel == 0 &&
                        (nodeDB->getMeshNode(p->from) == nullptr || nodeDB->getMeshNode(p->from)->user.public_key.size == 0)) {
                 LOG_INFO("PKI packet from unknown node, send PKI_UNKNOWN_PUBKEY");
@@ -134,6 +187,8 @@ void ReliableRouter::sniffReceived(const meshtastic_MeshPacket *p, const meshtas
             LOG_DEBUG("Received a %s for 0x%x, stopping retransmissions", ackId ? "ACK" : "NAK", ackId);
             if (ackId) {
                 stopRetransmission(p->to, ackId);
+                //fw+ remember this ACK to suppress followers
+                fwplus_ack::mark(getFrom(p), ackId, millis());
             } else {
                 stopRetransmission(p->to, nakId);
             }
