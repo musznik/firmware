@@ -275,7 +275,15 @@ void DeviceTelemetryModule::sendLocalStatsExtendedToMesh()
 bool DeviceTelemetryModule::sendTelemetry(NodeNum dest, bool phoneOnly)
 {
     meshtastic_Telemetry telemetry = getDeviceTelemetry();
+    LOG_INFO("Send: air_util_tx=%f, channel_utilization=%f, battery_level=%i, voltage=%f, uptime=%i",
+             telemetry.variant.device_metrics.air_util_tx, telemetry.variant.device_metrics.channel_utilization,
+             telemetry.variant.device_metrics.battery_level, telemetry.variant.device_metrics.voltage,
+             telemetry.variant.device_metrics.uptime_seconds);
+
+    DEBUG_HEAP_BEFORE;
     meshtastic_MeshPacket *p = allocDataProtobuf(telemetry);
+    DEBUG_HEAP_AFTER("DeviceTelemetryModule::sendTelemetry", p);
+
     p->to = dest;
     p->decoded.want_response = false;
     p->priority = meshtastic_MeshPacket_Priority_BACKGROUND;
