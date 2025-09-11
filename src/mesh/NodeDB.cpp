@@ -845,7 +845,7 @@ void NodeDB::installDefaultModuleConfig()
     moduleConfig.canned_message.inputbroker_event_press = meshtastic_ModuleConfig_CannedMessageConfig_InputEventChar_SELECT;
 #endif
     moduleConfig.has_canned_message = true;
-#if USERPREFS_MQTT_ENABLED && !MESHTASTIC_EXCLUDE_MQTT
+#if USERPREFS_MQTT_ENABLED && !MESHTASTIC_EXCLUDE_MQTT && !ARCH_PORTDUINO
     moduleConfig.mqtt.enabled = true;
 #endif
 #ifdef USERPREFS_MQTT_ADDRESS
@@ -880,7 +880,12 @@ void NodeDB::installDefaultModuleConfig()
     moduleConfig.mqtt.tls_enabled = default_mqtt_tls_enabled;
 #endif
 
+    // Default MQTT enablement: disable by default for native/Portduino builds
+#if !ARCH_PORTDUINO
     moduleConfig.mqtt.enabled = true;
+#else
+    moduleConfig.mqtt.enabled = false;
+#endif
     moduleConfig.nodemodadmin.do_not_send_prv_over_mqtt = true;
     moduleConfig.nodemodadmin.sniffer_enabled = default_sniffer_enabled;
     moduleConfig.nodemodadmin.auto_responder_enabled = default_autoresponder_enabled;
@@ -923,12 +928,7 @@ void NodeDB::installDefaultModuleConfig()
     moduleConfig.nodemodadmin.route_ttl_per_conf_hours = 24; // +1 day per confidence
     moduleConfig.nodemodadmin.route_ttl_max_hours = 720;     // 30 days
 
-    // fw+ HEARD/RAB defaults (enable lightweight sampling for text broadcasts)
-    moduleConfig.nodemodadmin.heard_sampling_enabled_texts = true;
-    moduleConfig.nodemodadmin.heard_sample_percent_texts = 3;   // 3%
-    moduleConfig.nodemodadmin.heard_window_ms = 1000;           // 1s window
-    moduleConfig.nodemodadmin.heard_max_reports_per_agg = 12;   // up to 12 reports per aggregate
-    moduleConfig.nodemodadmin.heard_max_active_keys = 64;       // cap active aggregates
+    //fw+ removed HEARD/RAB defaults
     // Routing learning thresholds defaults (FW+)
     moduleConfig.nodemodadmin.min_confidence_to_use = 1; // start using after first good observation
     moduleConfig.nodemodadmin.hysteresis_cost_threshold_tenths = 5; // 0.5 cost units
@@ -1399,17 +1399,6 @@ void NodeDB::loadFromDisk()
         if (moduleConfig.nodemodadmin.route_ttl_base_hours == 0) { moduleConfig.nodemodadmin.route_ttl_base_hours = 72; mutated = true; }
         if (moduleConfig.nodemodadmin.route_ttl_per_conf_hours == 0) { moduleConfig.nodemodadmin.route_ttl_per_conf_hours = 24; mutated = true; }
         if (moduleConfig.nodemodadmin.route_ttl_max_hours == 0) { moduleConfig.nodemodadmin.route_ttl_max_hours = 720; mutated = true; }
-
-        // 4) HEARD/RAB defaults (fill unset/invalid only)
-        // Treat zeros as misconfiguration → enable with safe defaults
-        if (moduleConfig.nodemodadmin.heard_sample_percent_texts == 0 && moduleConfig.nodemodadmin.heard_sampling_enabled_texts == 0) {
-            moduleConfig.nodemodadmin.heard_sampling_enabled_texts = true;
-            moduleConfig.nodemodadmin.heard_sample_percent_texts = 3; // 3%
-            mutated = true;
-        }
-        if (moduleConfig.nodemodadmin.heard_window_ms == 0) { moduleConfig.nodemodadmin.heard_window_ms = 1000; mutated = true; }
-        if (moduleConfig.nodemodadmin.heard_max_reports_per_agg == 0) { moduleConfig.nodemodadmin.heard_max_reports_per_agg = 12; mutated = true; }
-        if (moduleConfig.nodemodadmin.heard_max_active_keys == 0) { moduleConfig.nodemodadmin.heard_max_active_keys = 64; mutated = true; }
 
         if (mutated) {
             saveToDisk(SEGMENT_MODULECONFIG);

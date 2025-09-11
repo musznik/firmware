@@ -109,7 +109,6 @@
 #include "modules/OnDemandModule.h"
 
 #include "modules/SignalReplyModule.h"
-#include "modules/HeardModule.h" //fw+
 
 
 /**
@@ -303,6 +302,4 @@ void setupModules()
     onDemandModule = new OnDemandModule();
     signalReplyModule = new SignalReplyModule();
     routingModule = new RoutingModule();
-    //fw+ HEARD sampling module (disabled by default unless enabled via nodemodadmin)
-    new HeardModule();
 }

@@ -350,23 +350,6 @@ void NextHopRouter::sniffReceived(const meshtastic_MeshPacket *p, const meshtast
             learnFromRouteDiscoveryPayload(p);
         } else if (p->decoded.portnum == meshtastic_PortNum_ROUTING_APP) {
             learnFromRoutingPayload(p);
-        } else if (p->decoded.portnum == meshtastic_PortNum_HEARD_APP) {
-            // fw+ decode HeardAssist control and store policy with short TTL
-            meshtastic_HeardAssist assist = meshtastic_HeardAssist_init_zero;
-            // set decode callback for percent_per_ring
-            HeardPercDecodeCtx ctx{ heardThrottle.percent_per_ring, 1 };
-            assist.percent_per_ring.funcs.decode = decodeHeardPerc;
-            assist.percent_per_ring.arg = &ctx;
-            if (pb_decode_from_bytes(p->decoded.payload.bytes, p->decoded.payload.size, &meshtastic_HeardAssist_msg, &assist)) {
-                // Reset policy
-                heardThrottle = HeardThrottlePolicy{};
-                // Copy scalar params
-                heardThrottle.jitter_base_ms = assist.jitter_base_ms;
-                heardThrottle.jitter_slope_ms = assist.jitter_slope_ms;
-                heardThrottle.scope_min_ring = (uint8_t)assist.scope_min_ring;
-                heardThrottle.active_until_ms = millis() + 2000; // short-lived policy window
-                // percent_per_ring already filled via decode callback into heardThrottle.percent_per_ring
-            }
         }
     }
 

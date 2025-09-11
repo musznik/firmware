@@ -381,7 +381,12 @@ meshtastic_OnDemand OnDemandModule::prepareNodeStats()
     onDemand.variant.response.response_data.node_stats.num_total_nodes = nodeDB->getNumMeshNodes();
     onDemand.variant.response.response_data.node_stats.num_rx_dupe = router->rxDupe;
     onDemand.variant.response.response_data.node_stats.num_tx_relay_canceled = router->txRelayCanceled;
-    onDemand.variant.response.response_data.node_stats.num_tx_relay = router->txRelayCanceled;
+    // Use the radio interface relay counter (not Router)
+#ifdef ARCH_PORTDUINO
+    onDemand.variant.response.response_data.node_stats.num_tx_relay = SimRadio::instance->txRelay;
+#else
+    onDemand.variant.response.response_data.node_stats.num_tx_relay = RadioLibInterface::instance->txRelay;
+#endif
     onDemand.variant.response.response_data.node_stats.reboots = myNodeInfo.reboot_count;
     onDemand.variant.response.response_data.node_stats.memory_free_cheap = memGet.getFreeHeap();
     onDemand.variant.response.response_data.node_stats.memory_total = memGet.getHeapSize();
@@ -391,7 +396,12 @@ meshtastic_OnDemand OnDemandModule::prepareNodeStats()
     onDemand.variant.response.response_data.node_stats.blocked_by_hoplimit = router->blocked_by_hoplimit;
     onDemand.variant.response.response_data.node_stats.fw_plus_version = FW_PLUS_VERSION;
     onDemand.variant.response.response_data.node_stats.rebroadcast_mode = config.device.rebroadcast_mode;
-    strncpy(onDemand.variant.response.response_data.node_stats.firmware_version, optstr(APP_VERSION_SHORT), sizeof(onDemand.variant.response.response_data.node_stats.firmware_version));
+    // Ensure null-terminated firmware_version to avoid nanopb string overflow
+    strncpy(onDemand.variant.response.response_data.node_stats.firmware_version,
+            optstr(APP_VERSION_SHORT),
+            sizeof(onDemand.variant.response.response_data.node_stats.firmware_version) - 1);
+    onDemand.variant.response.response_data.node_stats.firmware_version[
+        sizeof(onDemand.variant.response.response_data.node_stats.firmware_version) - 1] = '\0';
     onDemand.variant.response.response_data.node_stats.has_opportunistic_enabled = true;
     onDemand.variant.response.response_data.node_stats.opportunistic_enabled =  router->getOpportunisticEnabled();
     onDemand.variant.response.response_data.node_stats.has_opportunistic_mode = true;
@@ -460,6 +470,25 @@ meshtastic_OnDemand OnDemandModule::prepareNodeStats()
     onDemand.variant.response.response_data.node_stats.flash_total_bytes =  getNRF5xTotalBytes(); 
 #endif
         
+    // Safety: if this NodeStats payload would exceed radio MTU, drop non-essential fields
+    if (!fitsInPacket(onDemand, MAX_PACKET_SIZE))
+    {
+        auto &ns = onDemand.variant.response.response_data.node_stats;
+        // Trim optional, nice-to-have fields first
+        ns.firmware_version[0] = '\0';
+        ns.has_memory_total = false;
+        ns.has_memory_free_cheap = false;
+        ns.has_cpu_usage_percent = false;
+        if (!fitsInPacket(onDemand, MAX_PACKET_SIZE))
+        {
+            ns.has_num_tx_relay = false;
+            ns.has_num_tx_relay_canceled = false;
+            ns.has_num_rx_dupe = false;
+            ns.has_flood_counter = false;
+            ns.has_nexthop_counter = false;
+        }
+    }
+
     return onDemand;
 }
 
