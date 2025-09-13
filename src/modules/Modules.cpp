@@ -92,6 +92,12 @@
 #endif
 #endif
 
+#ifdef ARCH_NRF52
+#if !MESHTASTIC_EXCLUDE_STOREFORWARD
+#include "modules/StoreForwardModule.h"
+#endif
+#endif
+
 #if !MESHTASTIC_EXCLUDE_EXTERNALNOTIFICATION
 #include "modules/ExternalNotificationModule.h"
 #endif
