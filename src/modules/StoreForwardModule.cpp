@@ -27,13 +27,16 @@
 #include <Arduino.h>
 #include <iterator>
 #include <map>
+#include "fwplus_custody.h" //fw+
 
 StoreForwardModule *storeForwardModule;
 
 int32_t StoreForwardModule::runOnce()
 {
-#if defined(ARCH_ESP32) || defined(ARCH_PORTDUINO)
+#if defined(ARCH_ESP32) || defined(ARCH_PORTDUINO) || defined(ARCH_NRF52)
     if (moduleConfig.store_forward.enabled && is_server) {
+        //fw+ process custody schedules before normal server loop
+        processSchedules();
         // Send out the message queue.
         if (this->busy) {
             // Only send packets if the channel is less than 25% utilized and until historyReturnMax
@@ -54,7 +57,12 @@ int32_t StoreForwardModule::runOnce()
             sf.variant.heartbeat.secondary = 0; // TODO we always have one primary router for now
             storeForwardModule->sendMessage(NODENUM_BROADCAST, sf);
         }
+#ifdef ARCH_PORTDUINO
+        //fw+ Faster scheduling loop in simulation to ensure prompt S&F forwarding
+        return 200;
+#else
         return (this->packetTimeMax);
+#endif
     }
 #endif
     return disable();
@@ -135,7 +143,12 @@ uint32_t StoreForwardModule::getNumAvailablePackets(NodeNum dest, uint32_t last_
         lastRequest.emplace(dest, 0);
     }
     for (uint32_t i = lastRequest[dest]; i < this->packetHistoryTotalCount; i++) {
-        if (this->packetHistory[i].time && (this->packetHistory[i].time > last_time)) {
+        uint32_t t = this->packetHistory[i].time;
+        if (t && (t > last_time)) {
+            //fw+ skip delivered ids entirely
+            if (isDelivered(this->packetHistory[i].id)) continue;
+            //fw+ if another S&F claimed custody for this id, don't offer it to this client
+            if (isClaimed(this->packetHistory[i].id)) continue;
             // Client is only interested in packets not from itself and only in broadcast packets or packets towards it.
             if (this->packetHistory[i].from != dest &&
                 (this->packetHistory[i].to == NODENUM_BROADCAST || this->packetHistory[i].to == dest)) {
@@ -207,6 +220,30 @@ void StoreForwardModule::historyAdd(const meshtastic_MeshPacket &mp)
     memcpy(this->packetHistory[this->packetHistoryTotalCount].payload, p.payload.bytes, meshtastic_Constants_DATA_PAYLOAD_LEN);
 
     this->packetHistoryTotalCount++;
+    //fw+ if this id was previously marked delivered (race), neutralize immediately
+    if (isDelivered(mp.id)) {
+        this->packetHistory[this->packetHistoryTotalCount - 1].time = 0;
+        LOG_DEBUG("fw+ historyAdd: neutralized delivered id=0x%x on insert", mp.id);
+    }
+
+    //fw+ if schedule was waiting for this id, fill it now
+    auto it = pendingSchedule.find(mp.id);
+    if (it != pendingSchedule.end()) {
+        scheduleFromHistory(mp.id);
+        pendingSchedule.erase(it);
+    }
+    //fw+ proactive: schedule on hear (no CR/CA needed)
+    if (is_server) {
+        scheduleFromHistory(mp.id);
+        //fw+ For DM, emit Custody ACK to the original sender so it stops retransmissions
+        if (mp.to != NODENUM_BROADCAST && mp.to != NODENUM_BROADCAST_NO_LORA) {
+            sendCustodyAck(getFrom(&mp), mp.id);
+            //fw+ also ensure schedule exists even if history scan missed (pending path)
+            if (scheduleById.find(mp.id) == scheduleById.end()) {
+                pendingSchedule[mp.id] = true;
+            }
+        }
+    }
 }
 
 /**
@@ -239,6 +276,10 @@ meshtastic_MeshPacket *StoreForwardModule::preparePayload(NodeNum dest, uint32_t
 {
     for (uint32_t i = lastRequest[dest]; i < this->packetHistoryTotalCount; i++) {
         if (this->packetHistory[i].time && (this->packetHistory[i].time > last_time)) {
+            //fw+ skip delivered ids entirely
+            if (isDelivered(this->packetHistory[i].id)) continue;
+            //fw+ skip if custody claimed elsewhere
+            if (isClaimed(this->packetHistory[i].id)) continue;
             /*  Copy the messages that were received by the server in the last msAgo
                 to the packetHistoryTXQueue structure.
                 Client not interested in packets from itself and only in broadcast packets or packets towards it. */
@@ -259,7 +300,11 @@ meshtastic_MeshPacket *StoreForwardModule::preparePayload(NodeNum dest, uint32_t
 
                 // Let's assume that if the server received the S&F request that the client is in range.
                 //   TODO: Make this configurable.
-                p->want_ack = false;
+                //fw+ For server-side delivery: request ACK for DM to allow source to see success
+                bool isDM = (this->packetHistory[i].to != NODENUM_BROADCAST &&
+                             this->packetHistory[i].to != NODENUM_BROADCAST_NO_LORA);
+                p->want_ack = isDM;
+                p->decoded.want_response = false;
 
                 if (local) { // PhoneAPI gets normal TEXT_MESSAGE_APP
                     p->decoded.portnum = meshtastic_PortNum_TEXT_MESSAGE_APP;
@@ -387,7 +432,7 @@ void StoreForwardModule::statsSend(uint32_t to)
  */
 ProcessMessage StoreForwardModule::handleReceived(const meshtastic_MeshPacket &mp)
 {
-#if defined(ARCH_ESP32) || defined(ARCH_PORTDUINO)
+#if defined(ARCH_ESP32) || defined(ARCH_PORTDUINO) || defined(ARCH_NRF52)
     if (moduleConfig.store_forward.enabled) {
 
         if ((mp.decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP) && is_server) {
@@ -403,7 +448,7 @@ ProcessMessage StoreForwardModule::handleReceived(const meshtastic_MeshPacket &m
                 }
             } else {
                 storeForwardModule->historyAdd(mp);
-                LOG_INFO("S&F stored. Message history contains %u records now", this->packetHistoryTotalCount);
+                LOG_INFO("S&F stored. Active history entries: %u", (unsigned)countActiveHistory());
             }
         } else if (!isFromUs(&mp) && mp.decoded.portnum == meshtastic_PortNum_STORE_FORWARD_APP) {
             auto &p = mp.decoded;
@@ -555,10 +600,234 @@ bool StoreForwardModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp,
         }
         break;
 
-    default:
-        break; // no need to do anything
+    default: {
+        //fw+ DTN-like: interpret custom custody RR codes using control variants (no text payload)
+        if (p->rr == fwplus_custody::RR_ROUTER_CUSTODY_ACK) {
+            uint32_t id = 0;
+            if (p->which_variant == meshtastic_StoreAndForward_history_tag) {
+                id = p->variant.history.window; // CA/DR carry id here
+            }
+
+            if (id) {
+                if (is_client) {
+                    LOG_INFO("fw+ Custody ACK for id=0x%x from router", id);
+                }
+            }
+        }
+        break; // no need to do anything more
+    }
     }
     return false; // RoutingModule sends it to the phone
+}
+
+//fw+ helpers
+void StoreForwardModule::sendCustodyAck(NodeNum to, uint32_t origId)
+{
+    meshtastic_StoreAndForward sf = meshtastic_StoreAndForward_init_zero;
+    sf.rr = (meshtastic_StoreAndForward_RequestResponse)fwplus_custody::RR_ROUTER_CUSTODY_ACK;
+    sf.which_variant = meshtastic_StoreAndForward_history_tag;
+    // Reuse history.window to carry original id in our CA-only design
+    sf.variant.history.window = origId;
+    storeForwardModule->sendMessage(to, sf);
+}
+
+//fw+ Broadcast a custody-claim (CR) so other S&F servers back off for this id
+void StoreForwardModule::sendCustodyClaim(uint32_t origId)
+{
+    meshtastic_StoreAndForward sf = meshtastic_StoreAndForward_init_zero;
+    sf.rr = (meshtastic_StoreAndForward_RequestResponse)fwplus_custody::RR_ROUTER_CUSTODY_ACK; // placeholder RR
+    sf.which_variant = meshtastic_StoreAndForward_history_tag;
+    sf.variant.history.window = origId; // carry id
+    storeForwardModule->sendMessage(NODENUM_BROADCAST, sf);
+}
+
+//fw+ Broadcast a custody-delivered (DR) so other servers can drop it from history if desired
+void StoreForwardModule::sendCustodyDelivered(uint32_t origId)
+{
+    meshtastic_StoreAndForward sf = meshtastic_StoreAndForward_init_zero;
+    sf.rr = (meshtastic_StoreAndForward_RequestResponse)fwplus_custody::RR_ROUTER_CUSTODY_ACK; // placeholder RR
+    sf.which_variant = meshtastic_StoreAndForward_history_tag;
+    sf.variant.history.window = origId;
+    storeForwardModule->sendMessage(NODENUM_BROADCAST, sf);
+}
+
+//fw+ cancel schedule on destination ACK and mark delivered
+void StoreForwardModule::cancelScheduleOnAck(uint32_t id, NodeNum ackFrom)
+{
+    auto it = scheduleById.find(id);
+    if (it == scheduleById.end()) return;
+    const CustodySchedule &s = it->second;
+    if (s.isDM && s.to == ackFrom) {
+        scheduleById.erase(it);
+        markDelivered(id);
+    }
+}
+
+//fw+ Mark id delivered and neutralize history entries so they won't be counted/sent again
+void StoreForwardModule::markDelivered(uint32_t id)
+{
+    deliveredIds.insert(id);
+    uint32_t cleared = clearHistoryById(id);
+    LOG_INFO("fw+ S&F delivered id=0x%x, cleared %u history entries", id, (unsigned)cleared);
+}
+
+uint32_t StoreForwardModule::clearHistoryById(uint32_t id)
+{
+    uint32_t cleared = 0;
+    for (uint32_t i = 0; i < this->packetHistoryTotalCount; i++) {
+        if (this->packetHistory[i].id == id) {
+            // zero time marks as invalid for scans without touching counters structure
+            this->packetHistory[i].time = 0;
+            cleared++;
+        }
+    }
+    return cleared;
+}
+
+uint32_t StoreForwardModule::countActiveHistory() const
+{
+    uint32_t c = 0;
+    for (uint32_t i = 0; i < this->packetHistoryTotalCount; i++) {
+        if (this->packetHistory[i].time) c++;
+    }
+    return c;
+}
+
+uint32_t StoreForwardModule::addJitter(uint32_t ms, uint8_t pct)
+{
+    if (pct == 0) return ms;
+    uint32_t span = (ms * pct) / 100;
+    uint32_t r = random(2 * span + 1); // 0..2span??
+    int32_t offset = (int32_t)r - (int32_t)span;
+    int64_t out = (int64_t)ms + offset;
+    if (out < 0) out = 0;
+    return (uint32_t)out;
+}
+
+void StoreForwardModule::scheduleFromHistory(uint32_t id)
+{
+    // Find last matching packet in history (simple linear scan from tail)
+    for (int32_t i = (int32_t)this->packetHistoryTotalCount - 1; i >= 0; --i) {
+        if (this->packetHistory[i].id == id) {
+            //fw+ do not schedule delivered entries
+            if (isDelivered(id)) return;
+            CustodySchedule s{};
+            s.id = id;
+            s.to = this->packetHistory[i].to;
+            s.isDM = (s.to != NODENUM_BROADCAST && s.to != NODENUM_BROADCAST_NO_LORA);
+            s.tries = 0;
+            uint32_t base = s.isDM ? (dmInitialBaseMs + (uint32_t)dmHopCoefMs * 8) : (bcMinDelayMs);
+#ifdef ARCH_PORTDUINO
+            //fw+ In simulation, schedule DM sooner to observe forwarding quickly
+            if (s.isDM) base = 400; // ~0.4s
+#endif
+            if (!s.isDM) base = random(bcMaxDelayMs - bcMinDelayMs + 1) + bcMinDelayMs;
+            //fw+ never schedule in the past
+            s.nextAttemptMs = nowMs() + addJitter(base, s.isDM ? dmJitterPct : bcJitterPct);
+            scheduleById[id] = s;
+            LOG_INFO("fw+ S&F schedule id=0x%x in %u ms (DM=%d)", id, (unsigned)(s.nextAttemptMs - nowMs()), (int)s.isDM);
+            break;
+        }
+    }
+}
+
+void StoreForwardModule::scheduleCustodyIfReady(uint32_t id)
+{
+    // If we already scheduled, skip
+    if (scheduleById.find(id) != scheduleById.end()) return;
+    scheduleFromHistory(id);
+}
+
+void StoreForwardModule::processSchedules()
+{
+    uint32_t now = nowMs();
+    for (auto it = scheduleById.begin(); it != scheduleById.end();) {
+        CustodySchedule &s = it->second;
+        //fw+ remove delivered schedules early
+        if (isDelivered(s.id)) { it = scheduleById.erase(it); continue; }
+        //fw+ enforce minimum spacing from our last send for this id
+        if (s.lastTxMs && (now - s.lastTxMs) < minRetrySpacingMs) {
+            s.nextAttemptMs = s.lastTxMs + minRetrySpacingMs;
+        }
+        if (now < s.nextAttemptMs) { ++it; continue; }
+        //fw+ Channel utilization gating: be less strict for DM deliveries, polite for broadcasts
+#ifdef ARCH_PORTDUINO
+        // In simulation, allow S&F DM deliveries regardless of channel util to validate E2E behavior
+        bool txAllowed = true;
+#else
+        bool txAllowed = (!airTime) || (s.isDM ? airTime->isTxAllowedChannelUtil(false) : airTime->isTxAllowedChannelUtil(true));
+#endif
+        if (!txAllowed) {
+            //fw+ reschedule when channel busy, but respect minimum spacing guard
+            rescheduleAfterBusy(s);
+            if (s.lastTxMs && s.nextAttemptMs < s.lastTxMs + minRetrySpacingMs) {
+                s.nextAttemptMs = s.lastTxMs + minRetrySpacingMs;
+            }
+            LOG_DEBUG("fw+ S&F busy: defer id=0x%x next=%u ms", s.id, (unsigned)(s.nextAttemptMs - now));
+            ++it; continue;
+        }
+        // Prepare payload from history for this id and to
+        meshtastic_MeshPacket *p = nullptr;
+        for (uint32_t i = 0; i < this->packetHistoryTotalCount; i++) {
+            if (this->packetHistory[i].id == s.id) {
+                if (isDelivered(s.id)) { p = nullptr; break; }
+                p = allocDataPacket();
+                p->to = s.to; // DM recipient or broadcast
+                p->from = this->packetHistory[i].from;
+                //fw+ Conditional forwarded-id: first try reuse original id; retries use fresh id + mapping
+                uint32_t originalId = this->packetHistory[i].id;
+                if (s.tries == 0) {
+                    p->id = originalId; // try with original id first
+                } else {
+                    // allocDataPacket already generated a fresh id; remember mapping for ACK translation
+                    rememberForwarded(p->id, originalId);
+                }
+                p->channel = this->packetHistory[i].channel;
+                p->decoded.reply_id = this->packetHistory[i].reply_id;
+                p->rx_time = this->packetHistory[i].time;
+                p->decoded.emoji = (uint32_t)this->packetHistory[i].emoji;
+                p->rx_rssi = this->packetHistory[i].rx_rssi;
+                p->rx_snr = this->packetHistory[i].rx_snr;
+                //fw+ For DM deliveries from S&F server, request ACK to allow schedule cancellation
+                p->want_ack = s.isDM;
+                // Assume TEXT for MVP; real impl should preserve portnum
+                p->decoded.portnum = meshtastic_PortNum_TEXT_MESSAGE_APP;
+                memcpy(p->decoded.payload.bytes, this->packetHistory[i].payload, this->packetHistory[i].payload_size);
+                p->decoded.payload.size = this->packetHistory[i].payload_size;
+                //fw+ Elevate priority a bit to avoid starvation by floods
+                p->priority = meshtastic_MeshPacket_Priority_DEFAULT;
+                break;
+            }
+        }
+        if (p) {
+            LOG_INFO("fw+ S&F deliver orig=0x%x fwd=0x%x try=%u (activeHist=%u)", s.id, p->id, (unsigned)s.tries + 1, (unsigned)countActiveHistory());
+            service->sendToMesh(p);
+            s.lastTxMs = nowMs();
+            // Keep DM scheduled; cancel on ACK (via ReliableRouter hook). Broadcasts are one-shot.
+            if (!s.isDM) { it = scheduleById.erase(it); continue; }
+        }
+        // reschedule/backoff or remove
+        s.tries++;
+        if (!s.isDM) { it = scheduleById.erase(it); continue; }
+        if (s.tries >= dmMaxTries) { it = scheduleById.erase(it); continue; }
+        // DM backoff with spacing guard
+        double base = (double)dmInitialBaseMs + (double)dmHopCoefMs * 8.0; // assume 8 hops if unknown
+        double next = base * pow(dmBackoffFactor, s.tries);
+        if (next > dmMaxDelayMs) next = dmMaxDelayMs;
+        uint32_t target = now + addJitter((uint32_t)next, dmJitterPct);
+        if (s.lastTxMs && target < s.lastTxMs + minRetrySpacingMs) {
+            target = s.lastTxMs + minRetrySpacingMs;
+        }
+        s.nextAttemptMs = target;
+        LOG_DEBUG("fw+ S&F reschedule id=0x%x in %u ms (try=%u)", s.id, (unsigned)(s.nextAttemptMs - now), s.tries);
+        ++it;
+    }
+}
+
+void StoreForwardModule::rescheduleAfterBusy(CustodySchedule &s)
+{
+    uint32_t delay = addJitter(busyRetryMs, dmJitterPct);
+    s.nextAttemptMs = nowMs() + delay;
 }
 
 StoreForwardModule::StoreForwardModule()
@@ -579,50 +848,71 @@ StoreForwardModule::StoreForwardModule()
         moduleConfig.store_forward.enabled = 1;
     }
 
+    //fw+ Auto-enable S&F for router roles on capable platforms, but still allow user to disable via UI/API
+    if (!moduleConfig.store_forward.enabled) {
+        if (config.device.role == meshtastic_Config_DeviceConfig_Role_ROUTER ||
+            config.device.role == meshtastic_Config_DeviceConfig_Role_ROUTER_LATE) {
+#if defined(ARCH_ESP32)
+            if (memGet.getPsramSize() > 0 && memGet.getFreePsram() >= 1024 * 1024) {
+                moduleConfig.store_forward.enabled = 1;
+                LOG_INFO("Auto-enabled S&F for router role (ESP32 with PSRAM). You can disable it in UI/API.");
+            }
+#elif defined(ARCH_PORTDUINO)
+            moduleConfig.store_forward.enabled = 1;
+            LOG_INFO("Auto-enabled S&F for router role (simulation). You can disable it in UI/API.");
+#endif
+        }
+    }
+
     if (moduleConfig.store_forward.enabled) {
 
         // Router
         if ((config.device.role == meshtastic_Config_DeviceConfig_Role_ROUTER || moduleConfig.store_forward.is_server)) {
             LOG_INFO("Init Store & Forward Module in Server mode");
-            if (memGet.getPsramSize() > 0) {
-                if (memGet.getFreePsram() >= 1024 * 1024) {
-
-                    // Do the startup here
-
-                    // Maximum number of records to return.
-                    if (moduleConfig.store_forward.history_return_max)
-                        this->historyReturnMax = moduleConfig.store_forward.history_return_max;
-
-                    // Maximum time window for records to return (in minutes)
-                    if (moduleConfig.store_forward.history_return_window)
-                        this->historyReturnWindow = moduleConfig.store_forward.history_return_window;
-
-                    // Maximum number of records to store in memory
-                    if (moduleConfig.store_forward.records)
-                        this->records = moduleConfig.store_forward.records;
-
-                    // send heartbeat advertising?
-                    if (moduleConfig.store_forward.heartbeat)
-                        this->heartbeat = moduleConfig.store_forward.heartbeat;
-                    else
-                        this->heartbeat = false;
-
-                    // Popupate PSRAM with our data structures.
-                    this->populatePSRAM();
-                    is_server = true;
-                } else {
-                    LOG_INFO(".");
-                    LOG_INFO("S&F: not enough PSRAM free, Disable");
-                }
+#if defined(ARCH_ESP32)
+            if (memGet.getPsramSize() > 0 && memGet.getFreePsram() >= 1024 * 1024) {
+                // Do the startup here
+                if (moduleConfig.store_forward.history_return_max)
+                    this->historyReturnMax = moduleConfig.store_forward.history_return_max;
+                if (moduleConfig.store_forward.history_return_window)
+                    this->historyReturnWindow = moduleConfig.store_forward.history_return_window;
+                if (moduleConfig.store_forward.records)
+                    this->records = moduleConfig.store_forward.records;
+                this->heartbeat = moduleConfig.store_forward.heartbeat ? moduleConfig.store_forward.heartbeat : false;
+                this->populatePSRAM();
+                is_server = true;
             } else {
-                LOG_INFO("S&F: device doesn't have PSRAM, Disable");
+                LOG_INFO("S&F: not enough PSRAM free, Disable");
             }
+#elif defined(ARCH_PORTDUINO)
+            //fw+ Allow server mode without PSRAM on Portduino; use small RAM buffer
+            if (!moduleConfig.store_forward.records)
+                this->records = 128; // small default for simulation
+            if (moduleConfig.store_forward.history_return_max)
+                this->historyReturnMax = moduleConfig.store_forward.history_return_max;
+            if (moduleConfig.store_forward.history_return_window)
+                this->historyReturnWindow = moduleConfig.store_forward.history_return_window;
+            this->heartbeat = moduleConfig.store_forward.heartbeat ? moduleConfig.store_forward.heartbeat : false;
+            this->populatePSRAM();
+            is_server = true;
+#endif
 
             // Client
         } else {
             is_client = true;
             LOG_INFO("Init Store & Forward Module in Client mode");
         }
+    } else {
+        disable();
+    }
+#endif
+
+#ifdef ARCH_NRF52
+    //fw+ Client-only S&F on NRF52: no PSRAM, no server; enable client handler paths
+    if (moduleConfig.store_forward.enabled) {
+        is_client = true;
+        is_server = false;
+        LOG_INFO("Init Store & Forward Module in Client mode (NRF52)");
     } else {
         disable();
     }

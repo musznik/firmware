@@ -782,6 +782,8 @@ void NodeDB::installDefaultModuleConfig()
     moduleConfig.has_range_test = true;
     moduleConfig.has_serial = true;
     moduleConfig.has_store_forward = true;
+    //fw+ Enable Store & Forward by default (client on low-RAM platforms)
+    moduleConfig.store_forward.enabled = true;
     moduleConfig.has_telemetry = true;
     moduleConfig.has_external_notification = true;
 #if defined(PIN_BUZZER)
@@ -1403,6 +1405,27 @@ void NodeDB::loadFromDisk()
         if (mutated) {
             saveToDisk(SEGMENT_MODULECONFIG);
             LOG_INFO("Normalized NodeModAdmin defaults (filled unset/invalid values)");
+        }
+    }
+
+    //fw+ Normalize StoreForward defaults: enable by default across builds
+    {
+        bool mutated = false;
+        moduleConfig.has_store_forward = true;
+        if (!moduleConfig.store_forward.enabled) {
+            moduleConfig.store_forward.enabled = true;
+            mutated = true;
+        }
+#if defined(ARCH_ESP32) || defined(ARCH_PORTDUINO)
+        // Optionally auto-enable server mode for capable platforms when disabled
+        if (!moduleConfig.store_forward.is_server &&
+            (config.device.role == meshtastic_Config_DeviceConfig_Role_ROUTER || moduleConfig.store_forward.is_server)) {
+            // keep current is_server unless router role; leave as-is to avoid surprising changes
+        }
+#endif
+        if (mutated) {
+            saveToDisk(SEGMENT_MODULECONFIG);
+            LOG_INFO("Enabled StoreForward by default (normalized on load)");
         }
     }
 

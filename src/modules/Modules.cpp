@@ -289,7 +289,7 @@ void setupModules()
         }
 #endif
 #endif
-#if defined(ARCH_ESP32) || defined(ARCH_PORTDUINO)
+#if defined(ARCH_ESP32) || defined(ARCH_PORTDUINO) || defined(ARCH_NRF52)
 #if !MESHTASTIC_EXCLUDE_STOREFORWARD
         if (moduleConfig.has_store_forward && moduleConfig.store_forward.enabled) {
             storeForwardModule = new StoreForwardModule();

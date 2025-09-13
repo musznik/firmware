@@ -8,6 +8,8 @@
 #include <Arduino.h>
 #include <functional>
 #include <unordered_map>
+#include <unordered_set> //fw+
+#include <vector>
 
 struct PacketHistoryStruct {
     uint32_t time;
@@ -42,6 +44,36 @@ class StoreForwardModule : private concurrency::OSThread, public ProtobufModule<
     // Unordered_map stores the last request for each nodeNum (`to` field)
     std::unordered_map<NodeNum, uint32_t> lastRequest;
 
+    //fw+ S&F custody scheduling (server-side)
+    struct CustodySchedule {
+        uint32_t id;
+        uint32_t to;
+        bool isDM;
+        uint32_t nextAttemptMs;
+        uint8_t tries;
+        //fw+ track last transmission time to avoid overlapping with router retransmissions
+        uint32_t lastTxMs = 0;
+    };
+    std::unordered_map<uint32_t, CustodySchedule> scheduleById; // id -> schedule
+    std::unordered_map<uint32_t, bool> pendingSchedule;         // ids awaiting history entry
+    std::unordered_set<uint32_t> deliveredIds;                  //fw+ delivered DMs
+    std::unordered_set<uint32_t> claimedIds;                    //fw+ custody-claimed elsewhere
+    std::unordered_map<uint32_t, uint32_t> forwardedToOriginal; //fw+ forwardedId -> originalId
+
+    // Scheduling parameters (can be tuned later / moved to ModuleConfig)
+    uint32_t dmInitialBaseMs = 5000;       // base 5s
+    float dmHopCoefMs = 400.0f;            // +0.4s per estimated hop
+    float dmBackoffFactor = 1.8f;          // exponential
+    uint32_t dmMaxDelayMs = 8 * 60 * 1000; // 15 minutes cap
+    uint8_t dmMaxTries = 8;
+    uint8_t dmJitterPct = 15;              // +/- percent
+    uint32_t bcMinDelayMs = 6000;          // 6s
+    uint32_t bcMaxDelayMs = 12000;         // 12s
+    uint8_t bcJitterPct = 20;
+    uint32_t busyRetryMs = 2500;           //fw+ retry when channel busy
+    //fw+ enforce minimum spacing between S&F retries to prevent overlap with ReliableRouter retx
+    uint32_t minRetrySpacingMs = 8000;     // ~7.3s typical router retx + margin
+
   public:
     StoreForwardModule();
 
@@ -68,6 +100,25 @@ class StoreForwardModule : private concurrency::OSThread, public ProtobufModule<
     meshtastic_MeshPacket *getForPhone();
     // Returns true if we are configured as server AND we could allocate PSRAM.
     bool isServer() { return is_server; }
+
+    //fw+ Cancel custody schedule for given original message id (on observed ACK)
+    void cancelScheduleForId(uint32_t id) { scheduleById.erase(id); }
+    //fw+ Cancel only if ACK came from the intended DM recipient
+    void cancelScheduleOnAck(uint32_t id, NodeNum ackFrom);
+    //fw+ Mark an id delivered and neutralize any history records
+    void markDelivered(uint32_t id);
+    bool isDelivered(uint32_t id) const { return deliveredIds.find(id) != deliveredIds.end(); }
+    //fw+ mark/verify external custody claim
+    void markClaimed(uint32_t id) { claimedIds.insert(id); }
+    bool isClaimed(uint32_t id) const { return claimedIds.find(id) != claimedIds.end(); }
+    //fw+ mapping helpers for forwarded DM ids
+    void rememberForwarded(uint32_t forwardedId, uint32_t originalId) { forwardedToOriginal[forwardedId] = originalId; }
+    uint32_t translateForwardedToOriginal(uint32_t id) const
+    {
+        auto it = forwardedToOriginal.find(id);
+        return it == forwardedToOriginal.end() ? 0u : it->second;
+    }
+    void forgetForwarded(uint32_t forwardedId) { forwardedToOriginal.erase(forwardedId); }
 
     /*
       -Override the wantPacket method.
@@ -108,6 +159,24 @@ class StoreForwardModule : private concurrency::OSThread, public ProtobufModule<
     */
     virtual ProcessMessage handleReceived(const meshtastic_MeshPacket &mp) override;
     virtual bool handleReceivedProtobuf(const meshtastic_MeshPacket &mp, meshtastic_StoreAndForward *p);
+
+    //fw+ helpers
+    void scheduleCustodyIfReady(uint32_t id);
+    void scheduleFromHistory(uint32_t id);
+    void processSchedules();
+    uint32_t addJitter(uint32_t ms, uint8_t pct);
+    uint32_t nowMs() const { return millis(); }
+    //fw+ Send Custody ACK to original sender for DM takeover
+    void sendCustodyAck(NodeNum to, uint32_t origId);
+    //fw+ Reschedule when channel is busy
+    void rescheduleAfterBusy(CustodySchedule &s);
+    //fw+ helper to neutralize history entries for id; returns how many entries were cleared
+    uint32_t clearHistoryById(uint32_t id);
+    //fw+ count active (non-cleared) history entries
+    uint32_t countActiveHistory() const;
+    //fw+ custody signals
+    void sendCustodyClaim(uint32_t origId);
+    void sendCustodyDelivered(uint32_t origId);
 };
 
 extern StoreForwardModule *storeForwardModule;
