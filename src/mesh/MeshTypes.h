@@ -49,6 +49,8 @@ typedef int ErrorCode;
 
 /// Alloc and free packets to our global, ISR safe pool
 extern Allocator<meshtastic_MeshPacket> &packetPool;
+///fw+ Dedicated pool for retransmission copies to avoid starving main pool
+extern Allocator<meshtastic_MeshPacket> &retransPacketPool;
 using UniquePacketPoolPacket = Allocator<meshtastic_MeshPacket>::UniqueAllocation;
 
 /**

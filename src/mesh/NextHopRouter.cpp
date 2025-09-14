@@ -223,7 +223,19 @@ ErrorCode NextHopRouter::send(meshtastic_MeshPacket *p)
             LOG_INFO("DV-ETX next_hop 0x%x not a direct neighbor; fallback to flooding", p->next_hop);
             p->next_hop = NO_NEXT_HOP_PREFERENCE;
         }
-        startRetransmission(packetPool.allocCopy(*p)); // start retransmission for relayed packet
+        //fw+ use dedicated retransmission pool first to avoid starving main pool
+        {
+            auto cpy = retransPacketPool.allocCopy(*p);
+            if (!cpy) {
+                LOG_WARN("Retrans pool empty; trying main packetPool for relay copy");
+                cpy = packetPool.allocCopy(*p);
+            }
+            if (!cpy) {
+                LOG_WARN("No slot for relay copy; skipping retransmission schedule");
+            } else {
+                startRetransmission(cpy); // start retransmission for relayed packet
+            }
+        }
     }
 
     return Router::send(p);
@@ -465,10 +477,15 @@ bool NextHopRouter::perhapsRelay(const meshtastic_MeshPacket *p)
             uint32_t jitter = 0;
             if (shouldRelayTextWithThrottle(p, jitter)) {
                 // delay relay by jitter
-                meshtastic_MeshPacket *tosend = packetPool.allocCopy(*p);
-                tosend->hop_limit--;
-                if (jitter) tosend->tx_after = millis() + jitter;
-                NextHopRouter::send(tosend);
+                meshtastic_MeshPacket *tosend = retransPacketPool.allocCopy(*p);
+                if (!tosend) tosend = packetPool.allocCopy(*p);
+                if (tosend) {
+                    tosend->hop_limit--;
+                    if (jitter) tosend->tx_after = millis() + jitter;
+                    NextHopRouter::send(tosend);
+                } else {
+                    LOG_WARN("Pool exhausted; skipping throttled relay");
+                }
                 return true;
             } else {
                 return false; // suppressed by throttle
@@ -476,11 +493,15 @@ bool NextHopRouter::perhapsRelay(const meshtastic_MeshPacket *p)
         }
         if (p->next_hop == NO_NEXT_HOP_PREFERENCE || p->next_hop == nodeDB->getLastByteOfNodeNum(getNodeNum())) {
             if (isRebroadcaster()) {
-                meshtastic_MeshPacket *tosend = packetPool.allocCopy(*p); // keep a copy because we will be sending it
-                LOG_INFO("Relaying received message coming from %x", p->relay_node);
-
-                tosend->hop_limit--; // bump down the hop count
-                NextHopRouter::send(tosend);
+                meshtastic_MeshPacket *tosend = retransPacketPool.allocCopy(*p); // keep a copy because we will be sending it
+                if (!tosend) tosend = packetPool.allocCopy(*p);
+                if (tosend) {
+                    LOG_INFO("Relaying received message coming from %x", p->relay_node);
+                    tosend->hop_limit--; // bump down the hop count
+                    NextHopRouter::send(tosend);
+                } else {
+                    LOG_WARN("Pool exhausted; skipping relay");
+                }
 
                 return true;
             } else {
@@ -616,11 +637,16 @@ int32_t NextHopRouter::doRetransmissions()
                         RouteEntry rSnapshot;
                         bool usedBackup = false;
                         if (lookupRoute(p.packet->to, rSnapshot) && rSnapshot.backup_next_hop != NO_NEXT_HOP_PREFERENCE) {
-                            meshtastic_MeshPacket *tryBackup = packetPool.allocCopy(*p.packet);
-                            tryBackup->next_hop = rSnapshot.backup_next_hop;
-                            LOG_INFO("Retry final with backup next hop for dest 0x%x -> 0x%x", p.packet->to, tryBackup->next_hop);
-                            NextHopRouter::send(tryBackup);
-                            usedBackup = true;
+                            meshtastic_MeshPacket *tryBackup = retransPacketPool.allocCopy(*p.packet);
+                            if (!tryBackup) tryBackup = packetPool.allocCopy(*p.packet);
+                            if (tryBackup) {
+                                tryBackup->next_hop = rSnapshot.backup_next_hop;
+                                LOG_INFO("Retry final with backup next hop for dest 0x%x -> 0x%x", p.packet->to, tryBackup->next_hop);
+                                NextHopRouter::send(tryBackup);
+                                usedBackup = true;
+                            } else {
+                                LOG_WARN("Pool exhausted for backup retry; skipping backup path");
+                            }
                         }
                         if (!usedBackup) {
                             p.packet->next_hop = NO_NEXT_HOP_PREFERENCE;
@@ -630,15 +656,30 @@ int32_t NextHopRouter::doRetransmissions()
                                 LOG_INFO("Resetting next hop for packet with dest 0x%x\n", p.packet->to);
                                 sentTo->next_hop = NO_NEXT_HOP_PREFERENCE;
                             }
-                            FloodingRouter::send(packetPool.allocCopy(*p.packet));
+                            {
+                                auto c = retransPacketPool.allocCopy(*p.packet);
+                                if (!c) c = packetPool.allocCopy(*p.packet);
+                                if (c) FloodingRouter::send(c);
+                                else LOG_WARN("Pool exhausted for flooding retry; skip");
+                            }
                         }
                     } else {
-                        NextHopRouter::send(packetPool.allocCopy(*p.packet));
+                        {
+                            auto c = retransPacketPool.allocCopy(*p.packet);
+                            if (!c) c = packetPool.allocCopy(*p.packet);
+                            if (c) NextHopRouter::send(c);
+                            else LOG_WARN("Pool exhausted for next-hop retry; skip");
+                        }
                     }
                 } else {
                     // Note: we call the superclass version because we don't want to have our version of send() add a new
                     // retransmission record
-                    FloodingRouter::send(packetPool.allocCopy(*p.packet));
+                    {
+                        auto c = retransPacketPool.allocCopy(*p.packet);
+                        if (!c) c = packetPool.allocCopy(*p.packet);
+                        if (c) FloodingRouter::send(c);
+                        else LOG_WARN("Pool exhausted for flooding retry; skip");
+                    }
                 }
 
                 // Queue again

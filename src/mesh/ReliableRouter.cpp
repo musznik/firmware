@@ -79,10 +79,19 @@ ErrorCode ReliableRouter::send(meshtastic_MeshPacket *p)
             p->hop_limit = Default::getConfiguredOrDefaultHopLimit(config.lora.hop_limit);
         }
         DEBUG_HEAP_BEFORE;
-        auto copy = packetPool.allocCopy(*p);
+        auto copy = retransPacketPool.allocCopy(*p);
         DEBUG_HEAP_AFTER("ReliableRouter::send", copy);
-
-        startRetransmission(copy, NUM_RELIABLE_RETX);
+        //fw+ guard: if retrans pool exhausted, try main pool; else best-effort
+        if (!copy) {
+            LOG_WARN("Retrans pool empty; trying main packetPool for reliable copy");
+            copy = packetPool.allocCopy(*p);
+        }
+        if (!copy) {
+            LOG_WARN("No slot for reliable copy; sending best-effort");
+            p->want_ack = false;
+        } else {
+            startRetransmission(copy, NUM_RELIABLE_RETX);
+        }
     }
 
     //fw+ CR emission disabled; server S&F schedules proactively on hear

@@ -46,14 +46,27 @@ the new node can build its node db)
 
 MeshService *service;
 
+//fw+ safer headroom on PSRAM devices
 #define MAX_MQTT_PROXY_MESSAGES 16
+#if defined(ARCH_ESP32) && defined(BOARD_HAS_PSRAM)
+#undef  MAX_MQTT_PROXY_MESSAGES
+#define MAX_MQTT_PROXY_MESSAGES 32
+#endif
 //fw+ place pools in PSRAM on ESP32 with PSRAM
 EXT_RAM_BSS_ATTR static MemoryPool<meshtastic_MqttClientProxyMessage, MAX_MQTT_PROXY_MESSAGES> staticMqttClientProxyMessagePool;
 
 #define MAX_QUEUE_STATUS 4
+#if defined(ARCH_ESP32) && defined(BOARD_HAS_PSRAM)
+#undef  MAX_QUEUE_STATUS
+#define MAX_QUEUE_STATUS 8
+#endif
 EXT_RAM_BSS_ATTR static MemoryPool<meshtastic_QueueStatus, MAX_QUEUE_STATUS> staticQueueStatusPool;
 
 #define MAX_CLIENT_NOTIFICATIONS 4
+#if defined(ARCH_ESP32) && defined(BOARD_HAS_PSRAM)
+#undef  MAX_CLIENT_NOTIFICATIONS
+#define MAX_CLIENT_NOTIFICATIONS 8
+#endif
 EXT_RAM_BSS_ATTR static MemoryPool<meshtastic_ClientNotification, MAX_CLIENT_NOTIFICATIONS> staticClientNotificationPool;
 
 Allocator<meshtastic_MqttClientProxyMessage> &mqttClientProxyMessagePool = staticMqttClientProxyMessagePool;

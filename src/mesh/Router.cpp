@@ -40,18 +40,30 @@ static MemoryDynamic<meshtastic_MeshPacket> dynamicPool;
 Allocator<meshtastic_MeshPacket> &packetPool = dynamicPool;
 #else
 // Embedded targets use static memory pools with compile-time constants
+//fw+ provide extra headroom for reliable-copy bursts
+#ifndef MAX_RELIABLE_HEADROOM
+#define MAX_RELIABLE_HEADROOM 6
+#endif
 #define MAX_PACKETS_STATIC                                                                                                       \
-    (MAX_RX_TOPHONE + MAX_RX_FROMRADIO + 2 * MAX_TX_QUEUE +                                                                      \
-     2) // max number of packets which can be in flight (either queued from reception or queued for sending)
+    (MAX_RX_TOPHONE + MAX_RX_FROMRADIO + 2 * MAX_TX_QUEUE + MAX_RELIABLE_HEADROOM) // max number of packets which can be in flight
 
 #if defined(ARCH_ESP32)
 //fw+ on all ESP32 variants, use dynamic allocator to avoid large .bss in internal DRAM
 static MemoryDynamic<meshtastic_MeshPacket> dynamicPool;
 Allocator<meshtastic_MeshPacket> &packetPool = dynamicPool;
+//fw+ dedicate a separate retransmission pool to avoid starving normal TX/RX
+static MemoryDynamic<meshtastic_MeshPacket> dynamicRetransPool;
+Allocator<meshtastic_MeshPacket> &retransPacketPool = dynamicRetransPool;
 #else
 //fw+ default to static pool elsewhere
 EXT_RAM_BSS_ATTR static MemoryPool<meshtastic_MeshPacket, MAX_PACKETS_STATIC> staticPool;
 Allocator<meshtastic_MeshPacket> &packetPool = staticPool;
+//fw+ dedicate a small static retransmission pool for copies
+#ifndef MAX_RETRANS_PACKETS
+#define MAX_RETRANS_PACKETS 6
+#endif
+EXT_RAM_BSS_ATTR static MemoryPool<meshtastic_MeshPacket, MAX_RETRANS_PACKETS> staticRetransPool;
+Allocator<meshtastic_MeshPacket> &retransPacketPool = staticRetransPool;
 #endif
 #endif
 
