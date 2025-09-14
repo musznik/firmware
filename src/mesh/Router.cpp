@@ -44,8 +44,15 @@ Allocator<meshtastic_MeshPacket> &packetPool = dynamicPool;
     (MAX_RX_TOPHONE + MAX_RX_FROMRADIO + 2 * MAX_TX_QUEUE +                                                                      \
      2) // max number of packets which can be in flight (either queued from reception or queued for sending)
 
-static MemoryPool<meshtastic_MeshPacket, MAX_PACKETS_STATIC> staticPool;
+#if defined(ARCH_ESP32)
+//fw+ on all ESP32 variants, use dynamic allocator to avoid large .bss in internal DRAM
+static MemoryDynamic<meshtastic_MeshPacket> dynamicPool;
+Allocator<meshtastic_MeshPacket> &packetPool = dynamicPool;
+#else
+//fw+ default to static pool elsewhere
+EXT_RAM_BSS_ATTR static MemoryPool<meshtastic_MeshPacket, MAX_PACKETS_STATIC> staticPool;
 Allocator<meshtastic_MeshPacket> &packetPool = staticPool;
+#endif
 #endif
 
 static uint8_t bytes[MAX_LORA_PAYLOAD_LEN + 1] __attribute__((__aligned__));

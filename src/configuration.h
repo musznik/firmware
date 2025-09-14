@@ -73,6 +73,16 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define EXT_RAM_BSS_ATTR EXT_RAM_ATTR
 #endif
 
+//fw+ Map EXT_RAM_* to PSRAM on ESP32 boards that have PSRAM
+#if defined(ARCH_ESP32) && defined(BOARD_HAS_PSRAM)
+#undef EXT_RAM_ATTR
+#undef EXT_RAM_BSS_ATTR
+#undef EXT_RAM_RODATA_ATTR
+#define EXT_RAM_ATTR        __attribute__((section(".ext_ram.bss")))
+#define EXT_RAM_BSS_ATTR    EXT_RAM_ATTR
+#define EXT_RAM_RODATA_ATTR __attribute__((section(".ext_ram.rodata")))
+#endif
+
 // -----------------------------------------------------------------------------
 // Regulatory overrides
 // -----------------------------------------------------------------------------
