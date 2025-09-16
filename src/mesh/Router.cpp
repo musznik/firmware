@@ -55,15 +55,11 @@ Allocator<meshtastic_MeshPacket> &packetPool = dynamicPool;
 static MemoryDynamic<meshtastic_MeshPacket> dynamicRetransPool;
 Allocator<meshtastic_MeshPacket> &retransPacketPool = dynamicRetransPool;
 #else
-//fw+ default to static pool elsewhere
+//fw+ default to static pool elsewhere; use a single shared pool to avoid cross-pool free mismatches
 EXT_RAM_BSS_ATTR static MemoryPool<meshtastic_MeshPacket, MAX_PACKETS_STATIC> staticPool;
 Allocator<meshtastic_MeshPacket> &packetPool = staticPool;
-//fw+ dedicate a small static retransmission pool for copies
-#ifndef MAX_RETRANS_PACKETS
-#define MAX_RETRANS_PACKETS 6
-#endif
-EXT_RAM_BSS_ATTR static MemoryPool<meshtastic_MeshPacket, MAX_RETRANS_PACKETS> staticRetransPool;
-Allocator<meshtastic_MeshPacket> &retransPacketPool = staticRetransPool;
+//fw+ use same pool for retransmissions to ensure release() always matches origin allocator
+Allocator<meshtastic_MeshPacket> &retransPacketPool = staticPool; //fw+
 #endif
 #endif
 

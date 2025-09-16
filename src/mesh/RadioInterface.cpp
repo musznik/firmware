@@ -268,7 +268,17 @@ uint32_t RadioInterface::getPacketTime(const meshtastic_MeshPacket *p)
 /** The delay to use for retransmitting dropped packets */
 uint32_t RadioInterface::getRetransmissionMsec(const meshtastic_MeshPacket *p)
 {
-    size_t numbytes = pb_encode_to_bytes(bytes, sizeof(bytes), &meshtastic_Data_msg, &p->decoded);
+    size_t numbytes = 0;
+    //fw+ If packet is still encrypted (e.g., not to us), don't attempt to encode Data; use encrypted size
+    if (p->which_payload_variant == meshtastic_MeshPacket_encrypted_tag) {
+        numbytes = p->encrypted.size;
+    } else {
+        numbytes = pb_encode_to_bytes(bytes, sizeof(bytes), &meshtastic_Data_msg, &p->decoded);
+        if (numbytes == 0) {
+            // Encoding failed (likely due to oversized payload); fall back to encrypted size when available
+            numbytes = p->encrypted.size;
+        }
+    }
     uint32_t packetAirtime = getPacketTime(numbytes + sizeof(PacketHeader));
     // Make sure enough time has elapsed for this packet to be sent and an ACK is received.
     // LOG_DEBUG("Waiting for flooding message with airtime %d and slotTime is %d", packetAirtime, slotTimeMsec);
