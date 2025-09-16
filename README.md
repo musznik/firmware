@@ -27,19 +27,24 @@
 - Transmitting the average number of received packets along with 6 measurements (1 hour) for every 10 minutes over the mesh.
 - AutoResponder with user defined text
 - AutoRedirector for message redirection to another node
-- OnDemand request lists (remote over mesh and local)
-- NextHopRouter
+- OnDemand requests (new protobuf)
+   - total number of reads and writes (RX/RX) for a 10-minute window across 40 measurements (6h~)
+   - average time spent reading (RX) a packet by LoRA
+   - usage counter of a given protobuf (port) since the node was started
+   - remote node list request
+   - last 10 routing logs (from,to,type)
+   - air activity for tx/rx/idle/rxnoise (10min window) in 10 measurments
+   - routing table for NextHop
+   - simple ping request (ack & non-ack)
+   -request node stats (local stats, telemetry, additional stats)
 - Signal Reply Module (write "ping" to node). https://github.com/VilemR/meshtstic_modules_mod
-<ol>
-<li>total number of reads and writes (RX/RX) for a 10-minute window across 40 measurements (6h~)</li>
-<li>average time spent reading (RX) a packet by LoRA</li>
-<li>usage counter of a given protobuf (port) since the node was started</li>
-<li>remote node list request</li>
-<li>last 10 routing logs (from,to,type)</li>
-<li>air activity for tx/rx/idle/rxnoise (10min window) in 10 measurments</li>
-<li>simple ping request</li>
-<li>request node stats (local stats, telemetry, additional stats)</li>
-</ol>
+- DV-ETX routing metric for path selection: uses Expected Transmission Count to score links and prefer higher-quality routes across the mesh. Configurable and interoperable with existing routing logic.
+- Opportunistic rebroadcast: probabilistic, condition-aware rebroadcasting to improve reach in sparse or lossy topologies while minimizing duplicate traffic and airtime usage.
+- Telemetry limiter: adaptive throttling and aggregation of telemetry ports to respect airtime budgets; configurable limits via APK+ while preserving essential health data.
+- Position limiter: rate limits and jitters GPS position broadcasts; supports movement thresholds (distance/speed) to avoid unnecessary updates when stationary.
+- Passive next-hop learning: NextHopRouter observes traffic to learn and update next-hop mappings without active probes, improving convergence and reducing overhead.
+- Active Store & Forward: buffers messages for temporarily unreachable nodes and forwards them when peers reappear; includes TTL and de-dup safeguards.
+
 
 ## Overview
 
