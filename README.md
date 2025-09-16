@@ -12,7 +12,7 @@
 
 ## Fork features
 
-- Protect private messages on public MQTT: This commit introduces a feature that enhances security by preventing the sending of private messages between nodes when the MQTT uplink is enabled. The motivation behind this change is to ensure that sensitive information is not inadvertently transmitted over potentially insecure channels. Public messages (broadcast) along with telemetry data, remain unrestricted to maintain the core functionality of the network. This feature is configurable via the APK+ for android, providing users with flexibility and control over their network's security. Default: True.
+- Protect private messages on public MQTT: This commit introduces a feature that enhances security by preventing the sending of private messages between nodes when the MQTT uplink is enabled. The motivation behind this change is to ensure that sensitive information is not inadvertently transmitted over potentially insecure channels. Public messages (broadcast) along with telemetry data, remain unrestricted to maintain the core functionality of the network. This feature is configurable via the APK+ for android, providing users with flexibility and control over their network's security. Default: True. (FW < 2.5v~)
 - Default hop limit changed from 3 to 5.
 - Allow to administrate node with "Managed Mode" via Wifi or BT.
 - Less air limits. (configurable)
@@ -44,6 +44,7 @@
 - Position limiter: rate limits and jitters GPS position broadcasts; supports movement thresholds (distance/speed) to avoid unnecessary updates when stationary.
 - Passive next-hop learning: NextHopRouter observes traffic to learn and update next-hop mappings without active probes, improving convergence and reducing overhead.
 - Active Store & Forward: buffers messages for temporarily unreachable nodes and forwards them when peers reappear; includes TTL and de-dup safeguards.
+- Memory optimizations
 
 
 ## Overview
