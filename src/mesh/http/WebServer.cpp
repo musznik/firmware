@@ -4,8 +4,10 @@
 #include "graphics/Screen.h"
 #include "main.h"
 #include "mesh/http/WebServer.h"
+#include "modules/StoreForwardModule.h" //fw+
 #include "mesh/wifi/WiFiAPClient.h"
 #include "sleep.h"
+#include "memGet.h" //fw+
 #include <HTTPBodyParser.hpp>
 #include <HTTPMultipartBodyParser.hpp>
 #include <HTTPURLEncodedBodyParser.hpp>
@@ -130,6 +132,16 @@ static void taskCreateCert(void *parameter)
 
 void createSSLCert()
 {
+    //fw+ On boards without PSRAM, allow HTTPS unless S&F server is active; then skip cert generation
+    if (memGet.getPsramSize() == 0) { //fw+
+        bool sfServerActive = (storeForwardModule && storeForwardModule->isStoreForwardServerActive()); //fw+
+        if (sfServerActive) {                                                                           //fw+
+            LOG_INFO("fw+ No PSRAM and S&F server active, skipping HTTPS cert generation");           //fw+
+            isCertReady = true;                                                                         //fw+
+            return;                                                                                     //fw+
+        }
+    }
+
     if (isWifiAvailable() && !isCertReady) {
         bool runLoop = false;
 
@@ -198,8 +210,31 @@ void initWebServer()
     LOG_DEBUG("Init Web Server");
 
     // We can now use the new certificate to setup our server as usual.
-    secureServer = new HTTPSServer(cert);
     insecureServer = new HTTPServer();
+    bool sfServerActive = (storeForwardModule && storeForwardModule->isStoreForwardServerActive()); //fw+
+    //fw+ Policy:
+    //   - With PSRAM: enable HTTPS normally.
+    //   - Without PSRAM: enable HTTPS unless S&F server is active; then disable HTTPS.
+    if (memGet.getPsramSize() > 0) {
+        if (isCertReady && cert) {
+            secureServer = new HTTPSServer(cert); //fw+
+        } else {
+            secureServer = nullptr;               //fw+
+            LOG_INFO("fw+ HTTPS disabled (cert not ready)");
+        }
+    } else {
+        if (sfServerActive) {
+            secureServer = nullptr; //fw+
+            LOG_INFO("fw+ HTTPS disabled (no PSRAM and S&F server active)");
+        } else {
+            if (isCertReady && cert) {
+                secureServer = new HTTPSServer(cert); //fw+
+            } else {
+                secureServer = nullptr;               //fw+
+                LOG_INFO("fw+ HTTPS disabled (no PSRAM and cert not ready)");
+            }
+        }
+    }
 
     registerHandlers(insecureServer, secureServer);
 

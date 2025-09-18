@@ -149,6 +149,10 @@ class StoreForwardModule : private concurrency::OSThread, public ProtobufModule<
 
     uint32_t retry_delay = 0; // If server is busy, retry after this delay (in ms).
 
+  public:
+    //fw+ expose S&F server active state to allow RAM-aware services (e.g., WebServer) to adapt
+    bool isStoreForwardServerActive() const { return is_server; }
+
   protected:
     virtual int32_t runOnce() override;
 
