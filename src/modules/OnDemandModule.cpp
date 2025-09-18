@@ -22,7 +22,7 @@ static const int MAX_PACKET_SIZE = 190;
 #define NUM_ONLINE_SECS (60 * 60 * 2) 
 #define MAGIC_USB_BATTERY_LEVEL 101
 
-#define FW_PLUS_VERSION 27
+#define FW_PLUS_VERSION 28
 
 int32_t OnDemandModule::runOnce()
 {
