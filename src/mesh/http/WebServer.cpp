@@ -5,6 +5,7 @@
 #include "main.h"
 #include "mesh/http/WebServer.h"
 #include "modules/StoreForwardModule.h" //fw+
+#include "NodeDB.h" //fw+
 #include "mesh/wifi/WiFiAPClient.h"
 #include "sleep.h"
 #include "memGet.h" //fw+
@@ -212,10 +213,12 @@ void initWebServer()
     // We can now use the new certificate to setup our server as usual.
     insecureServer = new HTTPServer();
     bool sfServerActive = (storeForwardModule && storeForwardModule->isStoreForwardServerActive()); //fw+
+    //fw+ Respect admin override to force-disable HTTPS
+    bool forceDisableHttps = moduleConfig.nodemodadmin.force_disable_https; // fw+
     //fw+ Policy:
     //   - With PSRAM: enable HTTPS normally.
     //   - Without PSRAM: enable HTTPS unless S&F server is active; then disable HTTPS.
-    if (memGet.getPsramSize() > 0) {
+    if (!forceDisableHttps && memGet.getPsramSize() > 0) {
         if (isCertReady && cert) {
             secureServer = new HTTPSServer(cert); //fw+
         } else {
@@ -223,7 +226,10 @@ void initWebServer()
             LOG_INFO("fw+ HTTPS disabled (cert not ready)");
         }
     } else {
-        if (sfServerActive) {
+        if (forceDisableHttps) {
+            secureServer = nullptr; //fw+
+            LOG_INFO("fw+ HTTPS disabled (admin override)");
+        } else if (sfServerActive) {
             secureServer = nullptr; //fw+
             LOG_INFO("fw+ HTTPS disabled (no PSRAM and S&F server active)");
         } else {
