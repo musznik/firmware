@@ -772,6 +772,15 @@ void StoreForwardModule::processSchedules()
             if (this->packetHistory[i].id == s.id) {
                 if (isDelivered(s.id)) { p = nullptr; break; }
                 p = allocDataPacket();
+                if (!p) {
+                    // fw+ DRAM pressure: back off in mini-server mode instead of risking instability
+                    if (miniServerMode) {
+                        rescheduleAfterBusy(s);
+                        LOG_WARN("fw+ S&F mini-server: allocDataPacket failed, reschedule id=0x%x", s.id);
+                        ++it; // continue outer loop
+                    }
+                    break;
+                }
                 p->to = s.to; // DM recipient or broadcast
                 p->from = this->packetHistory[i].from;
                 //fw+ Conditional forwarded-id: first try reuse original id; retries use fresh id + mapping
@@ -882,7 +891,39 @@ StoreForwardModule::StoreForwardModule()
                 this->populatePSRAM();
                 is_server = true;
             } else {
-                LOG_INFO("S&F: not enough PSRAM free, Disable");
+                // fw+ Mini-server mode without PSRAM when user requested server (is_server true)
+                if (moduleConfig.store_forward.is_server) {
+                    // Conservative defaults to avoid DRAM exhaustion
+                    // fw+ Tiny DRAM buffer with upper clamp for safety
+                    if (!moduleConfig.store_forward.records) {
+                        this->records = 32; // fw+ tiny DRAM buffer (default)
+                    } else {
+                        uint32_t r = moduleConfig.store_forward.records; // fw+
+                        this->records = (r > 128 ? 128 : r);             // fw+ clamp to 128 max
+                    }
+                    if (moduleConfig.store_forward.history_return_max)
+                        this->historyReturnMax = moduleConfig.store_forward.history_return_max;
+                    else
+                        this->historyReturnMax = 16; // fw+
+                    if (moduleConfig.store_forward.history_return_window)
+                        this->historyReturnWindow = moduleConfig.store_forward.history_return_window;
+                    else
+                        this->historyReturnWindow = 60; // fw+ 60 minutes
+                    this->heartbeat = false; // fw+ reduce CPU/RAM pressure
+
+                    // Allocate in DRAM instead of PSRAM
+                    this->packetHistory = static_cast<PacketHistoryStruct *>(calloc(this->records, sizeof(PacketHistoryStruct)));
+                    if (!this->packetHistory) {
+                        LOG_ERROR("fw+ S&F mini-server: DRAM alloc failed, disabling S&F server");
+                    } else {
+                        miniServerMode = true; // fw+
+                        is_server = true;
+                        LOG_WARN("fw+ S&F mini-server active (no PSRAM): records=%u returnMax=%u window=%u min",
+                                 (unsigned)this->records, (unsigned)this->historyReturnMax, (unsigned)this->historyReturnWindow);
+                    }
+                } else {
+                    LOG_INFO("S&F: not enough PSRAM free, Disable");
+                }
             }
 #elif defined(ARCH_PORTDUINO)
             //fw+ Allow server mode without PSRAM on Portduino; use small RAM buffer

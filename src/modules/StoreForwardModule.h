@@ -153,6 +153,10 @@ class StoreForwardModule : private concurrency::OSThread, public ProtobufModule<
     //fw+ expose S&F server active state to allow RAM-aware services (e.g., WebServer) to adapt
     bool isStoreForwardServerActive() const { return is_server; }
 
+  private:
+    //fw+ Mini-server mode for boards without PSRAM: use tiny DRAM buffer and stricter limits
+    bool miniServerMode = false; //fw+
+
   protected:
     virtual int32_t runOnce() override;
 
