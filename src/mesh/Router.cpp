@@ -292,7 +292,13 @@ ErrorCode Router::send(meshtastic_MeshPacket *p)
     p->relay_node = nodeDB->getLastByteOfNodeNum(getNodeNum()); // set the relayer to us
     // fw+ sniffer: forward our own TX to phone (originator only), but not for broadcasts (broadcasts są dostarczane lokalnie)
     if (moduleConfig.has_nodemodadmin && moduleConfig.nodemodadmin.sniffer_enabled && isFromUs(p) && !isBroadcast(p->to)) {
-        service->sendPacketToPhoneRaw(packetPool.allocCopy(*p));
+        //fw+ guard pool exhaustion on sniff copy
+        meshtastic_MeshPacket *copyPtr = packetPool.allocCopy(*p);
+        if (copyPtr) {
+            service->sendPacketToPhoneRaw(copyPtr);
+        } else {
+            LOG_WARN("Skip sniffer copy to phone: packetPool exhausted");
+        }
     }
     // If we are the original transmitter, set the hop limit with which we start
     if (isFromUs(p))

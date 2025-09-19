@@ -46,8 +46,8 @@ the new node can build its node db)
 
 MeshService *service;
 
-//fw+ safer headroom on PSRAM devices
-#define MAX_MQTT_PROXY_MESSAGES 16
+//fw+ safer headroom on PSRAM devices; modestly increase defaults for no-PSRAM boards
+#define MAX_MQTT_PROXY_MESSAGES 24 //fw+ was 16
 #if defined(ARCH_ESP32) && defined(BOARD_HAS_PSRAM)
 #undef  MAX_MQTT_PROXY_MESSAGES
 #define MAX_MQTT_PROXY_MESSAGES 32
@@ -55,14 +55,14 @@ MeshService *service;
 //fw+ place pools in PSRAM on ESP32 with PSRAM
 EXT_RAM_BSS_ATTR static MemoryPool<meshtastic_MqttClientProxyMessage, MAX_MQTT_PROXY_MESSAGES> staticMqttClientProxyMessagePool;
 
-#define MAX_QUEUE_STATUS 4
+#define MAX_QUEUE_STATUS 6 //fw+ was 4
 #if defined(ARCH_ESP32) && defined(BOARD_HAS_PSRAM)
 #undef  MAX_QUEUE_STATUS
 #define MAX_QUEUE_STATUS 8
 #endif
 EXT_RAM_BSS_ATTR static MemoryPool<meshtastic_QueueStatus, MAX_QUEUE_STATUS> staticQueueStatusPool;
 
-#define MAX_CLIENT_NOTIFICATIONS 4
+#define MAX_CLIENT_NOTIFICATIONS 8 //fw+ was 4
 #if defined(ARCH_ESP32) && defined(BOARD_HAS_PSRAM)
 #undef  MAX_CLIENT_NOTIFICATIONS
 #define MAX_CLIENT_NOTIFICATIONS 8
@@ -125,7 +125,13 @@ int MeshService::handleFromRadio(const meshtastic_MeshPacket *mp)
     }
 
     printPacket("Forwarding to phone", mp);
-    sendToPhone(packetPool.allocCopy(*mp));
+    //fw+ guard pool exhaustion on copy to phone
+    meshtastic_MeshPacket *copyToPhone = packetPool.allocCopy(*mp);
+    if (!copyToPhone) {
+        LOG_WARN("Skip Forwarding to phone: packetPool exhausted");
+        return 0;
+    }
+    sendToPhone(copyToPhone);
 
     return 0;
 }
@@ -147,6 +153,11 @@ void MeshService::loop()
 
 void MeshService::sendPacketToPhoneRaw(meshtastic_MeshPacket *p)
 {
+    //fw+ guard null
+    if (!p) {
+        LOG_WARN("sendPacketToPhoneRaw called with null packet");
+        return;
+    }
 #ifdef ARCH_ESP32
 #if !MESHTASTIC_EXCLUDE_STOREFORWARD
     if (moduleConfig.store_forward.enabled && storeForwardModule->isServer() &&
@@ -247,6 +258,11 @@ void MeshService::handleToRadio(meshtastic_MeshPacket &p)
     DEBUG_HEAP_BEFORE;
     auto a = packetPool.allocCopy(p);
     DEBUG_HEAP_AFTER("MeshService::handleToRadio", a);
+    //fw+ guard pool exhaustion
+    if (!a) {
+        LOG_WARN("Skip sendToMesh from phone: packetPool exhausted");
+        return;
+    }
     sendToMesh(a, RX_SRC_USER);
 
     bool loopback = false; // if true send any packet the phone sends back itself (for testing)
@@ -267,6 +283,11 @@ bool MeshService::cancelSending(PacketId id)
 ErrorCode MeshService::sendQueueStatusToPhone(const meshtastic_QueueStatus &qs, ErrorCode res, uint32_t mesh_packet_id)
 {
     meshtastic_QueueStatus *copied = queueStatusPool.allocCopy(qs);
+    //fw+ guard pool exhaustion for queue status messages
+    if (!copied) {
+        LOG_WARN("Skip QueueStatus: pool exhausted");
+        return ERRNO_UNKNOWN;
+    }
 
     copied->res = res;
     copied->mesh_packet_id = mesh_packet_id;
@@ -306,8 +327,12 @@ void MeshService::sendToMesh(meshtastic_MeshPacket *p, RxSource src, bool ccToPh
         DEBUG_HEAP_BEFORE;
         auto a = packetPool.allocCopy(*p);
         DEBUG_HEAP_AFTER("MeshService::sendToMesh", a);
-
-        sendToPhone(a);
+        //fw+ guard pool exhaustion on CC to phone
+        if (!a) {
+            LOG_WARN("Skip CC to phone: packetPool exhausted");
+        } else {
+            sendToPhone(a);
+        }
     }
 
     // Router may ask us to release the packet if it wasn't sent
@@ -341,6 +366,11 @@ bool MeshService::trySendPosition(NodeNum dest, bool wantReplies)
 
 void MeshService::sendToPhone(meshtastic_MeshPacket *p)
 {
+    //fw+ guard null
+    if (!p) {
+        LOG_WARN("sendToPhone called with null packet");
+        return;
+    }
     perhapsDecode(p);
 
 #ifdef ARCH_ESP32

@@ -222,8 +222,13 @@ void MeshModule::sendResponse(const meshtastic_MeshPacket &req)
     if (r) {
 
         if(moduleConfig.nodemodadmin.sniffer_enabled && moduleConfig.has_nodemodadmin){
+            //fw+ guard pool exhaustion on sniffer copy
             meshtastic_MeshPacket *copyPtr = packetPool.allocCopy(*r);
-            service->sendPacketToPhoneRaw(copyPtr);
+            if (copyPtr) {
+                service->sendPacketToPhoneRaw(copyPtr);
+            } else {
+                LOG_WARN("Skip sniffer copy in MeshModule: packetPool exhausted");
+            }
         }
 
         setReplyTo(r, req);
