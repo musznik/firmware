@@ -70,5 +70,10 @@
   "[powershell]": {
     "editor.defaultFormatter": "ms-vscode.powershell"
 >>>>>>> 99e42b4d2285a6fcb6dc915118fb2ccf1da2c032
+  },
+  "files.associations": {
+    "deque": "cpp",
+    "string": "cpp",
+    "vector": "cpp"
   }
 }
