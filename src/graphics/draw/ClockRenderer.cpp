@@ -2,7 +2,6 @@
 #if HAS_SCREEN
 #include "ClockRenderer.h"
 #include "NodeDB.h"
-#include "UIRenderer.h"
 #include "configuration.h"
 #include "gps/GeoCoord.h"
 #include "gps/RTC.h"
@@ -190,7 +189,7 @@ void drawDigitalClockFrame(OLEDDisplay *display, OLEDDisplayUiState *state, int1
     // === Set Title, Blank for Clock
     const char *titleStr = "";
     // === Header ===
-    graphics::drawCommonHeader(display, x, y, titleStr, true);
+    graphics::drawCommonHeader(display, x, y, titleStr, true, true);
     int line = 0;
 
 #ifdef T_WATCH_S3
@@ -324,7 +323,7 @@ void drawAnalogClockFrame(OLEDDisplay *display, OLEDDisplayUiState *state, int16
     // === Set Title, Blank for Clock
     const char *titleStr = "";
     // === Header ===
-    graphics::drawCommonHeader(display, x, y, titleStr, true);
+    graphics::drawCommonHeader(display, x, y, titleStr, true, true);
     int line = 0;
 
 #ifdef T_WATCH_S3
