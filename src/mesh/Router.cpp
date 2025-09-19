@@ -316,7 +316,7 @@ ErrorCode Router::send(meshtastic_MeshPacket *p)
 
         auto encodeResult = perhapsEncode(p);
         if (encodeResult != meshtastic_Routing_Error_NONE) {
-            packetPool.release(p_decoded);
+            if (p_decoded) packetPool.release(p_decoded);
             p->channel = 0; // Reset the channel to 0, so we don't use the failing hash again
             abortSendAndNak(encodeResult, p);
             return encodeResult; // FIXME - this isn't a valid ErrorCode
@@ -324,6 +324,10 @@ ErrorCode Router::send(meshtastic_MeshPacket *p)
 #if !MESHTASTIC_EXCLUDE_MQTT
         // Only publish to MQTT if we're the original transmitter of the packet
         if (moduleConfig.mqtt.enabled && isFromUs(p) && mqtt) {
+            //fw+ if out of pool memory, skip MQTT publish rather than crash
+            if (!p_decoded) {
+                LOG_WARN("Skip MQTT onSend due to packetPool exhaustion");
+            } else {
 
             // Only publish to MQTT only public messages
             if(!(p_decoded->decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP && 
@@ -333,10 +337,14 @@ ErrorCode Router::send(meshtastic_MeshPacket *p)
             }else{
                 LOG_DEBUG("MQTT secured messages enabled, message was not forwarded to broker\n");
             }
+            }
         }
 #endif
-        m_packetCounter.onPacketReceived(p_decoded);
-        packetPool.release(p_decoded);
+        //fw+ only report and release if allocation succeeded
+        if (p_decoded) {
+            m_packetCounter.onPacketReceived(p_decoded);
+            packetPool.release(p_decoded);
+        }
     }
 
 #if HAS_UDP_MULTICAST
@@ -748,15 +756,25 @@ void Router::handleReceived(meshtastic_MeshPacket *p, RxSource src)
         // us (because we would be able to decrypt it)
         if (decodedState == DecodeState::DECODE_FAILURE && moduleConfig.mqtt.encryption_enabled && p->channel == 0x00 &&
             !isBroadcast(p->to) && !isToUs(p))
-            p_encrypted->pki_encrypted = true;
+            {
+                //fw+ guard null before marking PKI flag
+                if (p_encrypted) p_encrypted->pki_encrypted = true;
+            }
         // After potentially altering it, publish received message to MQTT if we're not the original transmitter of the packet
-        if ((decodedState == DecodeState::DECODE_SUCCESS || p_encrypted->pki_encrypted) && moduleConfig.mqtt.enabled &&
-            !isFromUs(p) && mqtt)
-            mqtt->onSend(*p_encrypted, *p, p->channel);
+        if (moduleConfig.mqtt.enabled && !isFromUs(p) && mqtt) {
+            //fw+ only publish if we have a valid copy buffer
+            if (decodedState == DecodeState::DECODE_SUCCESS || (p_encrypted && p_encrypted->pki_encrypted)) {
+                if (p_encrypted) {
+                    mqtt->onSend(*p_encrypted, *p, p->channel);
+                } else {
+                    LOG_WARN("Skip MQTT publish of received packet due to packetPool exhaustion");
+                }
+            }
+        }
 #endif
     }
 
-    packetPool.release(p_encrypted); // Release the encrypted packet
+    if (p_encrypted) packetPool.release(p_encrypted); //fw+ Release only if allocated
 }
 
 void Router::perhapsHandleReceived(meshtastic_MeshPacket *p)

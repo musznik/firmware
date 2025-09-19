@@ -814,7 +814,13 @@ void MQTT::perhapsReportToMap()
     }
 
     // Allocate MeshPacket and fill it
+    //fw+ guard out-of-memory in packet pool
     meshtastic_MeshPacket *mp = packetPool.allocZeroed();
+    if (!mp) {
+        LOG_WARN("Skip map report publish: packetPool exhausted");
+        last_report_to_map = millis();
+        return;
+    }
     mp->which_payload_variant = meshtastic_MeshPacket_decoded_tag;
     mp->from = nodeDB->getNodeNum();
     mp->to = NODENUM_BROADCAST;

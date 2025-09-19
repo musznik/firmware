@@ -235,13 +235,22 @@ meshtastic_Telemetry DeviceTelemetryModule::getLocalStatsExtendedTelemetry()
 
 void DeviceTelemetryModule::sendLocalStatsToPhone()
 {
+    //fw+ guard pool exhaustion
     meshtastic_MeshPacket *p = allocDataProtobuf(getLocalStatsTelemetry(true));
+    if (!p) {
+        LOG_WARN("Skip sendLocalStatsToPhone: packetPool exhausted");
+        return;
+    }
     p->to = myNodeInfo.my_node_num;
     p->decoded.want_response = false;
     p->priority = meshtastic_MeshPacket_Priority_BACKGROUND;
     service->sendToPhone(p);
 
     meshtastic_MeshPacket *p2 = allocDataProtobuf(getLocalStatsExtendedTelemetry());
+    if (!p2) {
+        LOG_WARN("Skip sendLocalStatsExtendedToPhone: packetPool exhausted");
+        return;
+    }
     p2->to = myNodeInfo.my_node_num;
     p2->decoded.want_response = false;
     p2->priority = meshtastic_MeshPacket_Priority_BACKGROUND;
@@ -253,6 +262,10 @@ void DeviceTelemetryModule::sendLocalStatsToMesh()
     LOG_INFO("Sending local stats to mesh");
     meshtastic_Telemetry telemetry = getLocalStatsTelemetry(false);
     meshtastic_MeshPacket *p = allocDataProtobuf(telemetry);
+    if (!p) {
+        LOG_WARN("Skip sendLocalStatsToMesh: packetPool exhausted");
+        return;
+    }
     p->to = NODENUM_BROADCAST;
     p->decoded.want_response = false;
     p->priority = meshtastic_MeshPacket_Priority_BACKGROUND;
@@ -265,6 +278,10 @@ void DeviceTelemetryModule::sendLocalStatsExtendedToMesh()
     LOG_INFO("Sending local stats extended to mesh");
     meshtastic_Telemetry telemetry = getLocalStatsExtendedTelemetry();
     meshtastic_MeshPacket *p = allocDataProtobuf(telemetry);
+    if (!p) {
+        LOG_WARN("Skip sendLocalStatsExtendedToMesh: packetPool exhausted");
+        return;
+    }
     p->to = NODENUM_BROADCAST;
     p->decoded.want_response = false;
     p->priority = meshtastic_MeshPacket_Priority_BACKGROUND;
@@ -282,6 +299,10 @@ bool DeviceTelemetryModule::sendTelemetry(NodeNum dest, bool phoneOnly)
 
     DEBUG_HEAP_BEFORE;
     meshtastic_MeshPacket *p = allocDataProtobuf(telemetry);
+    if (!p) {
+        LOG_WARN("Skip DeviceTelemetry send: packetPool exhausted");
+        return false;
+    }
     DEBUG_HEAP_AFTER("DeviceTelemetryModule::sendTelemetry", p);
 
     p->to = dest;
