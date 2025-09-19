@@ -351,7 +351,8 @@ typedef enum _meshtastic_FirmwareEdition {
     meshtastic_FirmwareEdition_BURNING_MAN = 18,
     /* Hamvention, the Dayton amateur radio convention */
     meshtastic_FirmwareEdition_HAMVENTION = 19,
-    /* Placeholder for DIY and unofficial events */
+    /* Firmware Plus */
+    meshtastic_FirmwareEdition_FIRMWARE_PLUS = 51,
     meshtastic_FirmwareEdition_DIY_EDITION = 127
 } meshtastic_FirmwareEdition;
 
