@@ -330,8 +330,9 @@ void drawFrameSettings(OLEDDisplay *display, OLEDDisplayUiState *state, int16_t 
 #if HAS_GPS
     if (config.position.gps_mode == meshtastic_Config_PositionConfig_GpsMode_ENABLED) {
         // Line 3
+        //fw+ enum moved to DeviceUIConfig in newer protos
         if (config.display.gps_format !=
-            meshtastic_Config_DisplayConfig_GpsCoordinateFormat_DMS) // if DMS then don't draw altitude
+            meshtastic_DeviceUIConfig_GpsCoordinateFormat_DMS) // if DMS then don't draw altitude
             UIRenderer::drawGpsAltitude(display, x, y + FONT_HEIGHT_SMALL * 2, gpsStatus);
 
         // Line 4

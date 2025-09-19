@@ -131,21 +131,22 @@ void UIRenderer::drawGpsCoordinates(OLEDDisplay *display, int16_t x, int16_t y, 
 
         geoCoord.updateCoords(int32_t(gps->getLatitude()), int32_t(gps->getLongitude()), int32_t(gps->getAltitude()));
 
-        if (gpsFormat != meshtastic_Config_DisplayConfig_GpsCoordinateFormat_DMS) {
+        //fw+ enum moved to DeviceUIConfig in newer protos
+        if (gpsFormat != meshtastic_DeviceUIConfig_GpsCoordinateFormat_DMS) {
             char coordinateLine[22];
-            if (gpsFormat == meshtastic_Config_DisplayConfig_GpsCoordinateFormat_DEC) { // Decimal Degrees
+            if (gpsFormat == meshtastic_DeviceUIConfig_GpsCoordinateFormat_DEC) { // Decimal Degrees
                 snprintf(coordinateLine, sizeof(coordinateLine), "%f %f", geoCoord.getLatitude() * 1e-7,
                          geoCoord.getLongitude() * 1e-7);
-            } else if (gpsFormat == meshtastic_Config_DisplayConfig_GpsCoordinateFormat_UTM) { // Universal Transverse Mercator
+            } else if (gpsFormat == meshtastic_DeviceUIConfig_GpsCoordinateFormat_UTM) { // Universal Transverse Mercator
                 snprintf(coordinateLine, sizeof(coordinateLine), "%2i%1c %06u %07u", geoCoord.getUTMZone(), geoCoord.getUTMBand(),
                          geoCoord.getUTMEasting(), geoCoord.getUTMNorthing());
-            } else if (gpsFormat == meshtastic_Config_DisplayConfig_GpsCoordinateFormat_MGRS) { // Military Grid Reference System
+            } else if (gpsFormat == meshtastic_DeviceUIConfig_GpsCoordinateFormat_MGRS) { // Military Grid Reference System
                 snprintf(coordinateLine, sizeof(coordinateLine), "%2i%1c %1c%1c %05u %05u", geoCoord.getMGRSZone(),
                          geoCoord.getMGRSBand(), geoCoord.getMGRSEast100k(), geoCoord.getMGRSNorth100k(),
                          geoCoord.getMGRSEasting(), geoCoord.getMGRSNorthing());
-            } else if (gpsFormat == meshtastic_Config_DisplayConfig_GpsCoordinateFormat_OLC) { // Open Location Code
+            } else if (gpsFormat == meshtastic_DeviceUIConfig_GpsCoordinateFormat_OLC) { // Open Location Code
                 geoCoord.getOLCCode(coordinateLine);
-            } else if (gpsFormat == meshtastic_Config_DisplayConfig_GpsCoordinateFormat_OSGR) { // Ordnance Survey Grid Reference
+            } else if (gpsFormat == meshtastic_DeviceUIConfig_GpsCoordinateFormat_OSGR) { // Ordnance Survey Grid Reference
                 if (geoCoord.getOSGRE100k() == 'I' || geoCoord.getOSGRN100k() == 'I') // OSGR is only valid around the UK region
                     snprintf(coordinateLine, sizeof(coordinateLine), "%s", "Out of Boundary");
                 else
@@ -1093,7 +1094,7 @@ void UIRenderer::drawCompassAndLocationScreen(OLEDDisplay *display, OLEDDisplayU
         }
 
         // === Third Row: Latitude ===
-        char latStr[32];
+        // duplicate removed
         snprintf(latStr, sizeof(latStr), "Lat: %.5f", geoCoord.getLatitude() * 1e-7);
         display->drawString(x, getTextPositions(display)[line++], latStr);
 #endif
