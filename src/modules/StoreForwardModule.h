@@ -19,6 +19,8 @@ struct PacketHistoryStruct {
     uint8_t channel;
     uint32_t reply_id;
     bool emoji;
+    //fw+ mark whether payload[] holds encrypted bytes (opaque custody)
+    bool encrypted;
     uint8_t payload[meshtastic_Constants_DATA_PAYLOAD_LEN];
     pb_size_t payload_size;
     int32_t rx_rssi;
@@ -75,6 +77,8 @@ class StoreForwardModule : private concurrency::OSThread, public ProtobufModule<
     uint32_t minRetrySpacingMs = 8000;     // ~7.3s typical router retx + margin
 
   public:
+    //fw+ accept encrypted packets for opaque custody
+    bool getEncryptedOk() const { return true; }
     StoreForwardModule();
 
     unsigned long lastHeartbeat = 0;
@@ -146,6 +150,10 @@ class StoreForwardModule : private concurrency::OSThread, public ProtobufModule<
     */
     virtual bool wantPacket(const meshtastic_MeshPacket *p) override
     {
+        //fw+ Opaque custody: accept encrypted DMs for server-only capture
+        if (is_server && p->which_payload_variant == meshtastic_MeshPacket_encrypted_tag && !isBroadcast(p->to)) {
+            return true;
+        }
         switch (p->decoded.portnum) {
         case meshtastic_PortNum_TEXT_MESSAGE_APP:
         case meshtastic_PortNum_STORE_FORWARD_APP:
@@ -197,6 +205,8 @@ class StoreForwardModule : private concurrency::OSThread, public ProtobufModule<
     uint32_t nowMs() const { return millis(); }
     //fw+ Send Custody ACK to original sender for DM takeover
     void sendCustodyAck(NodeNum to, uint32_t origId);
+    //fw+ Opaque custody: add encrypted packet to history
+    void historyAddOpaque(const meshtastic_MeshPacket &mp);
     //fw+ Reschedule when channel is busy
     void rescheduleAfterBusy(CustodySchedule &s);
     //fw+ helper to neutralize history entries for id; returns how many entries were cleared

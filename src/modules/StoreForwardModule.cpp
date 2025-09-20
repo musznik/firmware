@@ -215,6 +215,7 @@ void StoreForwardModule::historyAdd(const meshtastic_MeshPacket &mp)
     this->packetHistory[this->packetHistoryTotalCount].id = mp.id;
     this->packetHistory[this->packetHistoryTotalCount].reply_id = p.reply_id;
     this->packetHistory[this->packetHistoryTotalCount].emoji = (bool)p.emoji;
+    this->packetHistory[this->packetHistoryTotalCount].encrypted = false;
     this->packetHistory[this->packetHistoryTotalCount].payload_size = p.payload.size;
     this->packetHistory[this->packetHistoryTotalCount].rx_rssi = mp.rx_rssi;
     this->packetHistory[this->packetHistoryTotalCount].rx_snr = mp.rx_snr;
@@ -243,6 +244,56 @@ void StoreForwardModule::historyAdd(const meshtastic_MeshPacket &mp)
             if (scheduleById.find(mp.id) == scheduleById.end()) {
                 pendingSchedule[mp.id] = true;
             }
+        }
+    }
+}
+
+//fw+ Opaque custody: store encrypted payload bytes when we cannot decode
+void StoreForwardModule::historyAddOpaque(const meshtastic_MeshPacket &mp)
+{
+    if (this->packetHistoryTotalCount == this->records) {
+        LOG_WARN("S&F - DRAM Full (opaque). Starting overwrite");
+        this->packetHistoryTotalCount = 0;
+        for (auto &i : lastRequest) { i.second = 0; }
+    }
+
+    this->packetHistory[this->packetHistoryTotalCount].time = getTime();
+    this->packetHistory[this->packetHistoryTotalCount].to = mp.to;
+    this->packetHistory[this->packetHistoryTotalCount].channel = mp.channel;
+    this->packetHistory[this->packetHistoryTotalCount].from = getFrom(&mp);
+    this->packetHistory[this->packetHistoryTotalCount].id = mp.id;
+    this->packetHistory[this->packetHistoryTotalCount].reply_id = 0;
+    this->packetHistory[this->packetHistoryTotalCount].emoji = false;
+    this->packetHistory[this->packetHistoryTotalCount].encrypted = true;
+    // copy encrypted payload
+    size_t copyLen = mp.encrypted.size;
+    if (copyLen > sizeof(this->packetHistory[this->packetHistoryTotalCount].payload))
+        copyLen = sizeof(this->packetHistory[this->packetHistoryTotalCount].payload);
+    memcpy(this->packetHistory[this->packetHistoryTotalCount].payload, mp.encrypted.bytes, copyLen);
+    this->packetHistory[this->packetHistoryTotalCount].payload_size = (pb_size_t)copyLen;
+    this->packetHistory[this->packetHistoryTotalCount].rx_rssi = mp.rx_rssi;
+    this->packetHistory[this->packetHistoryTotalCount].rx_snr = mp.rx_snr;
+
+    this->packetHistoryTotalCount++;
+
+    if (isDelivered(mp.id)) {
+        this->packetHistory[this->packetHistoryTotalCount - 1].time = 0;
+        LOG_DEBUG("fw+ historyAddOpaque: neutralized delivered id=0x%x on insert", mp.id);
+    }
+
+    LOG_DEBUG("fw+ Opaque store id=0x%x bytes=%u", mp.id, (unsigned)this->packetHistory[this->packetHistoryTotalCount - 1].payload_size);
+
+    //fw+ Schedule delivery similar to decoded path
+    auto it = pendingSchedule.find(mp.id);
+    if (it != pendingSchedule.end()) {
+        scheduleFromHistory(mp.id);
+        pendingSchedule.erase(it);
+    }
+    if (is_server) {
+        scheduleFromHistory(mp.id);
+        // If schedule didn't get created (race), mark pending
+        if (scheduleById.find(mp.id) == scheduleById.end()) {
+            pendingSchedule[mp.id] = true;
         }
     }
 }
@@ -312,18 +363,24 @@ meshtastic_MeshPacket *StoreForwardModule::preparePayload(NodeNum dest, uint32_t
                     memcpy(p->decoded.payload.bytes, this->packetHistory[i].payload, this->packetHistory[i].payload_size);
                     p->decoded.payload.size = this->packetHistory[i].payload_size;
                 } else {
-                    meshtastic_StoreAndForward sf = meshtastic_StoreAndForward_init_zero;
-                    sf.which_variant = meshtastic_StoreAndForward_text_tag;
-                    sf.variant.text.size = this->packetHistory[i].payload_size;
-                    memcpy(sf.variant.text.bytes, this->packetHistory[i].payload, this->packetHistory[i].payload_size);
-                    if (this->packetHistory[i].to == NODENUM_BROADCAST) {
-                        sf.rr = meshtastic_StoreAndForward_RequestResponse_ROUTER_TEXT_BROADCAST;
+                    if (this->packetHistory[i].encrypted) {
+                        //fw+ Opaque forward: re-send encrypted bytes unchanged
+                        p->which_payload_variant = meshtastic_MeshPacket_encrypted_tag;
+                        memcpy(p->encrypted.bytes, this->packetHistory[i].payload, this->packetHistory[i].payload_size);
+                        p->encrypted.size = this->packetHistory[i].payload_size;
                     } else {
-                        sf.rr = meshtastic_StoreAndForward_RequestResponse_ROUTER_TEXT_DIRECT;
+                        meshtastic_StoreAndForward sf = meshtastic_StoreAndForward_init_zero;
+                        sf.which_variant = meshtastic_StoreAndForward_text_tag;
+                        sf.variant.text.size = this->packetHistory[i].payload_size;
+                        memcpy(sf.variant.text.bytes, this->packetHistory[i].payload, this->packetHistory[i].payload_size);
+                        if (this->packetHistory[i].to == NODENUM_BROADCAST) {
+                            sf.rr = meshtastic_StoreAndForward_RequestResponse_ROUTER_TEXT_BROADCAST;
+                        } else {
+                            sf.rr = meshtastic_StoreAndForward_RequestResponse_ROUTER_TEXT_DIRECT;
+                        }
+                        p->decoded.payload.size = pb_encode_to_bytes(p->decoded.payload.bytes, sizeof(p->decoded.payload.bytes),
+                                                                     &meshtastic_StoreAndForward_msg, &sf);
                     }
-
-                    p->decoded.payload.size = pb_encode_to_bytes(p->decoded.payload.bytes, sizeof(p->decoded.payload.bytes),
-                                                                 &meshtastic_StoreAndForward_msg, &sf);
                 }
 
                 lastRequest[dest] = i + 1; // Update the last request index for the client device
@@ -452,6 +509,14 @@ ProcessMessage StoreForwardModule::handleReceived(const meshtastic_MeshPacket &m
                 storeForwardModule->historyAdd(mp);
                 LOG_INFO("S&F stored. Active history entries: %u", (unsigned)countActiveHistory());
             }
+        } else if (is_server && mp.which_payload_variant == meshtastic_MeshPacket_encrypted_tag && !isBroadcast(mp.to)) {
+            //fw+ Opaque custody path for encrypted DM we can't decode locally
+            LOG_DEBUG("fw+ Encrypted DM captured id=0x%x", mp.id);
+            storeForwardModule->historyAddOpaque(mp);
+            // For DM, emit Custody ACK so the source stops retransmitting
+            if (mp.to != NODENUM_BROADCAST && mp.to != NODENUM_BROADCAST_NO_LORA) {
+                sendCustodyAck(getFrom(&mp), mp.id);
+            }
         } else if (!isFromUs(&mp) && mp.decoded.portnum == meshtastic_PortNum_STORE_FORWARD_APP) {
             auto &p = mp.decoded;
             meshtastic_StoreAndForward scratch;
@@ -508,6 +573,11 @@ bool StoreForwardModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp,
         if (is_server) {
             requests_history++;
             LOG_INFO("Client Request to send HISTORY");
+            // fw+ In mini-server mode, do not serve history replays to conserve RAM
+            if (miniServerMode) {
+                storeForwardModule->sendMessage(getFrom(&mp), meshtastic_StoreAndForward_RequestResponse_ROUTER_BUSY);
+                break;
+            }
             // Send the last 60 minutes of messages.
             if (this->busy || channels.isDefaultChannel(mp.channel)) {
                 sendErrorTextMessage(getFrom(&mp), mp.decoded.want_response);
@@ -806,8 +876,12 @@ void StoreForwardModule::processSchedules()
                 p->decoded.portnum = meshtastic_PortNum_TEXT_MESSAGE_APP;
                 memcpy(p->decoded.payload.bytes, this->packetHistory[i].payload, this->packetHistory[i].payload_size);
                 p->decoded.payload.size = this->packetHistory[i].payload_size;
-                //fw+ Elevate priority a bit to avoid starvation by floods
-                p->priority = meshtastic_MeshPacket_Priority_DEFAULT;
+                //fw+ Elevate priority for DM in mini-server to reduce contention with relays
+                if (s.isDM && miniServerMode) {
+                    p->priority = meshtastic_MeshPacket_Priority_HIGH;
+                } else {
+                    p->priority = meshtastic_MeshPacket_Priority_DEFAULT;
+                }
                 break;
             }
         }
@@ -816,7 +890,14 @@ void StoreForwardModule::processSchedules()
             service->sendToMesh(p);
             s.lastTxMs = nowMs();
             // Keep DM scheduled; cancel on ACK (via ReliableRouter hook). Broadcasts are one-shot.
-            if (!s.isDM) { it = scheduleById.erase(it); continue; }
+            if (!s.isDM) {
+                //fw+ Immediately clear broadcast history to free DRAM in mini-server mode
+                if (miniServerMode) {
+                    clearHistoryById(s.id);
+                }
+                it = scheduleById.erase(it);
+                continue;
+            }
         }
         // reschedule/backoff or remove
         s.tries++;
@@ -846,6 +927,8 @@ StoreForwardModule::StoreForwardModule()
     : concurrency::OSThread("StoreForward"),
       ProtobufModule("StoreForward", meshtastic_PortNum_STORE_FORWARD_APP, &meshtastic_StoreAndForward_msg)
 {
+    //fw+ accept encrypted packets for opaque custody
+    encryptedOk = true;
 
 #if defined(ARCH_ESP32) || defined(ARCH_PORTDUINO)
 
@@ -889,19 +972,19 @@ StoreForwardModule::StoreForwardModule()
                     // Conservative defaults to avoid DRAM exhaustion
                     // fw+ Tiny DRAM buffer with upper clamp for safety
                     if (!moduleConfig.store_forward.records) {
-                        this->records = 32; // fw+ tiny DRAM buffer (default)
+                        this->records = 16; // fw+ ultra-small DRAM buffer for mini-server
                     } else {
                         uint32_t r = moduleConfig.store_forward.records; // fw+
-                        this->records = (r > 128 ? 128 : r);             // fw+ clamp to 128 max
+                        this->records = (r > 64 ? 64 : r);              // fw+ clamp to 64 max in mini-server
                     }
                     if (moduleConfig.store_forward.history_return_max)
                         this->historyReturnMax = moduleConfig.store_forward.history_return_max;
                     else
-                        this->historyReturnMax = 16; // fw+
+                        this->historyReturnMax = 8; // fw+ minimal replay batch
                     if (moduleConfig.store_forward.history_return_window)
                         this->historyReturnWindow = moduleConfig.store_forward.history_return_window;
                     else
-                        this->historyReturnWindow = 60; // fw+ 60 minutes
+                        this->historyReturnWindow = 30; // fw+ 30 minutes
                     this->heartbeat = false; // fw+ reduce CPU/RAM pressure
 
                     // Allocate in DRAM instead of PSRAM
