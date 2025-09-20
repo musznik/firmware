@@ -1426,8 +1426,9 @@ void NodeDB::loadFromDisk()
                 if (!moduleConfig.store_forward.is_server) { moduleConfig.store_forward.is_server = true; mutated = true; }
 #endif
             } else {
+                // fw+ For non-router roles, do not override explicit server-only preference
                 if (moduleConfig.store_forward.enabled) { moduleConfig.store_forward.enabled = false; mutated = true; }
-                if (moduleConfig.store_forward.is_server) { moduleConfig.store_forward.is_server = false; mutated = true; }
+                // fw+ Preserve is_server if user explicitly enabled server-only mode
             }
         }
 

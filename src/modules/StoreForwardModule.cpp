@@ -34,7 +34,8 @@ StoreForwardModule *storeForwardModule;
 int32_t StoreForwardModule::runOnce()
 {
 #if defined(ARCH_ESP32) || defined(ARCH_PORTDUINO) || defined(ARCH_NRF52)
-    if (moduleConfig.store_forward.enabled && is_server) {
+    //fw+ Allow server-only mode: run server loop when is_server, regardless of enabled flag
+    if (is_server) {
         //fw+ process custody schedules before normal server loop
         processSchedules();
         // Send out the message queue.
@@ -433,7 +434,8 @@ void StoreForwardModule::statsSend(uint32_t to)
 ProcessMessage StoreForwardModule::handleReceived(const meshtastic_MeshPacket &mp)
 {
 #if defined(ARCH_ESP32) || defined(ARCH_PORTDUINO) || defined(ARCH_NRF52)
-    if (moduleConfig.store_forward.enabled) {
+    //fw+ Allow server-only mode: process server paths even if module disabled
+    if (moduleConfig.store_forward.enabled || is_server) {
 
         if ((mp.decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP) && is_server) {
             auto &p = mp.decoded;
@@ -481,8 +483,9 @@ ProcessMessage StoreForwardModule::handleReceived(const meshtastic_MeshPacket &m
  */
 bool StoreForwardModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, meshtastic_StoreAndForward *p)
 {
-    if (!moduleConfig.store_forward.enabled) {
-        // If this module is not enabled in any capacity, don't handle the packet, and allow other modules to consume
+    //fw+ Allow server-only mode to handle protobuf even if module disabled
+    if (!moduleConfig.store_forward.enabled && !is_server) {
+        // If neither module is enabled nor server-only, don't handle
         return false;
     }
 
@@ -859,7 +862,8 @@ StoreForwardModule::StoreForwardModule()
 
     //fw+ Respect user setting: do not auto-enable here; role-based defaults are applied on role change
 
-    if (moduleConfig.store_forward.enabled) {
+    //fw+ Allow server-only init if requested explicitly, even when module disabled
+    if (moduleConfig.store_forward.enabled || moduleConfig.store_forward.is_server) {
 
         // Router
         //fw+ include ROUTER_LATE role for S&F server initialization

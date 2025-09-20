@@ -301,7 +301,8 @@ void setupModules()
 #endif
 #if defined(ARCH_ESP32) || defined(ARCH_PORTDUINO) || defined(ARCH_NRF52)
 #if !MESHTASTIC_EXCLUDE_STOREFORWARD
-        if (moduleConfig.has_store_forward && moduleConfig.store_forward.enabled) {
+        //fw+ Instantiate S&F also for server-only mode (is_server) even if client (enabled) is off
+        if (moduleConfig.has_store_forward && (moduleConfig.store_forward.enabled || moduleConfig.store_forward.is_server)) {
             storeForwardModule = new StoreForwardModule();
         }
 #endif
