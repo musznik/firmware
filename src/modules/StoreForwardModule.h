@@ -67,7 +67,7 @@ class StoreForwardModule : private concurrency::OSThread, public ProtobufModule<
     float dmHopCoefMs = 400.0f;            // +0.4s per estimated hop
     float dmBackoffFactor = 1.8f;          // exponential
     uint32_t dmMaxDelayMs = 8 * 60 * 1000; // 15 minutes cap
-    uint8_t dmMaxTries = 8;
+    uint8_t dmMaxTries = 3; //fw+ reduce retries to limit airtime spam
     uint8_t dmJitterPct = 15;              // +/- percent
     uint32_t bcMinDelayMs = 6000;          // 6s
     uint32_t bcMaxDelayMs = 12000;         // 12s

@@ -364,7 +364,10 @@ meshtastic_MeshPacket *StoreForwardModule::preparePayload(NodeNum dest, uint32_t
                     p->decoded.payload.size = this->packetHistory[i].payload_size;
                 } else {
                     if (this->packetHistory[i].encrypted) {
-                        //fw+ Opaque forward: re-send encrypted bytes unchanged
+                        //fw+ Opaque forward: re-send encrypted bytes unchanged; hide decoded metadata
+                        p->decoded.portnum = (meshtastic_PortNum)0;
+                        p->decoded.payload.size = 0;
+                        p->decoded.reply_id = 0;
                         p->which_payload_variant = meshtastic_MeshPacket_encrypted_tag;
                         memcpy(p->encrypted.bytes, this->packetHistory[i].payload, this->packetHistory[i].payload_size);
                         p->encrypted.size = this->packetHistory[i].payload_size;
@@ -872,10 +875,26 @@ void StoreForwardModule::processSchedules()
                 p->rx_snr = this->packetHistory[i].rx_snr;
                 //fw+ For DM deliveries from S&F server, request ACK to allow schedule cancellation
                 p->want_ack = s.isDM;
-                // Assume TEXT for MVP; real impl should preserve portnum
-                p->decoded.portnum = meshtastic_PortNum_TEXT_MESSAGE_APP;
-                memcpy(p->decoded.payload.bytes, this->packetHistory[i].payload, this->packetHistory[i].payload_size);
-                p->decoded.payload.size = this->packetHistory[i].payload_size;
+                //fw+ Preserve encryption: if history holds encrypted bytes, resend as encrypted frame
+                if (this->packetHistory[i].encrypted) {
+                    p->which_payload_variant = meshtastic_MeshPacket_encrypted_tag; //fw+
+                    p->decoded.portnum = (meshtastic_PortNum)0;                      //fw+
+                    p->decoded.payload.size = 0;                                     //fw+
+                    p->decoded.reply_id = 0;                                         //fw+
+                    memcpy(p->encrypted.bytes, this->packetHistory[i].payload, this->packetHistory[i].payload_size); //fw+
+                    p->encrypted.size = this->packetHistory[i].payload_size;                                         //fw+
+                } else {
+                    //fw+ Use S&F protobuf wrapper for plaintext payload (avoid raw TEXT on-air)
+                    meshtastic_StoreAndForward sf = meshtastic_StoreAndForward_init_zero; //fw+
+                    sf.which_variant = meshtastic_StoreAndForward_text_tag;               //fw+
+                    sf.variant.text.size = this->packetHistory[i].payload_size;           //fw+
+                    memcpy(sf.variant.text.bytes, this->packetHistory[i].payload, this->packetHistory[i].payload_size); //fw+
+                    sf.rr = (s.isDM ? meshtastic_StoreAndForward_RequestResponse_ROUTER_TEXT_DIRECT
+                                    : meshtastic_StoreAndForward_RequestResponse_ROUTER_TEXT_BROADCAST);               //fw+
+                    p->decoded.portnum = meshtastic_PortNum_STORE_FORWARD_APP;                                           //fw+
+                    p->decoded.payload.size = pb_encode_to_bytes(p->decoded.payload.bytes, sizeof(p->decoded.payload.bytes),
+                                                                 &meshtastic_StoreAndForward_msg, &sf);                 //fw+
+                }
                 //fw+ Elevate priority for DM in mini-server to reduce contention with relays
                 if (s.isDM && miniServerMode) {
                     p->priority = meshtastic_MeshPacket_Priority_HIGH;
