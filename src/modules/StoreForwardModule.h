@@ -216,6 +216,9 @@ class StoreForwardModule : private concurrency::OSThread, public ProtobufModule<
     //fw+ custody signals
     void sendCustodyClaim(uint32_t origId);
     void sendCustodyDelivered(uint32_t origId);
+    //fw+ helper: locate last history record for id and extract endpoints
+    bool getHistoryEndpoints(uint32_t id, NodeNum &src, NodeNum &dst, uint8_t &channel);
+    //fw+ user-visible notifications removed
 };
 
 extern StoreForwardModule *storeForwardModule;

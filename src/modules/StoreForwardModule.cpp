@@ -17,6 +17,7 @@
 #include "NodeDB.h"
 #include "RTC.h"
 #include "Router.h"
+#include "Default.h" //fw+
 #include "Throttle.h"
 #include "airtime.h"
 #include "configuration.h"
@@ -25,6 +26,7 @@
 #include "mesh/generated/meshtastic/storeforward.pb.h"
 #include "modules/ModuleDev.h"
 #include <Arduino.h>
+#include <stdio.h> //fw+ snprintf
 #include <iterator>
 #include <map>
 #include "fwplus_custody.h" //fw+
@@ -678,7 +680,7 @@ bool StoreForwardModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp,
 
     default: {
         //fw+ DTN-like: interpret custom custody RR codes using control variants (no text payload)
-        if (p->rr == fwplus_custody::RR_ROUTER_CUSTODY_ACK) {
+        if (p->rr == fwplus_custody::RR_ROUTER_CUSTODY_ACK || p->rr == fwplus_custody::RR_ROUTER_DELIVERED) {
             uint32_t id = 0;
             if (p->which_variant == meshtastic_StoreAndForward_history_tag) {
                 id = p->variant.history.window; // CA/DR carry id here
@@ -686,7 +688,11 @@ bool StoreForwardModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp,
 
             if (id) {
                 if (is_client) {
-                    LOG_INFO("fw+ Custody ACK for id=0x%x from router", id);
+                    if (p->rr == fwplus_custody::RR_ROUTER_CUSTODY_ACK) {
+                        LOG_INFO("fw+ Custody ACK for id=0x%x from router", id);
+                    } else {
+                        LOG_INFO("fw+ Delivered notice for id=0x%x from router", id);
+                    }
                 }
             }
         }
@@ -699,6 +705,14 @@ bool StoreForwardModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp,
 //fw+ helpers
 void StoreForwardModule::sendCustodyAck(NodeNum to, uint32_t origId)
 {
+    //fw+ gate on config flags: moduleConfig.store_forward.emit_control_signals OR node_mod_admin override
+    bool allow = false;
+    if (moduleConfig.store_forward.emit_control_signals) allow = true;
+#ifdef HAS_ADMIN_MODULE
+    if (moduleConfig.nodemodadmin.emit_custody_control_signals) allow = true;
+#endif
+    if (!allow) return;
+
     meshtastic_StoreAndForward sf = meshtastic_StoreAndForward_init_zero;
     sf.rr = (meshtastic_StoreAndForward_RequestResponse)fwplus_custody::RR_ROUTER_CUSTODY_ACK;
     sf.which_variant = meshtastic_StoreAndForward_history_tag;
@@ -710,6 +724,13 @@ void StoreForwardModule::sendCustodyAck(NodeNum to, uint32_t origId)
 //fw+ Broadcast a custody-claim (CR) so other S&F servers back off for this id
 void StoreForwardModule::sendCustodyClaim(uint32_t origId)
 {
+    bool allow = false;
+    if (moduleConfig.store_forward.emit_control_signals) allow = true;
+#ifdef HAS_ADMIN_MODULE
+    if (moduleConfig.nodemodadmin.emit_custody_control_signals) allow = true;
+#endif
+    if (!allow) return;
+
     meshtastic_StoreAndForward sf = meshtastic_StoreAndForward_init_zero;
     sf.rr = (meshtastic_StoreAndForward_RequestResponse)fwplus_custody::RR_ROUTER_CUSTODY_ACK; // placeholder RR
     sf.which_variant = meshtastic_StoreAndForward_history_tag;
@@ -720,8 +741,15 @@ void StoreForwardModule::sendCustodyClaim(uint32_t origId)
 //fw+ Broadcast a custody-delivered (DR) so other servers can drop it from history if desired
 void StoreForwardModule::sendCustodyDelivered(uint32_t origId)
 {
+    bool allow = false;
+    if (moduleConfig.store_forward.emit_control_signals) allow = true;
+#ifdef HAS_ADMIN_MODULE
+    if (moduleConfig.nodemodadmin.emit_custody_control_signals) allow = true;
+#endif
+    if (!allow) return;
+
     meshtastic_StoreAndForward sf = meshtastic_StoreAndForward_init_zero;
-    sf.rr = (meshtastic_StoreAndForward_RequestResponse)fwplus_custody::RR_ROUTER_CUSTODY_ACK; // placeholder RR
+    sf.rr = (meshtastic_StoreAndForward_RequestResponse)fwplus_custody::RR_ROUTER_DELIVERED; //fw+
     sf.which_variant = meshtastic_StoreAndForward_history_tag;
     sf.variant.history.window = origId;
     storeForwardModule->sendMessage(NODENUM_BROADCAST, sf);
@@ -736,6 +764,8 @@ void StoreForwardModule::cancelScheduleOnAck(uint32_t id, NodeNum ackFrom)
     if (s.isDM && s.to == ackFrom) {
         scheduleById.erase(it);
         markDelivered(id);
+        //fw+ broadcast delivered control for FW+ sources; ignored by stock nodes/APK
+        sendCustodyDelivered(id);
     }
 }
 
@@ -868,6 +898,16 @@ void StoreForwardModule::processSchedules()
                     rememberForwarded(p->id, originalId);
                 }
                 p->channel = this->packetHistory[i].channel;
+                //fw+ Initialize hop limit consistently for forwards/retries
+                if (s.isDM) {
+                    // For DM, use default configured hop limit for reliability
+                    p->hop_limit = Default::getConfiguredOrDefaultHopLimit(config.lora.hop_limit); //fw+
+                } else {
+                    // For broadcast, preserve a modest hop limit
+                    p->hop_limit = 2; //fw+ conservative rebroadcast distance
+                }
+                //fw+ ensure hop_start reflects a fresh transmission from this server
+                p->hop_start = p->hop_limit;
                 p->decoded.reply_id = this->packetHistory[i].reply_id;
                 p->rx_time = this->packetHistory[i].time;
                 p->decoded.emoji = (uint32_t)this->packetHistory[i].emoji;
@@ -917,6 +957,9 @@ void StoreForwardModule::processSchedules()
                 it = scheduleById.erase(it);
                 continue;
             }
+            else {
+                //fw+ no user-visible notification; protocol-level ACK only
+            }
         }
         // reschedule/backoff or remove
         s.tries++;
@@ -935,6 +978,21 @@ void StoreForwardModule::processSchedules()
         ++it;
     }
 }
+//fw+ Locate endpoints for a stored id
+bool StoreForwardModule::getHistoryEndpoints(uint32_t id, NodeNum &src, NodeNum &dst, uint8_t &channel)
+{
+    for (int32_t i = (int32_t)this->packetHistoryTotalCount - 1; i >= 0; --i) {
+        if (this->packetHistory[i].id == id) {
+            src = this->packetHistory[i].from;
+            dst = this->packetHistory[i].to;
+            channel = this->packetHistory[i].channel;
+            return true;
+        }
+    }
+    return false;
+}
+
+//fw+ user-visible notifications removed; rely on protocol-level ACK only
 
 void StoreForwardModule::rescheduleAfterBusy(CustodySchedule &s)
 {
