@@ -857,26 +857,15 @@ StoreForwardModule::StoreForwardModule()
         moduleConfig.store_forward.enabled = 1;
     }
 
-    //fw+ Auto-enable S&F for router roles on capable platforms, but still allow user to disable via UI/API
-    if (!moduleConfig.store_forward.enabled) {
-        if (config.device.role == meshtastic_Config_DeviceConfig_Role_ROUTER ||
-            config.device.role == meshtastic_Config_DeviceConfig_Role_ROUTER_LATE) {
-#if defined(ARCH_ESP32)
-            if (memGet.getPsramSize() > 0 && memGet.getFreePsram() >= 1024 * 1024) {
-                moduleConfig.store_forward.enabled = 1;
-                LOG_INFO("Auto-enabled S&F for router role (ESP32 with PSRAM). You can disable it in UI/API.");
-            }
-#elif defined(ARCH_PORTDUINO)
-            moduleConfig.store_forward.enabled = 1;
-            LOG_INFO("Auto-enabled S&F for router role (simulation). You can disable it in UI/API.");
-#endif
-        }
-    }
+    //fw+ Respect user setting: do not auto-enable here; role-based defaults are applied on role change
 
     if (moduleConfig.store_forward.enabled) {
 
         // Router
-        if ((config.device.role == meshtastic_Config_DeviceConfig_Role_ROUTER || moduleConfig.store_forward.is_server)) {
+        //fw+ include ROUTER_LATE role for S&F server initialization
+        if ((config.device.role == meshtastic_Config_DeviceConfig_Role_ROUTER ||
+             config.device.role == meshtastic_Config_DeviceConfig_Role_ROUTER_LATE ||
+             moduleConfig.store_forward.is_server)) {
             LOG_INFO("Init Store & Forward Module in Server mode");
 #if defined(ARCH_ESP32)
             if (memGet.getPsramSize() > 0 && memGet.getFreePsram() >= 1024 * 1024) {

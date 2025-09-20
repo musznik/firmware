@@ -782,8 +782,8 @@ void NodeDB::installDefaultModuleConfig()
     moduleConfig.has_range_test = true;
     moduleConfig.has_serial = true;
     moduleConfig.has_store_forward = true;
-    //fw+ Enable Store & Forward by default (client on low-RAM platforms)
-    moduleConfig.store_forward.enabled = true;
+    //fw+ Default: disable Store & Forward on clients; routers will re-enable server mode
+    moduleConfig.store_forward.enabled = false;
     moduleConfig.has_telemetry = true;
     moduleConfig.has_external_notification = true;
 #if defined(PIN_BUZZER)
@@ -1408,24 +1408,32 @@ void NodeDB::loadFromDisk()
         }
     }
 
-    //fw+ Normalize StoreForward defaults: enable by default across builds
+    //fw+ Normalize StoreForward defaults ONCE on role assignment; respect user setting thereafter
     {
         bool mutated = false;
         moduleConfig.has_store_forward = true;
-        if (!moduleConfig.store_forward.enabled) {
-            moduleConfig.store_forward.enabled = true;
-            mutated = true;
-        }
+
+        // If first-time or role just changed, apply role defaults. Otherwise, respect saved user prefs.
+        static meshtastic_Config_DeviceConfig_Role cachedRole = (meshtastic_Config_DeviceConfig_Role)0xFF;
+        bool roleChanged = (cachedRole != config.device.role);
+        cachedRole = config.device.role;
+
+        if (roleChanged) {
+            if (config.device.role == meshtastic_Config_DeviceConfig_Role_ROUTER ||
+                config.device.role == meshtastic_Config_DeviceConfig_Role_ROUTER_LATE) {
+                if (!moduleConfig.store_forward.enabled) { moduleConfig.store_forward.enabled = true; mutated = true; }
 #if defined(ARCH_ESP32) || defined(ARCH_PORTDUINO)
-        // Optionally auto-enable server mode for capable platforms when disabled
-        if (!moduleConfig.store_forward.is_server &&
-            (config.device.role == meshtastic_Config_DeviceConfig_Role_ROUTER || moduleConfig.store_forward.is_server)) {
-            // keep current is_server unless router role; leave as-is to avoid surprising changes
-        }
+                if (!moduleConfig.store_forward.is_server) { moduleConfig.store_forward.is_server = true; mutated = true; }
 #endif
+            } else {
+                if (moduleConfig.store_forward.enabled) { moduleConfig.store_forward.enabled = false; mutated = true; }
+                if (moduleConfig.store_forward.is_server) { moduleConfig.store_forward.is_server = false; mutated = true; }
+            }
+        }
+
         if (mutated) {
             saveToDisk(SEGMENT_MODULECONFIG);
-            LOG_INFO("Enabled StoreForward by default (normalized on load)");
+            LOG_INFO("Applied StoreForward role defaults (one-time on role change)");
         }
     }
 
