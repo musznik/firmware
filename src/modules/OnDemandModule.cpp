@@ -14,6 +14,7 @@
 #include "ProtobufModule.h"
 #include "SPILock.h"
 #include "FSCommon.h"
+#include "StoreForwardModule.h" //fw+
  
 
 OnDemandModule *onDemandModule;
@@ -97,6 +98,10 @@ bool OnDemandModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, mes
                 {
                     sendPacketToRequester(*pkt, mp);
                 }
+                break;
+            }
+            case meshtastic_OnDemandType_REQUEST_SF_STATUS: { //fw+
+                sendPacketToRequester(prepareSFCustodyStatus(), mp, false);
                 break;
             }
             default:
@@ -308,6 +313,31 @@ meshtastic_OnDemand OnDemandModule::preparePingResponseAck(const meshtastic_Mesh
         }
     }
 
+    return onDemand;
+}
+
+//fw+ Build Store&Forward custody status response
+meshtastic_OnDemand OnDemandModule::prepareSFCustodyStatus()
+{
+    meshtastic_OnDemand onDemand = meshtastic_OnDemand_init_zero;
+    onDemand.which_variant = meshtastic_OnDemand_response_tag;
+    onDemand.variant.response.response_type = meshtastic_OnDemandType_RESPONSE_SF_STATUS;
+    onDemand.variant.response.which_response_data = meshtastic_OnDemandResponse_sf_status_tag;
+
+    auto &s = onDemand.variant.response.response_data.sf_status;
+    bool active = (storeForwardModule && storeForwardModule->isServer());
+    s.server_active = active;
+    if (active) {
+        s.active_dm = storeForwardModule->getActiveDmCount();
+        s.active_broadcasts = storeForwardModule->getActiveBroadcastCount();
+        s.delivered_total = storeForwardModule->getDeliveredTotalCount();
+        s.claimed_total = storeForwardModule->getClaimedTotalCount();
+        s.dm_max_tries = storeForwardModule->getDmMaxTries();
+        s.dm_backoff_factor = storeForwardModule->getDmBackoffFactor();
+        s.min_retry_spacing_ms = storeForwardModule->getMinRetrySpacingMs();
+        s.busy_retry_ms = storeForwardModule->getBusyRetryMs();
+        s.heartbeat_interval = storeForwardModule->getHeartbeatInterval();
+    }
     return onDemand;
 }
 

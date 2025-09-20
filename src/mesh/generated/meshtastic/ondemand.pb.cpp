@@ -60,6 +60,9 @@ PB_BIND(meshtastic_OnDemandResponse, meshtastic_OnDemandResponse, 2)
 PB_BIND(meshtastic_OnDemand, meshtastic_OnDemand, 2)
 
 
+PB_BIND(meshtastic_SFCustodyStatus, meshtastic_SFCustodyStatus, AUTO)
+
+
 PB_BIND(meshtastic_RoutingTableEntry, meshtastic_RoutingTableEntry, AUTO)
 
 

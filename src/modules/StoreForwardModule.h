@@ -120,6 +120,27 @@ class StoreForwardModule : private concurrency::OSThread, public ProtobufModule<
     }
     void forgetForwarded(uint32_t forwardedId) { forwardedToOriginal.erase(forwardedId); }
 
+    //fw+ S&F status helpers for OnDemand
+    uint32_t getActiveDmCount() const
+    {
+        uint32_t count = 0;
+        for (const auto &kv : scheduleById) if (kv.second.isDM) count++;
+        return count;
+    }
+    uint32_t getActiveBroadcastCount() const
+    {
+        uint32_t count = 0;
+        for (const auto &kv : scheduleById) if (!kv.second.isDM) count++;
+        return count;
+    }
+    uint32_t getDeliveredTotalCount() const { return (uint32_t)deliveredIds.size(); }
+    uint32_t getClaimedTotalCount() const { return (uint32_t)claimedIds.size(); }
+    uint8_t getDmMaxTries() const { return dmMaxTries; }
+    float getDmBackoffFactor() const { return dmBackoffFactor; }
+    uint32_t getMinRetrySpacingMs() const { return minRetrySpacingMs; }
+    uint32_t getBusyRetryMs() const { return busyRetryMs; }
+    uint32_t getHeartbeatInterval() const { return heartbeatInterval; }
+
     /*
       -Override the wantPacket method.
     */
