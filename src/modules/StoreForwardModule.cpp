@@ -17,6 +17,7 @@
 #include "NodeDB.h"
 #include "RTC.h"
 #include "Router.h"
+#include "mesh/NextHopRouter.h" //fw+ DV-ETX adaptation hooks
 #include "Default.h" //fw+
 #include "Throttle.h"
 #include "airtime.h"
@@ -692,6 +693,33 @@ bool StoreForwardModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp,
                         LOG_INFO("fw+ Custody ACK for id=0x%x from router", id);
                     } else {
                         LOG_INFO("fw+ Delivered notice for id=0x%x from router", id);
+                        //fw+ Adapt DV-ETX: reward path towards source using last relay hint if available
+                        if (router) {
+                            auto nh = dynamic_cast<NextHopRouter *>(router);
+                            if (nh) {
+                                uint8_t via = (mp.relay_node != NO_RELAY_NODE) ? mp.relay_node : NO_NEXT_HOP_PREFERENCE;
+                                nh->rewardRouteOnDelivered(mp.id, getFrom(&mp), via, mp.rx_snr);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        //fw+ DELIVERY_FAILED mapping with reason in history.history_messages
+        if (p->rr == fwplus_custody::RR_ROUTER_DELIVERY_FAILED) {
+            uint32_t id = 0;
+            uint32_t reason = 0;
+            if (p->which_variant == meshtastic_StoreAndForward_history_tag) {
+                id = p->variant.history.window;
+                reason = p->variant.history.history_messages;
+            }
+            if (id && is_client) {
+                LOG_WARN("fw+ Delivery FAILED for id=0x%x reason=%u", id, (unsigned)reason);
+                if (router) {
+                    auto nh = dynamic_cast<NextHopRouter *>(router);
+                    if (nh) {
+                        uint8_t via = (mp.relay_node != NO_RELAY_NODE) ? mp.relay_node : NO_NEXT_HOP_PREFERENCE;
+                        nh->penalizeRouteOnFailed(mp.id, getFrom(&mp), via, reason);
                     }
                 }
             }

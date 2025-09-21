@@ -92,6 +92,12 @@ class NextHopRouter : public FloodingRouter
     // The number of retransmissions the original sender will do
     constexpr static uint8_t NUM_RELIABLE_RETX = 3;
 
+    //fw+ Adapt DV-ETX using S&F custody signals
+    //fw+ Reward the route used by a delivered DM identified by original packet id
+    void rewardRouteOnDelivered(PacketId originalId, NodeNum sourceNode, uint8_t viaHopLastByte, int8_t rxSnr);
+    //fw+ Penalize the route used by a failed DM identified by original packet id
+    void penalizeRouteOnFailed(PacketId originalId, NodeNum sourceNode, uint8_t viaHopLastByte, uint32_t reasonCode);
+
   protected:
     /**
      * Pending retransmissions

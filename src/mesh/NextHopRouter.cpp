@@ -387,6 +387,42 @@ bool NextHopRouter::canProbeGlobal(uint32_t now) const
     bool utilOk = util < (float)utilThr;
     return cooldownOk && dayBudgetOk && utilOk;
 }
+
+//fw+ DV-ETX adaptation from S&F custody: reward successful path
+void NextHopRouter::rewardRouteOnDelivered(PacketId originalId, NodeNum sourceNode, uint8_t viaHopLastByte, int8_t rxSnr)
+{
+    // Only adapt for unicasts sourced by sourceNode (DMs). We map delivered notice back to dest = 0 for now,
+    // because we don't carry explicit destination here. Use source context and last-hop hint.
+    (void)originalId; // currently unused in aggregation
+    if (viaHopLastByte == NO_NEXT_HOP_PREFERENCE) return;
+
+    // Heuristic: treat observed cost as good (local hop from viaHop + 0.5 ahead)
+    float hopCost = estimateEtxFromSnr((float)rxSnr) + 0.5f;
+    // Use learnRoute keyed by destination = sourceNode (we want better path TO sourceNode for replies)
+    learnRoute(sourceNode, viaHopLastByte, hopCost);
+}
+
+//fw+ DV-ETX adaptation from S&F custody: penalize failing path
+void NextHopRouter::penalizeRouteOnFailed(PacketId originalId, NodeNum sourceNode, uint8_t viaHopLastByte, uint32_t reasonCode)
+{
+    (void)originalId;
+    (void)viaHopLastByte;
+    // Map routing error to penalty magnitude
+    float penalty = 0.8f; // base
+    switch ((meshtastic_Routing_Error)reasonCode) {
+    case meshtastic_Routing_Error_NO_CHANNEL:
+    case meshtastic_Routing_Error_PKI_UNKNOWN_PUBKEY:
+        penalty = 1.5f; // strong penalty for terminal NAK
+        break;
+    case meshtastic_Routing_Error_DUTY_CYCLE_LIMIT:
+        penalty = 0.3f; // transient congestion
+        break;
+    default:
+        penalty = 0.8f;
+        break;
+    }
+    invalidateRoute(sourceNode, penalty);
+}
 //fw+
 bool NextHopRouter::canProbeDest(uint32_t dest, uint32_t now) const
 {
