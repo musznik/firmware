@@ -71,6 +71,10 @@ class Router : protected concurrency::OSThread, protected PacketHistory
      */
     void setReceivedMessage();
 
+    //fw+ DV-ETX adaptation hooks (no-op by default; overridden by NextHopRouter)
+    virtual void rewardRouteOnDelivered(PacketId /*originalId*/, NodeNum /*sourceNode*/, uint8_t /*viaHopLastByte*/, int8_t /*rxSnr*/) {}
+    virtual void penalizeRouteOnFailed(PacketId /*originalId*/, NodeNum /*sourceNode*/, uint8_t /*viaHopLastByte*/, uint32_t /*reasonCode*/) {}
+
     /**
      * RadioInterface calls this to queue up packets that have been received from the radio.  The router is now responsible for
      * freeing the packet

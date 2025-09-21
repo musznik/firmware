@@ -695,11 +695,8 @@ bool StoreForwardModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp,
                         LOG_INFO("fw+ Delivered notice for id=0x%x from router", id);
                         //fw+ Adapt DV-ETX: reward path towards source using last relay hint if available
                         if (router) {
-                            auto nh = dynamic_cast<NextHopRouter *>(router);
-                            if (nh) {
-                                uint8_t via = (mp.relay_node != NO_RELAY_NODE) ? mp.relay_node : NO_NEXT_HOP_PREFERENCE;
-                                nh->rewardRouteOnDelivered(mp.id, getFrom(&mp), via, mp.rx_snr);
-                            }
+                            uint8_t via = (mp.relay_node != NO_RELAY_NODE) ? mp.relay_node : NO_NEXT_HOP_PREFERENCE;
+                            router->rewardRouteOnDelivered(mp.id, getFrom(&mp), via, mp.rx_snr);
                         }
                     }
                 }
@@ -716,11 +713,8 @@ bool StoreForwardModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp,
             if (id && is_client) {
                 LOG_WARN("fw+ Delivery FAILED for id=0x%x reason=%u", id, (unsigned)reason);
                 if (router) {
-                    auto nh = dynamic_cast<NextHopRouter *>(router);
-                    if (nh) {
-                        uint8_t via = (mp.relay_node != NO_RELAY_NODE) ? mp.relay_node : NO_NEXT_HOP_PREFERENCE;
-                        nh->penalizeRouteOnFailed(mp.id, getFrom(&mp), via, reason);
-                    }
+                    uint8_t via = (mp.relay_node != NO_RELAY_NODE) ? mp.relay_node : NO_NEXT_HOP_PREFERENCE;
+                    router->penalizeRouteOnFailed(mp.id, getFrom(&mp), via, reason);
                 }
             }
         }

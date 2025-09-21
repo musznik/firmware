@@ -1415,16 +1415,11 @@ void NodeDB::loadFromDisk()
         cachedRole = config.device.role;
 
         if (roleChanged) {
-            if (config.device.role == meshtastic_Config_DeviceConfig_Role_ROUTER ||
-                config.device.role == meshtastic_Config_DeviceConfig_Role_ROUTER_LATE) {
-                //fw+ Do not force-enable client; allow server-only to persist
-#if defined(ARCH_ESP32) || defined(ARCH_PORTDUINO)
-                if (!moduleConfig.store_forward.is_server) { moduleConfig.store_forward.is_server = true; mutated = true; }
-#endif
-            } else {
-                // fw+ For non-router roles, disable client by default; keep server-only if set
+            //fw+ Do not auto-enable S&F server on router roles; always respect user setting
+            // For non-router roles, still default client to off; do not touch is_server
+            if (config.device.role != meshtastic_Config_DeviceConfig_Role_ROUTER &&
+                config.device.role != meshtastic_Config_DeviceConfig_Role_ROUTER_LATE) {
                 if (moduleConfig.store_forward.enabled) { moduleConfig.store_forward.enabled = false; mutated = true; }
-                // leave is_server as-is
             }
         }
 
