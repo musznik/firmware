@@ -38,6 +38,8 @@
 
 static MemoryDynamic<meshtastic_MeshPacket> dynamicPool;
 Allocator<meshtastic_MeshPacket> &packetPool = dynamicPool;
+//fw+ use same pool for retransmissions on native to avoid cross-pool release mismatches
+Allocator<meshtastic_MeshPacket> &retransPacketPool = dynamicPool;
 #else
 // Embedded targets use static memory pools with compile-time constants
 //fw+ provide extra headroom for reliable-copy bursts
