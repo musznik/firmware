@@ -1458,27 +1458,22 @@ void NodeDB::loadFromDisk()
         }
     }
 
-    // fw+: Normalize Opportunistic/Selective Flooding defaults (fill unset/zero only)
+    // fw+: Normalize Opportunistic/Selective Flooding defaults (numeric only, never flip user toggles)
     {
         bool mutated = false;
         moduleConfig.has_nodemodadmin = true;
         auto &adm = moduleConfig.nodemodadmin;
 
-        // Enable opportunistic flooding and auto mode by default if unset
-        if (!adm.opportunistic_flooding_enabled) { adm.opportunistic_flooding_enabled = true; mutated = true; }
-        if (!adm.opportunistic_auto) { adm.opportunistic_auto = true; mutated = true; }
 
-        // Parameters: if zero, set to sensible defaults
+        // Only backfill numeric parameters when they are zero (unset in prior versions).
         if (adm.opportunistic_base_delay_ms == 0) { adm.opportunistic_base_delay_ms = 60; mutated = true; }
         if (adm.opportunistic_hop_delay_ms == 0) { adm.opportunistic_hop_delay_ms = 30; mutated = true; }
         if (adm.opportunistic_snr_gain_ms == 0) { adm.opportunistic_snr_gain_ms = 8; mutated = true; }
         if (adm.opportunistic_jitter_ms == 0) { adm.opportunistic_jitter_ms = 40; mutated = true; }
-        // opportunistic_cancel_on_first_hear: default to true only if currently false (first run)
-        if (!adm.opportunistic_cancel_on_first_hear) { adm.opportunistic_cancel_on_first_hear = true; mutated = true; }
 
         if (mutated) {
             saveToDisk(SEGMENT_MODULECONFIG);
-            LOG_INFO("Normalized Opportunistic Flooding defaults (filled unset/zero values)");
+            LOG_INFO("Normalized Opportunistic Flooding numeric defaults (filled zero values only)");
         }
     }
 
