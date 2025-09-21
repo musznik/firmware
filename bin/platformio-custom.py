@@ -15,6 +15,25 @@ Import("env")
 platform = env.PioPlatform()
 
 
+# Enable ccache for faster rebuilds if available on PATH
+try:
+    subprocess.run(["ccache", "--version"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    print("Enabling ccache for faster incremental builds")
+    for tool_name in ("CC", "CXX", "AR", "AS", "RANLIB", "LINK"):
+        tool_value = env.get(tool_name)
+        if not tool_value:
+            continue
+        # Handle both string and list tool specifications from SCons env
+        if isinstance(tool_value, str):
+            if not tool_value.startswith("ccache "):
+                env[tool_name] = "ccache " + tool_value
+        elif isinstance(tool_value, list):
+            if len(tool_value) == 0 or tool_value[0] != "ccache":
+                env[tool_name] = ["ccache"] + tool_value
+except Exception:
+    # ccache not available or another non-fatal issue; ignore
+    pass
+
 def esp32_create_combined_bin(source, target, env):
     # this sub is borrowed from ESPEasy build toolchain. It's licensed under GPL V3
     # https://github.com/letscontrolit/ESPEasy/blob/mega/tools/pio/post_esp32.py
