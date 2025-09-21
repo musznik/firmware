@@ -314,7 +314,7 @@ typedef struct _meshtastic_ModuleConfig_StoreForwardConfig {
     uint32_t history_return_window;
     /* Set to true to let this node act as a server that stores received messages and resends them upon request. */
     bool is_server;
-    /* fw+ Emit FW+ custody control signals (CA/DR) for S&F; ignored by stock nodes */
+    /* fw+ Emit FW+ custody control signals (CA/DR/DF) for S&F; ignored by stock nodes */
     bool emit_control_signals; /* fw+ */
 } meshtastic_ModuleConfig_StoreForwardConfig;
 

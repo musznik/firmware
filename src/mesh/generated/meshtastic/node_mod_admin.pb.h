@@ -89,6 +89,11 @@ typedef struct _meshtastic_NodeModAdmin {
     bool force_disable_https; /* fw+ */
     /* fw+ Allow router to emit CA/DR control-only custody signals */
     bool emit_custody_control_signals; /* fw+ */
+    /* fw+ Dense/problematic terrain pacing knobs for custody delivery (optional; auto-dense still applies)
+ Minimum retry spacing in seconds in dense environments (0 => default 90s) */
+    uint32_t dense_min_retry_secs; /* fw+ */
+    /* Initial delivery wait cap in seconds in dense environments (0 => default 45s) */
+    uint32_t dense_initial_cap_secs; /* fw+ */
 } meshtastic_NodeModAdmin;
 
 
@@ -97,8 +102,8 @@ extern "C" {
 #endif
 
 /* Initializer values for message structs */
-#define meshtastic_NodeModAdmin_init_default     {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
-#define meshtastic_NodeModAdmin_init_zero        {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+#define meshtastic_NodeModAdmin_init_default     {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+#define meshtastic_NodeModAdmin_init_zero        {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define meshtastic_NodeModAdmin_sniffer_enabled_tag 1
@@ -147,6 +152,8 @@ extern "C" {
 #define meshtastic_NodeModAdmin_hysteresis_cost_threshold_tenths_tag 44
 #define meshtastic_NodeModAdmin_force_disable_https_tag 45
 #define meshtastic_NodeModAdmin_emit_custody_control_signals_tag 46
+#define meshtastic_NodeModAdmin_dense_min_retry_secs_tag 47
+#define meshtastic_NodeModAdmin_dense_initial_cap_secs_tag 48
 
 /* Struct field encoding specification for nanopb */
 #define meshtastic_NodeModAdmin_FIELDLIST(X, a) \
@@ -195,7 +202,9 @@ X(a, STATIC,   SINGULAR, UINT32,   route_ttl_max_hours,  42) \
 X(a, STATIC,   SINGULAR, UINT32,   min_confidence_to_use,  43) \
 X(a, STATIC,   SINGULAR, UINT32,   hysteresis_cost_threshold_tenths,  44) \
 X(a, STATIC,   SINGULAR, BOOL,     force_disable_https,  45) \
-X(a, STATIC,   SINGULAR, BOOL,     emit_custody_control_signals,  46)
+X(a, STATIC,   SINGULAR, BOOL,     emit_custody_control_signals,  46) \
+X(a, STATIC,   SINGULAR, UINT32,   dense_min_retry_secs,  47) \
+X(a, STATIC,   SINGULAR, UINT32,   dense_initial_cap_secs,  48)
 #define meshtastic_NodeModAdmin_CALLBACK NULL
 #define meshtastic_NodeModAdmin_DEFAULT NULL
 
@@ -206,7 +215,7 @@ extern const pb_msgdesc_t meshtastic_NodeModAdmin_msg;
 
 /* Maximum encoded size of messages (where known) */
 #define MESHTASTIC_MESHTASTIC_NODE_MOD_ADMIN_PB_H_MAX_SIZE meshtastic_NodeModAdmin_size
-#define meshtastic_NodeModAdmin_size             272
+#define meshtastic_NodeModAdmin_size             286
 
 #ifdef __cplusplus
 } /* extern "C" */

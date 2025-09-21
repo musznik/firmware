@@ -207,7 +207,7 @@ class StoreForwardModule : private concurrency::OSThread, public ProtobufModule<
     void scheduleCustodyIfReady(uint32_t id);
     void scheduleFromHistory(uint32_t id);
     void processSchedules();
-    uint32_t addJitter(uint32_t ms, uint8_t pct);
+    uint32_t addJitter(uint32_t ms, uint8_t pct) const;
     uint32_t nowMs() const { return millis(); }
     //fw+ Send Custody ACK to original sender for DM takeover
     void sendCustodyAck(NodeNum to, uint32_t origId);

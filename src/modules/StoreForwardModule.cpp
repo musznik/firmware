@@ -823,7 +823,7 @@ uint32_t StoreForwardModule::countActiveHistory() const
     return c;
 }
 
-uint32_t StoreForwardModule::addJitter(uint32_t ms, uint8_t pct)
+uint32_t StoreForwardModule::addJitter(uint32_t ms, uint8_t pct) const
 {
     if (pct == 0) return ms;
     uint32_t span = (ms * pct) / 100;
@@ -846,8 +846,18 @@ uint32_t StoreForwardModule::computeInitialDelayMs(uint8_t estHops) const
     // Target: 10–30s normal; 15–45s in dense mesh mode
     uint32_t cap = 30000;
     uint32_t base0 = 10000;
-    if (moduleConfig.store_forward.dense_mesh_mode) {
-        cap = (moduleConfig.store_forward.dense_initial_cap_secs ? moduleConfig.store_forward.dense_initial_cap_secs : 45) * 1000;
+    //fw+ apply dense overrides from NodeModAdmin (optional) or auto-dense heuristic
+    bool dense = isDenseEnvironment();
+#ifdef HAS_ADMIN_MODULE
+    if (moduleConfig.nodemodadmin.dense_initial_cap_secs) {
+        dense = true;
+        uint32_t v = moduleConfig.nodemodadmin.dense_initial_cap_secs * 1000;
+        if (v > cap) cap = v;
+        base0 = 15000;
+    }
+#endif
+    if (dense) {
+        cap = (cap < 45000 ? 45000 : cap); // default to 45s cap if none provided
         base0 = 15000;
     }
     uint32_t base = base0 + (uint32_t)(dmHopCoefMs * 2.0f) * estHops;
@@ -859,10 +869,16 @@ uint32_t StoreForwardModule::computeRetryDelayMs(uint8_t tries, uint8_t estHops,
 {
     // Retry pacing: min 60–90s between attempts, plus hop scaling (~0.8s/hop), with jitter
     uint32_t minBase = 60000;
-    if (moduleConfig.store_forward.dense_mesh_mode) {
-        uint32_t dense = (moduleConfig.store_forward.dense_min_retry_secs ? moduleConfig.store_forward.dense_min_retry_secs : 90) * 1000;
-        if (dense > minBase) minBase = dense;
+    //fw+ apply dense retry spacing from NodeModAdmin (optional) or auto-dense heuristic
+    bool dense = isDenseEnvironment();
+#ifdef HAS_ADMIN_MODULE
+    if (moduleConfig.nodemodadmin.dense_min_retry_secs) {
+        dense = true;
+        uint32_t v = moduleConfig.nodemodadmin.dense_min_retry_secs * 1000;
+        if (v > minBase) minBase = v;
     }
+#endif
+    if (dense && minBase < 90000) minBase = 90000; // default 90s if none provided
     uint32_t hopComponent = (uint32_t)(dmHopCoefMs * 2.0f) * estHops;
     uint32_t base = minBase + hopComponent;
     uint32_t target = now + addJitter(base, dmJitterPct);
@@ -874,13 +890,12 @@ uint32_t StoreForwardModule::computeRetryDelayMs(uint8_t tries, uint8_t estHops,
 bool StoreForwardModule::isDenseEnvironment() const
 {
     //fw+ Dense if we see many local-online nodes (non-MQTT) or global nodes, or high polite/max channel utilization
-    uint32_t localOnline = 0;
     uint32_t total = 0;
     if (nodeDB) {
-        localOnline = nodeDB->getNumOnlineMeshNodes(true);
         total = nodeDB->getNumMeshNodes();
     }
-    bool manyNodes = (localOnline >= 12) || (total >= 60);
+    //fw+ Treat as dense when total visible nodes are high
+    bool manyNodes = (total >= 100);
     bool highUtil = false;
     if (airTime) {
         //fw+ Consider dense when polite utilization is high; thresholds are conservative
