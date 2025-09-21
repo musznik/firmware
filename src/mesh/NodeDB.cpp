@@ -963,22 +963,18 @@ void NodeDB::installRoleDefaults(meshtastic_Config_DeviceConfig_Role role)
         config.device.rebroadcast_mode = meshtastic_Config_DeviceConfig_RebroadcastMode_ALL;
         owner.has_is_unmessagable = true;
         owner.is_unmessagable = true;
-        // Opportunistic flooding enabled by default for router roles
-        moduleConfig.has_nodemodadmin = true;
-        moduleConfig.nodemodadmin.opportunistic_flooding_enabled = true;
+		//fw+ Respect user setting for opportunistic flooding; do not toggle on role change
     } else if (role == meshtastic_Config_DeviceConfig_Role_ROUTER_LATE) {
         moduleConfig.telemetry.device_update_interval = ONE_DAY;
         owner.has_is_unmessagable = true;
         owner.is_unmessagable = true;
-        moduleConfig.has_nodemodadmin = true;
-        moduleConfig.nodemodadmin.opportunistic_flooding_enabled = true;
+		//fw+ Respect user setting for opportunistic flooding; do not toggle on role change
     } else if (role == meshtastic_Config_DeviceConfig_Role_REPEATER) {
         owner.has_is_unmessagable = true;
         owner.is_unmessagable = true;
         config.display.screen_on_secs = 1;
         config.device.rebroadcast_mode = meshtastic_Config_DeviceConfig_RebroadcastMode_ALL;
-        moduleConfig.has_nodemodadmin = true;
-        moduleConfig.nodemodadmin.opportunistic_flooding_enabled = true;
+		//fw+ Respect user setting for opportunistic flooding; do not toggle on role change
     } else if (role == meshtastic_Config_DeviceConfig_Role_SENSOR) {
         owner.has_is_unmessagable = true;
         owner.is_unmessagable = true;
