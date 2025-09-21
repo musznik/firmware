@@ -247,6 +247,18 @@ void ReliableRouter::sniffReceived(const meshtastic_MeshPacket *p, const meshtas
                 storeForwardModule->forgetForwarded(ackId);
             }
         }
+        //fw+ Source-side DR broadcast (FW+ optional): when we (destination/source of ACK) are the addressed node and receive ACK,
+        // broadcast a delivered control so S&F servers that didn't hear the ACK can cancel schedules.
+        if (ackId && isToUs(p) && storeForwardModule) {
+            bool allow = false;
+            if (moduleConfig.store_forward.emit_control_signals) allow = true;
+#ifdef HAS_ADMIN_MODULE
+            if (moduleConfig.nodemodadmin.emit_custody_control_signals) allow = true;
+#endif
+            if (allow) {
+                storeForwardModule->broadcastDeliveredControl((uint32_t)ackId);
+            }
+        }
 
         // A nak is a routing packt that has an  error code
         PacketId nakId = (c && c->error_reason != meshtastic_Routing_Error_NONE) ? p->decoded.request_id : 0;

@@ -1022,6 +1022,12 @@ StoreForwardModule::StoreForwardModule()
 
     //fw+ Respect user setting: do not auto-enable here; role-based defaults are applied on role change
 
+    //fw+ Default the new control flags to disabled unless explicitly set by user
+    moduleConfig.store_forward.emit_control_signals = moduleConfig.store_forward.emit_control_signals ? 1 : 0; //fw+
+#ifdef HAS_ADMIN_MODULE
+    moduleConfig.nodemodadmin.emit_custody_control_signals = moduleConfig.nodemodadmin.emit_custody_control_signals ? 1 : 0; //fw+
+#endif
+
     //fw+ Allow server-only init if requested explicitly, even when module disabled
     if (moduleConfig.store_forward.enabled || moduleConfig.store_forward.is_server) {
 
