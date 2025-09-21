@@ -1057,80 +1057,68 @@ StoreForwardModule::StoreForwardModule()
     moduleConfig.nodemodadmin.emit_custody_control_signals = moduleConfig.nodemodadmin.emit_custody_control_signals ? 1 : 0; //fw+
 #endif
 
-    //fw+ Allow server-only init if requested explicitly, even when module disabled
-    if (moduleConfig.store_forward.enabled || moduleConfig.store_forward.is_server) {
-
-        // Router
-        //fw+ include ROUTER_LATE role for S&F server initialization
-        if ((config.device.role == meshtastic_Config_DeviceConfig_Role_ROUTER ||
-             config.device.role == meshtastic_Config_DeviceConfig_Role_ROUTER_LATE ||
-             moduleConfig.store_forward.is_server)) {
-            LOG_INFO("Init Store & Forward Module in Server mode");
+    //fw+ Do NOT auto-enable based on role. Only explicit flags control init.
+    if (moduleConfig.store_forward.is_server) {
+        LOG_INFO("Init Store & Forward Module in Server mode");
 #if defined(ARCH_ESP32)
-            if (memGet.getPsramSize() > 0 && memGet.getFreePsram() >= 1024 * 1024) {
-                // Do the startup here
-                if (moduleConfig.store_forward.history_return_max)
-                    this->historyReturnMax = moduleConfig.store_forward.history_return_max;
-                if (moduleConfig.store_forward.history_return_window)
-                    this->historyReturnWindow = moduleConfig.store_forward.history_return_window;
-                if (moduleConfig.store_forward.records)
-                    this->records = moduleConfig.store_forward.records;
-                this->heartbeat = moduleConfig.store_forward.heartbeat ? moduleConfig.store_forward.heartbeat : false;
-                this->populatePSRAM();
-                is_server = true;
-            } else {
-                // fw+ Mini-server mode without PSRAM when user requested server (is_server true)
-                if (moduleConfig.store_forward.is_server) {
-                    // Conservative defaults to avoid DRAM exhaustion
-                    // fw+ Tiny DRAM buffer with upper clamp for safety
-                    if (!moduleConfig.store_forward.records) {
-                        this->records = 16; // fw+ ultra-small DRAM buffer for mini-server
-                    } else {
-                        uint32_t r = moduleConfig.store_forward.records; // fw+
-                        this->records = (r > 64 ? 64 : r);              // fw+ clamp to 64 max in mini-server
-                    }
-                    if (moduleConfig.store_forward.history_return_max)
-                        this->historyReturnMax = moduleConfig.store_forward.history_return_max;
-                    else
-                        this->historyReturnMax = 8; // fw+ minimal replay batch
-                    if (moduleConfig.store_forward.history_return_window)
-                        this->historyReturnWindow = moduleConfig.store_forward.history_return_window;
-                    else
-                        this->historyReturnWindow = 30; // fw+ 30 minutes
-                    this->heartbeat = false; // fw+ reduce CPU/RAM pressure
-
-                    // Allocate in DRAM instead of PSRAM
-                    this->packetHistory = static_cast<PacketHistoryStruct *>(calloc(this->records, sizeof(PacketHistoryStruct)));
-                    if (!this->packetHistory) {
-                        LOG_ERROR("fw+ S&F mini-server: DRAM alloc failed, disabling S&F server");
-                    } else {
-                        miniServerMode = true; // fw+
-                        is_server = true;
-                        LOG_WARN("fw+ S&F mini-server active (no PSRAM): records=%u returnMax=%u window=%u min",
-                                 (unsigned)this->records, (unsigned)this->historyReturnMax, (unsigned)this->historyReturnWindow);
-                    }
-                } else {
-                    LOG_INFO("S&F: not enough PSRAM free, Disable");
-                }
-            }
-#elif defined(ARCH_PORTDUINO)
-            //fw+ Allow server mode without PSRAM on Portduino; use small RAM buffer
-            if (!moduleConfig.store_forward.records)
-                this->records = 128; // small default for simulation
+        if (memGet.getPsramSize() > 0 && memGet.getFreePsram() >= 1024 * 1024) {
+            // Do the startup here
             if (moduleConfig.store_forward.history_return_max)
                 this->historyReturnMax = moduleConfig.store_forward.history_return_max;
             if (moduleConfig.store_forward.history_return_window)
                 this->historyReturnWindow = moduleConfig.store_forward.history_return_window;
+            if (moduleConfig.store_forward.records)
+                this->records = moduleConfig.store_forward.records;
             this->heartbeat = moduleConfig.store_forward.heartbeat ? moduleConfig.store_forward.heartbeat : false;
             this->populatePSRAM();
             is_server = true;
-#endif
-
-            // Client
         } else {
-            is_client = true;
-            LOG_INFO("Init Store & Forward Module in Client mode");
+            // fw+ Mini-server mode without PSRAM when user requested server (is_server true)
+            // Conservative defaults to avoid DRAM exhaustion
+            // fw+ Tiny DRAM buffer with upper clamp for safety
+            if (!moduleConfig.store_forward.records) {
+                this->records = 16; // fw+ ultra-small DRAM buffer for mini-server
+            } else {
+                uint32_t r = moduleConfig.store_forward.records; // fw+
+                this->records = (r > 64 ? 64 : r);              // fw+ clamp to 64 max in mini-server
+            }
+            if (moduleConfig.store_forward.history_return_max)
+                this->historyReturnMax = moduleConfig.store_forward.history_return_max;
+            else
+                this->historyReturnMax = 8; // fw+ minimal replay batch
+            if (moduleConfig.store_forward.history_return_window)
+                this->historyReturnWindow = moduleConfig.store_forward.history_return_window;
+            else
+                this->historyReturnWindow = 30; // fw+ 30 minutes
+            this->heartbeat = false; // fw+ reduce CPU/RAM pressure
+
+            // Allocate in DRAM instead of PSRAM
+            this->packetHistory = static_cast<PacketHistoryStruct *>(calloc(this->records, sizeof(PacketHistoryStruct)));
+            if (!this->packetHistory) {
+                LOG_ERROR("fw+ S&F mini-server: DRAM alloc failed, disabling S&F server");
+            } else {
+                miniServerMode = true; // fw+
+                is_server = true;
+                LOG_WARN("fw+ S&F mini-server active (no PSRAM): records=%u returnMax=%u window=%u min",
+                         (unsigned)this->records, (unsigned)this->historyReturnMax, (unsigned)this->historyReturnWindow);
+            }
         }
+#elif defined(ARCH_PORTDUINO)
+        //fw+ Allow server mode without PSRAM on Portduino; use small RAM buffer
+        if (!moduleConfig.store_forward.records)
+            this->records = 128; // small default for simulation
+        if (moduleConfig.store_forward.history_return_max)
+            this->historyReturnMax = moduleConfig.store_forward.history_return_max;
+        if (moduleConfig.store_forward.history_return_window)
+            this->historyReturnWindow = moduleConfig.store_forward.history_return_window;
+        this->heartbeat = moduleConfig.store_forward.heartbeat ? moduleConfig.store_forward.heartbeat : false;
+        this->populatePSRAM();
+        is_server = true;
+#endif
+    } else if (moduleConfig.store_forward.enabled) {
+        // Client only when explicitly enabled
+        is_client = true;
+        LOG_INFO("Init Store & Forward Module in Client mode");
     } else {
         disable();
     }
