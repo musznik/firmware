@@ -834,6 +834,61 @@ uint32_t StoreForwardModule::addJitter(uint32_t ms, uint8_t pct)
     return (uint32_t)out;
 }
 
+uint8_t StoreForwardModule::estimateHops(NodeNum to) const
+{
+    meshtastic_NodeInfoLite *n = nodeDB ? nodeDB->getMeshNode(to) : nullptr;
+    if (n && n->has_hops_away && n->hops_away > 0 && n->hops_away <= 7) return (uint8_t)n->hops_away;
+    return 8; // fallback conservative
+}
+
+uint32_t StoreForwardModule::computeInitialDelayMs(uint8_t estHops) const
+{
+    // Target: 10–30s normal; 15–45s in dense mesh mode
+    uint32_t cap = 30000;
+    uint32_t base0 = 10000;
+    if (moduleConfig.store_forward.dense_mesh_mode) {
+        cap = (moduleConfig.store_forward.dense_initial_cap_secs ? moduleConfig.store_forward.dense_initial_cap_secs : 45) * 1000;
+        base0 = 15000;
+    }
+    uint32_t base = base0 + (uint32_t)(dmHopCoefMs * 2.0f) * estHops;
+    if (base > cap) base = cap;
+    return addJitter(base, dmJitterPct);
+}
+
+uint32_t StoreForwardModule::computeRetryDelayMs(uint8_t tries, uint8_t estHops, uint32_t lastTxMs, uint32_t now) const
+{
+    // Retry pacing: min 60–90s between attempts, plus hop scaling (~0.8s/hop), with jitter
+    uint32_t minBase = 60000;
+    if (moduleConfig.store_forward.dense_mesh_mode) {
+        uint32_t dense = (moduleConfig.store_forward.dense_min_retry_secs ? moduleConfig.store_forward.dense_min_retry_secs : 90) * 1000;
+        if (dense > minBase) minBase = dense;
+    }
+    uint32_t hopComponent = (uint32_t)(dmHopCoefMs * 2.0f) * estHops;
+    uint32_t base = minBase + hopComponent;
+    uint32_t target = now + addJitter(base, dmJitterPct);
+    if (lastTxMs && target < lastTxMs + minRetrySpacingMs) target = lastTxMs + minRetrySpacingMs;
+    return target;
+}
+
+//fw+ Heuristic to detect dense/contended environments based on NodeDB and channel utilization
+bool StoreForwardModule::isDenseEnvironment() const
+{
+    //fw+ Dense if we see many local-online nodes (non-MQTT) or global nodes, or high polite/max channel utilization
+    uint32_t localOnline = 0;
+    uint32_t total = 0;
+    if (nodeDB) {
+        localOnline = nodeDB->getNumOnlineMeshNodes(true);
+        total = nodeDB->getNumMeshNodes();
+    }
+    bool manyNodes = (localOnline >= 12) || (total >= 60);
+    bool highUtil = false;
+    if (airTime) {
+        //fw+ Consider dense when polite utilization is high; thresholds are conservative
+        highUtil = (airTime->polite_channel_util_percent >= 25) || (airTime->max_channel_util_percent >= 35);
+    }
+    return manyNodes || highUtil;
+}
+
 void StoreForwardModule::scheduleFromHistory(uint32_t id)
 {
     // Find last matching packet in history (simple linear scan from tail)
@@ -846,14 +901,17 @@ void StoreForwardModule::scheduleFromHistory(uint32_t id)
             s.to = this->packetHistory[i].to;
             s.isDM = (s.to != NODENUM_BROADCAST && s.to != NODENUM_BROADCAST_NO_LORA);
             s.tries = 0;
-            uint32_t base = s.isDM ? (dmInitialBaseMs + (uint32_t)dmHopCoefMs * 8) : (bcMinDelayMs);
+            //fw+ scale initial delay by estimated hops (dense mesh settling)
+            uint8_t estHops = estimateHops(s.to);
+            uint32_t base = s.isDM ? computeInitialDelayMs(estHops) : (random(bcMaxDelayMs - bcMinDelayMs + 1) + bcMinDelayMs);
 #ifdef ARCH_PORTDUINO
             //fw+ In simulation, schedule DM sooner to observe forwarding quickly
             if (s.isDM) base = 400; // ~0.4s
 #endif
-            if (!s.isDM) base = random(bcMaxDelayMs - bcMinDelayMs + 1) + bcMinDelayMs;
             //fw+ never schedule in the past
-            s.nextAttemptMs = nowMs() + addJitter(base, s.isDM ? dmJitterPct : bcJitterPct);
+            s.nextAttemptMs = nowMs() + (s.isDM ? base : addJitter(base, bcJitterPct));
+            //fw+ set overall deadline (5 min from custody start)
+            s.deadlineMs = nowMs() + dmMaxDelayMs;
             scheduleById[id] = s;
             LOG_INFO("fw+ S&F schedule id=0x%x in %u ms (DM=%d)", id, (unsigned)(s.nextAttemptMs - nowMs()), (int)s.isDM);
             break;
@@ -994,13 +1052,14 @@ void StoreForwardModule::processSchedules()
             it = scheduleById.erase(it);
             continue;
         }
-        // DM backoff with spacing guard
-        double base = (double)dmInitialBaseMs + (double)dmHopCoefMs * 8.0; // assume 8 hops if unknown
-        double next = base * pow(dmBackoffFactor, s.tries);
-        if (next > dmMaxDelayMs) next = dmMaxDelayMs;
-        uint32_t target = now + addJitter((uint32_t)next, dmJitterPct);
-        if (s.lastTxMs && target < s.lastTxMs + minRetrySpacingMs) {
-            target = s.lastTxMs + minRetrySpacingMs;
+        //fw+ DM pacing: >=60s + hop scaling, guard spacing and overall deadline
+        uint8_t estHops = estimateHops(s.to);
+        uint32_t target = computeRetryDelayMs(s.tries, estHops, s.lastTxMs, now);
+        if (s.deadlineMs && target > s.deadlineMs) {
+            // terminal: emit DF and drop
+            broadcastDeliveryFailedControl(s.id, (uint32_t)meshtastic_Routing_Error_NO_ROUTE);
+            it = scheduleById.erase(it);
+            continue;
         }
         s.nextAttemptMs = target;
         LOG_DEBUG("fw+ S&F reschedule id=0x%x in %u ms (try=%u)", s.id, (unsigned)(s.nextAttemptMs - now), s.tries);

@@ -286,7 +286,7 @@ void ReliableRouter::sniffReceived(const meshtastic_MeshPacket *p, const meshtas
                     if (moduleConfig.nodemodadmin.emit_custody_control_signals) allow = true;
 #endif
                     if (allow) {
-                        // emit DF using original id if translated earlier; jeśli nie, nakId wystarczy
+                        //fw+ Emit DF using original id if translated earlier; if not, nakId is sufficient
                         storeForwardModule->broadcastDeliveryFailedControl((uint32_t)nakId, (uint32_t)c->error_reason);
                     }
                 }

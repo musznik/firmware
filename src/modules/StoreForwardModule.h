@@ -55,6 +55,8 @@ class StoreForwardModule : private concurrency::OSThread, public ProtobufModule<
         uint8_t tries;
         //fw+ track last transmission time to avoid overlapping with router retransmissions
         uint32_t lastTxMs = 0;
+        //fw+ overall deadline to give up (since custody start)
+        uint32_t deadlineMs = 0;
     };
     std::unordered_map<uint32_t, CustodySchedule> scheduleById; // id -> schedule
     std::unordered_map<uint32_t, bool> pendingSchedule;         // ids awaiting history entry
@@ -63,18 +65,18 @@ class StoreForwardModule : private concurrency::OSThread, public ProtobufModule<
     std::unordered_map<uint32_t, uint32_t> forwardedToOriginal; //fw+ forwardedId -> originalId
 
     // Scheduling parameters (can be tuned later / moved to ModuleConfig)
-    uint32_t dmInitialBaseMs = 5000;       // base 5s
-    float dmHopCoefMs = 400.0f;            // +0.4s per estimated hop
-    float dmBackoffFactor = 1.8f;          // exponential
-    uint32_t dmMaxDelayMs = 8 * 60 * 1000; // 15 minutes cap
-    uint8_t dmMaxTries = 3; //fw+ reduce retries to limit airtime spam
+    uint32_t dmInitialBaseMs = 5000;       // base 5s (legacy; initial now uses computeInitialDelayMs)
+    float dmHopCoefMs = 400.0f;            // ~0.4s per hop; doubled to ~0.8s RT budget
+    float dmBackoffFactor = 1.8f;          // legacy exponential (not used for DM retries)
+    uint32_t dmMaxDelayMs = 5 * 60 * 1000; // fw+ overall cap 5 minutes
+    uint8_t dmMaxTries = 3;                //fw+ reduce retries to limit airtime spam
     uint8_t dmJitterPct = 15;              // +/- percent
     uint32_t bcMinDelayMs = 6000;          // 6s
     uint32_t bcMaxDelayMs = 12000;         // 12s
     uint8_t bcJitterPct = 20;
     uint32_t busyRetryMs = 2500;           //fw+ retry when channel busy
-    //fw+ enforce minimum spacing between S&F retries to prevent overlap with ReliableRouter retx
-    uint32_t minRetrySpacingMs = 8000;     // ~7.3s typical router retx + margin
+    //fw+ enforce minimum spacing between S&F retries to prevent overlap; now 60s base pacing
+    uint32_t minRetrySpacingMs = 60000;    // 60s
 
   public:
     //fw+ accept encrypted packets for opaque custody
@@ -223,6 +225,14 @@ class StoreForwardModule : private concurrency::OSThread, public ProtobufModule<
     void sendDeliveryFailed(uint32_t origId, uint32_t reasonCode);
     //fw+ helper: locate last history record for id and extract endpoints
     bool getHistoryEndpoints(uint32_t id, NodeNum &src, NodeNum &dst, uint8_t &channel);
+    //fw+ estimate hop distance to destination using NodeDB, fallback to default (8)
+    uint8_t estimateHops(NodeNum to) const;
+    //fw+ compute DM initial delay (10–30s window scaled by hops)
+    uint32_t computeInitialDelayMs(uint8_t estHops) const;
+    //fw+ compute DM retry target time (>=60s + hop scaling, with jitter and spacing guards)
+    uint32_t computeRetryDelayMs(uint8_t tries, uint8_t estHops, uint32_t lastTxMs, uint32_t now) const;
+    //fw+ dense auto-detect using NodeDB and channel utilization
+    bool isDenseEnvironment() const;
     //fw+ user-visible notifications removed
 };
 
