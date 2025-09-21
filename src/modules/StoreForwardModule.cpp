@@ -755,6 +755,30 @@ void StoreForwardModule::sendCustodyDelivered(uint32_t origId)
     storeForwardModule->sendMessage(NODENUM_BROADCAST, sf);
 }
 
+//fw+ Broadcast a delivery-failed (DF) so other servers can drop and sources can mark failure
+static inline bool isTerminalNak(meshtastic_Routing_Error e)
+{
+    return (e == meshtastic_Routing_Error_NO_CHANNEL || e == meshtastic_Routing_Error_PKI_UNKNOWN_PUBKEY);
+}
+
+void StoreForwardModule::sendDeliveryFailed(uint32_t origId, uint32_t reasonCode)
+{
+    bool allow = false;
+    if (moduleConfig.store_forward.emit_control_signals) allow = true;
+#ifdef HAS_ADMIN_MODULE
+    if (moduleConfig.nodemodadmin.emit_custody_control_signals) allow = true;
+#endif
+    if (!allow) return;
+
+    meshtastic_StoreAndForward sf = meshtastic_StoreAndForward_init_zero;
+    sf.rr = (meshtastic_StoreAndForward_RequestResponse)fwplus_custody::RR_ROUTER_DELIVERY_FAILED; //fw+
+    sf.which_variant = meshtastic_StoreAndForward_history_tag;
+    // Reuse window for id; encode reason into history_messages for compactness
+    sf.variant.history.window = origId;
+    sf.variant.history.history_messages = reasonCode;
+    storeForwardModule->sendMessage(NODENUM_BROADCAST, sf);
+}
+
 //fw+ cancel schedule on destination ACK and mark delivered
 void StoreForwardModule::cancelScheduleOnAck(uint32_t id, NodeNum ackFrom)
 {
@@ -964,7 +988,12 @@ void StoreForwardModule::processSchedules()
         // reschedule/backoff or remove
         s.tries++;
         if (!s.isDM) { it = scheduleById.erase(it); continue; }
-        if (s.tries >= dmMaxTries) { it = scheduleById.erase(it); continue; }
+        if (s.tries >= dmMaxTries) {
+            //fw+ terminal failure: emit DF (optional) and drop schedule
+            broadcastDeliveryFailedControl(s.id, (uint32_t)meshtastic_Routing_Error_NO_ROUTE);
+            it = scheduleById.erase(it);
+            continue;
+        }
         // DM backoff with spacing guard
         double base = (double)dmInitialBaseMs + (double)dmHopCoefMs * 8.0; // assume 8 hops if unknown
         double next = base * pow(dmBackoffFactor, s.tries);

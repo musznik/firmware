@@ -276,6 +276,20 @@ void ReliableRouter::sniffReceived(const meshtastic_MeshPacket *p, const meshtas
                 }
             } else {
                 stopRetransmission(p->to, nakId);
+                //fw+ Source-side DF broadcast (FW+ optional): if NAK is terminal and adressee is us, inform mesh
+                if (nakId && isToUs(p) && storeForwardModule &&
+                    (c->error_reason == meshtastic_Routing_Error_NO_CHANNEL ||
+                     c->error_reason == meshtastic_Routing_Error_PKI_UNKNOWN_PUBKEY)) {
+                    bool allow = false;
+                    if (moduleConfig.store_forward.emit_control_signals) allow = true;
+#ifdef HAS_ADMIN_MODULE
+                    if (moduleConfig.nodemodadmin.emit_custody_control_signals) allow = true;
+#endif
+                    if (allow) {
+                        // emit DF using original id if translated earlier; jeśli nie, nakId wystarczy
+                        storeForwardModule->broadcastDeliveryFailedControl((uint32_t)nakId, (uint32_t)c->error_reason);
+                    }
+                }
             }
         }
     }

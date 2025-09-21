@@ -183,6 +183,8 @@ class StoreForwardModule : private concurrency::OSThread, public ProtobufModule<
     bool isStoreForwardServerActive() const { return is_server; }
     //fw+ public wrapper for emitting delivered control (keeps core method non-public)
     void broadcastDeliveredControl(uint32_t origId) { sendCustodyDelivered(origId); }
+    //fw+ public wrapper for emitting delivery-failed control
+    void broadcastDeliveryFailedControl(uint32_t origId, uint32_t reasonCode) { sendDeliveryFailed(origId, reasonCode); }
 
   private:
     //fw+ Mini-server mode for boards without PSRAM: use tiny DRAM buffer and stricter limits
@@ -218,6 +220,7 @@ class StoreForwardModule : private concurrency::OSThread, public ProtobufModule<
     //fw+ custody signals
     void sendCustodyClaim(uint32_t origId);
     void sendCustodyDelivered(uint32_t origId);
+    void sendDeliveryFailed(uint32_t origId, uint32_t reasonCode);
     //fw+ helper: locate last history record for id and extract endpoints
     bool getHistoryEndpoints(uint32_t id, NodeNum &src, NodeNum &dst, uint8_t &channel);
     //fw+ user-visible notifications removed
