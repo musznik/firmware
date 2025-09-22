@@ -34,6 +34,11 @@
 
 StoreForwardModule *storeForwardModule;
 
+//fw+ Privacy policy: by default do NOT serve remote S&F client requests (HISTORY/STATS)
+// to avoid leaking status/history to non-APK+ apps that render these frames as chat.
+// This can be relaxed in future via Admin config when available.
+static inline bool fwplus_allow_remote_sf_client_requests() { return false; }
+
 int32_t StoreForwardModule::runOnce()
 {
 #if defined(ARCH_ESP32) || defined(ARCH_PORTDUINO) || defined(ARCH_NRF52)
@@ -580,6 +585,11 @@ bool StoreForwardModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp,
 
     case meshtastic_StoreAndForward_RequestResponse_CLIENT_HISTORY:
         if (is_server) {
+            //fw+ Privacy: block serving HISTORY to remote clients unless explicitly allowed
+            if (!fwplus_allow_remote_sf_client_requests()) {
+                storeForwardModule->sendMessage(getFrom(&mp), meshtastic_StoreAndForward_RequestResponse_ROUTER_BUSY);
+                break;
+            }
             requests_history++;
             LOG_INFO("Client Request to send HISTORY");
             // fw+ In mini-server mode, do not serve history replays to conserve RAM
@@ -616,6 +626,12 @@ bool StoreForwardModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp,
 
     case meshtastic_StoreAndForward_RequestResponse_CLIENT_STATS:
         if (is_server) {
+            //fw+ Privacy: block serving STATS to remote clients unless explicitly allowed
+            if (!fwplus_allow_remote_sf_client_requests()) {
+                storeForwardModule->sendMessage(getFrom(&mp), meshtastic_StoreAndForward_RequestResponse_ROUTER_BUSY);
+                LOG_INFO("S&F - Remote STATS blocked by privacy policy");
+                break;
+            }
             LOG_INFO("Client Request to send STATS");
             if (this->busy) {
                 storeForwardModule->sendMessage(getFrom(&mp), meshtastic_StoreAndForward_RequestResponse_ROUTER_BUSY);
