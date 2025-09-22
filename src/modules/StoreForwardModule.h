@@ -62,13 +62,16 @@ class StoreForwardModule : private concurrency::OSThread, public ProtobufModule<
     std::unordered_map<uint32_t, bool> pendingSchedule;         // ids awaiting history entry
     std::unordered_set<uint32_t> deliveredIds;                  //fw+ delivered DMs
     std::unordered_set<uint32_t> claimedIds;                    //fw+ custody-claimed elsewhere
+    //fw+ TTL maps for network-wide suppression
+    std::unordered_map<uint32_t, uint32_t> claimExpiryMs;       //fw+ id -> expiry ms
+    std::unordered_map<uint32_t, uint32_t> failedExpiryMs;      //fw+ id -> expiry ms
     std::unordered_map<uint32_t, uint32_t> forwardedToOriginal; //fw+ forwardedId -> originalId
 
     // Scheduling parameters (can be tuned later / moved to ModuleConfig)
     uint32_t dmInitialBaseMs = 5000;       // base 5s (legacy; initial now uses computeInitialDelayMs)
     float dmHopCoefMs = 400.0f;            // ~0.4s per hop; doubled to ~0.8s RT budget
     float dmBackoffFactor = 1.8f;          // legacy exponential (not used for DM retries)
-    uint32_t dmMaxDelayMs = 5 * 60 * 1000; // fw+ overall cap 5 minutes
+    uint32_t dmMaxDelayMs = 10 * 60 * 1000; // fw+ overall cap 10 minutes
     uint8_t dmMaxTries = 3;                //fw+ reduce retries to limit airtime spam
     uint8_t dmJitterPct = 15;              // +/- percent
     uint32_t bcMinDelayMs = 6000;          // 6s
@@ -77,6 +80,9 @@ class StoreForwardModule : private concurrency::OSThread, public ProtobufModule<
     uint32_t busyRetryMs = 2500;           //fw+ retry when channel busy
     //fw+ enforce minimum spacing between S&F retries to prevent overlap; now 60s base pacing
     uint32_t minRetrySpacingMs = 60000;    // 60s
+    //fw+ network-wide suppression TTLs
+    uint32_t claimTtlMs = 30 * 60 * 1000;  // 30 minutes
+    uint32_t failTtlMs = 30 * 60 * 1000;   // 30 minutes
 
   public:
     //fw+ accept encrypted packets for opaque custody
@@ -115,8 +121,37 @@ class StoreForwardModule : private concurrency::OSThread, public ProtobufModule<
     void markDelivered(uint32_t id);
     bool isDelivered(uint32_t id) const { return deliveredIds.find(id) != deliveredIds.end(); }
     //fw+ mark/verify external custody claim
-    void markClaimed(uint32_t id) { claimedIds.insert(id); }
-    bool isClaimed(uint32_t id) const { return claimedIds.find(id) != claimedIds.end(); }
+    //fw+ mark/verify external custody claim with TTL
+    void markClaimed(uint32_t id)
+    {
+        claimedIds.insert(id);
+        claimExpiryMs[id] = nowMs() + claimTtlMs;
+    }
+    bool isClaimed(uint32_t id)
+    {
+        auto it = claimedIds.find(id);
+        if (it == claimedIds.end()) return false;
+        auto ex = claimExpiryMs.find(id);
+        if (ex != claimExpiryMs.end() && nowMs() > ex->second) {
+            //fw+ expired claim
+            claimedIds.erase(it);
+            claimExpiryMs.erase(id);
+            return false;
+        }
+        return true;
+    }
+    //fw+ failed suppression helpers with TTL
+    void markFailed(uint32_t id)
+    {
+        failedExpiryMs[id] = nowMs() + failTtlMs;
+    }
+    bool isFailed(uint32_t id)
+    {
+        auto it = failedExpiryMs.find(id);
+        if (it == failedExpiryMs.end()) return false;
+        if (nowMs() > it->second) { failedExpiryMs.erase(it); return false; }
+        return true;
+    }
     //fw+ mapping helpers for forwarded DM ids
     void rememberForwarded(uint32_t forwardedId, uint32_t originalId) { forwardedToOriginal[forwardedId] = originalId; }
     uint32_t translateForwardedToOriginal(uint32_t id) const

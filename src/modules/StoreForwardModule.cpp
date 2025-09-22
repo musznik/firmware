@@ -332,7 +332,9 @@ meshtastic_MeshPacket *StoreForwardModule::preparePayload(NodeNum dest, uint32_t
     for (uint32_t i = lastRequest[dest]; i < this->packetHistoryTotalCount; i++) {
         if (this->packetHistory[i].time && (this->packetHistory[i].time > last_time)) {
             //fw+ skip delivered ids entirely
-            if (isDelivered(this->packetHistory[i].id)) continue;
+                if (isDelivered(this->packetHistory[i].id)) continue;
+                //fw+ skip globally failed ids to avoid recreating schedules on HISTORY
+                if (isFailed(this->packetHistory[i].id)) continue;
             //fw+ skip if custody claimed elsewhere
             if (isClaimed(this->packetHistory[i].id)) continue;
             /*  Copy the messages that were received by the server in the last msAgo
@@ -519,9 +521,10 @@ ProcessMessage StoreForwardModule::handleReceived(const meshtastic_MeshPacket &m
             //fw+ Opaque custody path for encrypted DM we can't decode locally
             LOG_DEBUG("fw+ Encrypted DM captured id=0x%x", mp.id);
             storeForwardModule->historyAddOpaque(mp);
-            // For DM, emit Custody ACK so the source stops retransmitting
+            // For DM, emit Custody ACK so the source stops retransmitting; mark claimed locally
             if (mp.to != NODENUM_BROADCAST && mp.to != NODENUM_BROADCAST_NO_LORA) {
                 sendCustodyAck(getFrom(&mp), mp.id);
+                markClaimed(mp.id);
             }
         } else if (!isFromUs(&mp) && mp.decoded.portnum == meshtastic_PortNum_STORE_FORWARD_APP) {
             auto &p = mp.decoded;
@@ -716,6 +719,9 @@ bool StoreForwardModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp,
                     uint8_t via = (mp.relay_node != NO_RELAY_NODE) ? mp.relay_node : NO_NEXT_HOP_PREFERENCE;
                     router->penalizeRouteOnFailed(mp.id, getFrom(&mp), via, reason);
                 }
+                //fw+ Global suppression of further replays for this id on this node
+                markFailed(id);
+                clearHistoryById(id);
             }
         }
         break; // no need to do anything more
@@ -932,7 +938,7 @@ void StoreForwardModule::scheduleFromHistory(uint32_t id)
     for (int32_t i = (int32_t)this->packetHistoryTotalCount - 1; i >= 0; --i) {
         if (this->packetHistory[i].id == id) {
             //fw+ do not schedule delivered entries
-            if (isDelivered(id)) return;
+            if (isDelivered(id) || isFailed(id) || isClaimed(id)) return;
             CustodySchedule s{};
             s.id = id;
             s.to = this->packetHistory[i].to;
@@ -950,6 +956,8 @@ void StoreForwardModule::scheduleFromHistory(uint32_t id)
             //fw+ set overall deadline (5 min from custody start)
             s.deadlineMs = nowMs() + dmMaxDelayMs;
             scheduleById[id] = s;
+            //fw+ announce claim so other servers back off
+            sendCustodyClaim(id);
             LOG_INFO("fw+ S&F schedule id=0x%x in %u ms (DM=%d)", id, (unsigned)(s.nextAttemptMs - nowMs()), (int)s.isDM);
             break;
         }
@@ -1084,8 +1092,10 @@ void StoreForwardModule::processSchedules()
         s.tries++;
         if (!s.isDM) { it = scheduleById.erase(it); continue; }
         if (s.tries >= dmMaxTries) {
-            //fw+ terminal failure: emit DF (optional) and drop schedule
+            //fw+ terminal failure: emit DF and markFailed; drop schedule
             broadcastDeliveryFailedControl(s.id, (uint32_t)meshtastic_Routing_Error_NO_ROUTE);
+            markFailed(s.id);
+            clearHistoryById(s.id);
             it = scheduleById.erase(it);
             continue;
         }
@@ -1093,8 +1103,10 @@ void StoreForwardModule::processSchedules()
         uint8_t estHops = estimateHops(s.to);
         uint32_t target = computeRetryDelayMs(s.tries, estHops, s.lastTxMs, now);
         if (s.deadlineMs && target > s.deadlineMs) {
-            // terminal: emit DF and drop
+            // terminal: emit DF, markFailed and drop
             broadcastDeliveryFailedControl(s.id, (uint32_t)meshtastic_Routing_Error_NO_ROUTE);
+            markFailed(s.id);
+            clearHistoryById(s.id);
             it = scheduleById.erase(it);
             continue;
         }
@@ -1134,14 +1146,9 @@ StoreForwardModule::StoreForwardModule()
 
 #if defined(ARCH_ESP32) || defined(ARCH_PORTDUINO)
 
-    isPromiscuous = true; // Brown chicken brown cow
+    isPromiscuous = true;
 
     if (StoreForward_Dev) {
-        /*
-            Uncomment the preferences below if you want to use the module
-            without having to configure it from the PythonAPI or WebUI.
-        */
-
         moduleConfig.store_forward.enabled = 1;
     }
 
