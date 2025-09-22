@@ -85,6 +85,9 @@ class Router : protected concurrency::OSThread, protected PacketHistory
     virtual uint32_t getOpportunisticProfile() const { return 0; }
     virtual bool getOpportunisticEnabled() const { return false; }
 
+    //fw+ DV-ETX route confidence query (no-op default: allow)
+    virtual bool hasRouteConfidence(NodeNum /*dest*/, uint8_t /*minConf*/) const { return true; }
+
     /**
      * Send a packet on a suitable interface.  This routine will
      * later free() the packet to pool.  This routine is not allowed to stall.

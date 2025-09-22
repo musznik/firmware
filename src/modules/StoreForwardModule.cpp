@@ -1151,15 +1151,9 @@ bool StoreForwardModule::isDestFresh(NodeNum dest) const
 //fw+ Minimal DV-ETX confidence gating (uses NextHopRouter snapshot if available)
 bool StoreForwardModule::hasSufficientRouteConfidence(NodeNum dest) const
 {
-    auto nh = dynamic_cast<NextHopRouter *>(router);
-    if (!nh) return true; // if no DV-ETX router, don't gate
-    auto snapshot = nh->getRouteSnapshot(true);
-    for (const auto &e : snapshot) {
-        if (e.dest == dest) {
-            return e.confidence >= minRouteConfidence;
-        }
-    }
-    return false;
+    // Use virtual hook on Router (no RTTI)
+    if (!router) return true;
+    return router->hasRouteConfidence(dest, minRouteConfidence);
 }
 
 //fw+ user-visible notifications removed; rely on protocol-level ACK only

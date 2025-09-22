@@ -290,4 +290,12 @@ class NextHopRouter : public FloodingRouter
         }
         return out;
     }
+
+    //fw+ expose confidence check to callers without RTTI
+    bool hasRouteConfidence(NodeNum dest, uint8_t minConf) const override
+    {
+        auto snap = getRouteSnapshot(true);
+        for (const auto &e : snap) if (e.dest == dest) return e.confidence >= minConf;
+        return false;
+    }
 };
