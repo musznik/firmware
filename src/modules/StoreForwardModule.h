@@ -19,6 +19,8 @@ struct PacketHistoryStruct {
     uint8_t channel;
     uint32_t reply_id;
     bool emoji;
+    //fw+ original want_ack of captured packet (for deferred custody decisions)
+    bool want_ack;
     //fw+ mark whether payload[] holds encrypted bytes (opaque custody)
     bool encrypted;
     uint8_t payload[meshtastic_Constants_DATA_PAYLOAD_LEN];

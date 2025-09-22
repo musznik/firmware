@@ -223,6 +223,7 @@ void StoreForwardModule::historyAdd(const meshtastic_MeshPacket &mp)
     this->packetHistory[this->packetHistoryTotalCount].id = mp.id;
     this->packetHistory[this->packetHistoryTotalCount].reply_id = p.reply_id;
     this->packetHistory[this->packetHistoryTotalCount].emoji = (bool)p.emoji;
+    this->packetHistory[this->packetHistoryTotalCount].want_ack = mp.want_ack; //fw+
     this->packetHistory[this->packetHistoryTotalCount].encrypted = false;
     this->packetHistory[this->packetHistoryTotalCount].payload_size = p.payload.size;
     this->packetHistory[this->packetHistoryTotalCount].rx_rssi = mp.rx_rssi;
@@ -244,14 +245,10 @@ void StoreForwardModule::historyAdd(const meshtastic_MeshPacket &mp)
     }
     //fw+ proactive: schedule on hear (no CR/CA needed)
     if (is_server) {
+        //fw+ deferred custody: do not emit CA here; only schedule consideration
         scheduleFromHistory(mp.id);
-        //fw+ For DM, emit Custody ACK to the original sender so it stops retransmissions
-        if (mp.to != NODENUM_BROADCAST && mp.to != NODENUM_BROADCAST_NO_LORA) {
-            sendCustodyAck(getFrom(&mp), mp.id);
-            //fw+ also ensure schedule exists even if history scan missed (pending path)
-            if (scheduleById.find(mp.id) == scheduleById.end()) {
-                pendingSchedule[mp.id] = true;
-            }
+        if (scheduleById.find(mp.id) == scheduleById.end()) {
+            pendingSchedule[mp.id] = true;
         }
     }
 }
@@ -272,6 +269,7 @@ void StoreForwardModule::historyAddOpaque(const meshtastic_MeshPacket &mp)
     this->packetHistory[this->packetHistoryTotalCount].id = mp.id;
     this->packetHistory[this->packetHistoryTotalCount].reply_id = 0;
     this->packetHistory[this->packetHistoryTotalCount].emoji = false;
+    this->packetHistory[this->packetHistoryTotalCount].want_ack = mp.want_ack; //fw+
     this->packetHistory[this->packetHistoryTotalCount].encrypted = true;
     // copy encrypted payload
     size_t copyLen = mp.encrypted.size;
@@ -298,8 +296,8 @@ void StoreForwardModule::historyAddOpaque(const meshtastic_MeshPacket &mp)
         pendingSchedule.erase(it);
     }
     if (is_server) {
+        //fw+ deferred custody for opaque: no immediate CA; just schedule consideration
         scheduleFromHistory(mp.id);
-        // If schedule didn't get created (race), mark pending
         if (scheduleById.find(mp.id) == scheduleById.end()) {
             pendingSchedule[mp.id] = true;
         }
@@ -956,8 +954,11 @@ void StoreForwardModule::scheduleFromHistory(uint32_t id)
         if (this->packetHistory[i].id == id) {
             //fw+ do not schedule delivered entries
             if (isDelivered(id) || isFailed(id) || isClaimed(id)) return;
-            //fw+ Gating: hops, freshness, DV-ETX confidence
+            //fw+ Gating: require DM (unicast) with original want_ack, freshness, DV-ETX
             NodeNum dest = this->packetHistory[i].to;
+            bool isDM = (dest != NODENUM_BROADCAST && dest != NODENUM_BROADCAST_NO_LORA);
+            if (!isDM) return; // do not take custody for broadcasts
+            if (!this->packetHistory[i].want_ack) return; // only take custody for packets that wanted ACK
             if (estimateHops(dest) > forwardMaxHops || !isDestFresh(dest) || !hasSufficientRouteConfidence(dest)) {
                 // Do not attempt; globally announce DF to stop others and mark failed locally
                 broadcastDeliveryFailedControl(id, (uint32_t)meshtastic_Routing_Error_NO_ROUTE);
@@ -968,7 +969,7 @@ void StoreForwardModule::scheduleFromHistory(uint32_t id)
             CustodySchedule s{};
             s.id = id;
             s.to = this->packetHistory[i].to;
-            s.isDM = (s.to != NODENUM_BROADCAST && s.to != NODENUM_BROADCAST_NO_LORA);
+            s.isDM = true;
             s.tries = 0;
             //fw+ scale initial delay by estimated hops (dense mesh settling)
             uint8_t estHops = estimateHops(s.to);
@@ -982,8 +983,7 @@ void StoreForwardModule::scheduleFromHistory(uint32_t id)
             //fw+ set overall deadline (5 min from custody start)
             s.deadlineMs = nowMs() + dmMaxDelayMs;
             scheduleById[id] = s;
-            //fw+ announce claim so other servers back off
-            sendCustodyClaim(id);
+            //fw+ do NOT announce claim yet; send CA/CR just-in-time before first transmit
             LOG_INFO("fw+ S&F schedule id=0x%x in %u ms (DM=%d)", id, (unsigned)(s.nextAttemptMs - nowMs()), (int)s.isDM);
             break;
         }
@@ -1098,6 +1098,13 @@ void StoreForwardModule::processSchedules()
             }
         }
         if (p) {
+            //fw+ Just-in-time custody signaling before first transmission attempt
+            if (s.tries == 0) {
+                // Unicast CA to source to stop its retransmissions; broadcast CR for other S&F
+                NodeNum src = this->packetHistory[i].from;
+                sendCustodyAck(src, s.id);
+                sendCustodyClaim(s.id);
+            }
             LOG_INFO("fw+ S&F deliver orig=0x%x fwd=0x%x try=%u (activeHist=%u)", s.id, p->id, (unsigned)s.tries + 1, (unsigned)countActiveHistory());
             service->sendToMesh(p);
             s.lastTxMs = nowMs();
