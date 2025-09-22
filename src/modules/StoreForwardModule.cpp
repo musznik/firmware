@@ -895,7 +895,7 @@ uint32_t StoreForwardModule::computeInitialDelayMs(uint8_t estHops) const
 
 uint32_t StoreForwardModule::computeRetryDelayMs(uint8_t tries, uint8_t estHops, uint32_t lastTxMs, uint32_t now) const
 {
-    // Retry pacing: min 60–90s between attempts, plus hop scaling (~0.8s/hop), with jitter
+    // Retry pacing: minimum 2 minutes per hop (server-relative), with jitter
     uint32_t minBase = 60000;
     //fw+ apply dense retry spacing from NodeModAdmin (optional) or auto-dense heuristic
     bool dense = isDenseEnvironment();
@@ -907,8 +907,9 @@ uint32_t StoreForwardModule::computeRetryDelayMs(uint8_t tries, uint8_t estHops,
     }
 #endif
     if (dense && minBase < 90000) minBase = 90000; // default 90s if none provided
-    uint32_t hopComponent = (uint32_t)(dmHopCoefMs * 2.0f) * estHops;
-    uint32_t base = minBase + hopComponent;
+    uint32_t hops = estHops ? estHops : 1;
+    uint32_t hopSpacing = 120000UL * hops; // 2 min per hop
+    uint32_t base = (hopSpacing > minBase) ? hopSpacing : minBase;
     uint32_t target = now + addJitter(base, dmJitterPct);
     if (lastTxMs && target < lastTxMs + minRetrySpacingMs) target = lastTxMs + minRetrySpacingMs;
     return target;
