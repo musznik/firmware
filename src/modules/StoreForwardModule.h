@@ -221,6 +221,30 @@ class StoreForwardModule : private concurrency::OSThread, public ProtobufModule<
 
     uint32_t retry_delay = 0; // If server is busy, retry after this delay (in ms).
 
+    //fw+ Passive discovery of other FW+ S&F servers (no extra frames)
+    std::unordered_map<NodeNum, uint32_t> sfSeenMs; // server node -> last seen ms
+    uint32_t sfSeenTtlMs = 24 * 60 * 60 * 1000UL;   // 24h retention
+    void markSfServerSeen(NodeNum node)
+    {
+        sfSeenMs[node] = nowMs();
+        pruneSfSeen();
+    }
+    void pruneSfSeen()
+    {
+        uint32_t now = nowMs();
+        for (auto it = sfSeenMs.begin(); it != sfSeenMs.end();) {
+            if (now - it->second > sfSeenTtlMs) it = sfSeenMs.erase(it); else ++it;
+        }
+    }
+    bool hasRecentSfPeers(uint32_t windowMs) const
+    {
+        uint32_t now = millis();
+        for (const auto &kv : sfSeenMs) {
+            if (now - kv.second <= windowMs) return true;
+        }
+        return false;
+    }
+
   public:
     //fw+ expose S&F server active state to allow RAM-aware services (e.g., WebServer) to adapt
     bool isStoreForwardServerActive() const { return is_server; }

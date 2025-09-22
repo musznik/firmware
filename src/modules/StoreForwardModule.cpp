@@ -699,6 +699,8 @@ bool StoreForwardModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp,
     default: {
         //fw+ DTN-like: interpret custom custody RR codes using control variants (no text payload)
         if (p->rr == fwplus_custody::RR_ROUTER_CUSTODY_ACK || p->rr == fwplus_custody::RR_ROUTER_DELIVERED) {
+            //fw+ passive discovery: note FW+ S&F presence
+            markSfServerSeen(getFrom(&mp));
             uint32_t id = 0;
             if (p->which_variant == meshtastic_StoreAndForward_history_tag) {
                 id = p->variant.history.window; // CA/DR carry id here
@@ -721,6 +723,8 @@ bool StoreForwardModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp,
         }
         //fw+ DELIVERY_FAILED mapping with reason in history.history_messages
         if (p->rr == fwplus_custody::RR_ROUTER_DELIVERY_FAILED) {
+            //fw+ passive discovery: note FW+ S&F presence
+            markSfServerSeen(getFrom(&mp));
             uint32_t id = 0;
             uint32_t reason = 0;
             if (p->which_variant == meshtastic_StoreAndForward_history_tag) {
@@ -974,6 +978,11 @@ void StoreForwardModule::scheduleFromHistory(uint32_t id)
             //fw+ scale initial delay by estimated hops (dense mesh settling)
             uint8_t estHops = estimateHops(s.to);
             uint32_t base = s.isDM ? computeInitialDelayMs(estHops) : (random(bcMaxDelayMs - bcMinDelayMs + 1) + bcMinDelayMs);
+            //fw+ if we saw other FW+ S&F recently, increase initial delay slightly to reduce races
+            if (hasRecentSfPeers(30 * 60 * 1000UL)) { // last 30 minutes
+                uint32_t extra = (estHops + 1) * 500; // 0.5s per hop, min 0.5s
+                base += extra;
+            }
 #ifdef ARCH_PORTDUINO
             //fw+ In simulation, schedule DM sooner to observe forwarding quickly
             if (s.isDM) base = 400; // ~0.4s
