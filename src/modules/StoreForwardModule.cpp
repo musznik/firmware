@@ -1101,8 +1101,10 @@ void StoreForwardModule::processSchedules()
             //fw+ Just-in-time custody signaling before first transmission attempt
             if (s.tries == 0) {
                 // Unicast CA to source to stop its retransmissions; broadcast CR for other S&F
-                NodeNum src = this->packetHistory[i].from;
-                sendCustodyAck(src, s.id);
+                NodeNum src = 0, dst = 0; uint8_t ch = 0;
+                if (getHistoryEndpoints(s.id, src, dst, ch)) {
+                    sendCustodyAck(src, s.id);
+                }
                 sendCustodyClaim(s.id);
             }
             LOG_INFO("fw+ S&F deliver orig=0x%x fwd=0x%x try=%u (activeHist=%u)", s.id, p->id, (unsigned)s.tries + 1, (unsigned)countActiveHistory());
