@@ -83,6 +83,10 @@ class StoreForwardModule : private concurrency::OSThread, public ProtobufModule<
     //fw+ network-wide suppression TTLs
     uint32_t claimTtlMs = 30 * 60 * 1000;  // 30 minutes
     uint32_t failTtlMs = 30 * 60 * 1000;   // 30 minutes
+    //fw+ gating thresholds
+    uint8_t forwardMaxHops = 3;            // do not deliver if estimated hops exceed
+    uint32_t destStaleSeconds = 1800;      // 30 min: do not deliver if dest unheard for longer
+    uint8_t minRouteConfidence = 1;        // require at least minimal DV-ETX confidence
 
   public:
     //fw+ accept encrypted packets for opaque custody
@@ -262,6 +266,9 @@ class StoreForwardModule : private concurrency::OSThread, public ProtobufModule<
     bool getHistoryEndpoints(uint32_t id, NodeNum &src, NodeNum &dst, uint8_t &channel);
     //fw+ estimate hop distance to destination using NodeDB, fallback to default (8)
     uint8_t estimateHops(NodeNum to) const;
+    //fw+ DV-ETX routing hints
+    bool hasSufficientRouteConfidence(NodeNum dest) const;
+    bool isDestFresh(NodeNum dest) const;
     //fw+ compute DM initial delay (10–30s window scaled by hops)
     uint32_t computeInitialDelayMs(uint8_t estHops) const;
     //fw+ compute DM retry target time (>=60s + hop scaling, with jitter and spacing guards)

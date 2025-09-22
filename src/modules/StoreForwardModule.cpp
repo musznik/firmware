@@ -939,6 +939,15 @@ void StoreForwardModule::scheduleFromHistory(uint32_t id)
         if (this->packetHistory[i].id == id) {
             //fw+ do not schedule delivered entries
             if (isDelivered(id) || isFailed(id) || isClaimed(id)) return;
+            //fw+ Gating: hops, freshness, DV-ETX confidence
+            NodeNum dest = this->packetHistory[i].to;
+            if (estimateHops(dest) > forwardMaxHops || !isDestFresh(dest) || !hasSufficientRouteConfidence(dest)) {
+                // Do not attempt; globally announce DF to stop others and mark failed locally
+                broadcastDeliveryFailedControl(id, (uint32_t)meshtastic_Routing_Error_NO_ROUTE);
+                markFailed(id);
+                clearHistoryById(id);
+                return;
+            }
             CustodySchedule s{};
             s.id = id;
             s.to = this->packetHistory[i].to;
@@ -1124,6 +1133,30 @@ bool StoreForwardModule::getHistoryEndpoints(uint32_t id, NodeNum &src, NodeNum 
             dst = this->packetHistory[i].to;
             channel = this->packetHistory[i].channel;
             return true;
+        }
+    }
+    return false;
+}
+
+//fw+ Check that we have a fresh enough last_heard for destination
+bool StoreForwardModule::isDestFresh(NodeNum dest) const
+{
+    meshtastic_NodeInfoLite *n = nodeDB ? nodeDB->getMeshNode(dest) : nullptr;
+    if (!n) return false;
+    uint32_t now = getValidTime(RTCQualityFromNet);
+    if (n->last_heard == 0 || now == 0) return false;
+    return (now - n->last_heard) <= destStaleSeconds;
+}
+
+//fw+ Minimal DV-ETX confidence gating (uses NextHopRouter snapshot if available)
+bool StoreForwardModule::hasSufficientRouteConfidence(NodeNum dest) const
+{
+    auto nh = dynamic_cast<NextHopRouter *>(router);
+    if (!nh) return true; // if no DV-ETX router, don't gate
+    auto snapshot = nh->getRouteSnapshot(true);
+    for (const auto &e : snapshot) {
+        if (e.dest == dest) {
+            return e.confidence >= minRouteConfidence;
         }
     }
     return false;
