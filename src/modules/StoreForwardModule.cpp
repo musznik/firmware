@@ -1171,7 +1171,17 @@ bool StoreForwardModule::isDestFresh(NodeNum dest) const
     if (!n) return false;
     uint32_t now = getValidTime(RTCQualityFromNet);
     if (n->last_heard == 0 || now == 0) return false;
-    return (now - n->last_heard) <= destStaleSeconds;
+    //fw+ use dynamic allowance based on mesh density/quiet
+    return (now - n->last_heard) <= getDestStaleAllowance();
+}
+
+//fw+ In dense/active meshes keep 30 min; in sparse/quiet allow up to 2h
+uint32_t StoreForwardModule::getDestStaleAllowance() const
+{
+    bool dense = isDenseEnvironment();
+    if (dense) return destStaleSeconds; // default 30min
+    // sparse/quiet: extend to 2h (7200s)
+    return (uint32_t)7200;
 }
 
 //fw+ Minimal DV-ETX confidence gating (uses NextHopRouter snapshot if available)

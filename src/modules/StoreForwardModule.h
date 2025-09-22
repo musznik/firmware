@@ -271,6 +271,8 @@ class StoreForwardModule : private concurrency::OSThread, public ProtobufModule<
     //fw+ DV-ETX routing hints
     bool hasSufficientRouteConfidence(NodeNum dest) const;
     bool isDestFresh(NodeNum dest) const;
+    //fw+ Dynamic staleness allowance: longer in sparse/quiet meshes
+    uint32_t getDestStaleAllowance() const;
     //fw+ compute DM initial delay (10–30s window scaled by hops)
     uint32_t computeInitialDelayMs(uint8_t estHops) const;
     //fw+ compute DM retry target time (>=60s + hop scaling, with jitter and spacing guards)
