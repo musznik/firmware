@@ -682,6 +682,8 @@ bool StoreForwardModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp,
                 this->historyReturnMax = p->variant.stats.return_max;
                 this->historyReturnWindow = p->variant.stats.return_window;
             }
+            //fw+ Do not forward STATS to phone (FW+ privacy/UI hygiene)
+            return true;
         }
         break;
 
@@ -693,6 +695,8 @@ bool StoreForwardModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp,
                 LOG_INFO("Router Response HISTORY - Sending %d messages from last %d minutes",
                          p->variant.history.history_messages, this->historyReturnWindow);
             }
+            //fw+ Do not forward HISTORY headers to phone (FW+ privacy/UI hygiene)
+            return true;
         }
         break;
 
@@ -725,6 +729,8 @@ bool StoreForwardModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp,
                     }
                 }
             }
+            //fw+ Do not forward control (CA/CR/DR) to phone
+            return true;
         }
         //fw+ DELIVERY_FAILED mapping with reason in history.history_messages
         if (p->rr == fwplus_custody::RR_ROUTER_DELIVERY_FAILED) {
@@ -746,6 +752,8 @@ bool StoreForwardModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp,
                 markFailed(id);
                 clearHistoryById(id);
             }
+            //fw+ Do not forward DF control to phone
+            return true;
         }
         break; // no need to do anything more
     }
