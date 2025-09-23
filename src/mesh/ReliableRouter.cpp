@@ -251,11 +251,7 @@ void ReliableRouter::sniffReceived(const meshtastic_MeshPacket *p, const meshtas
         // broadcast a delivered control so S&F servers that didn't hear the ACK can cancel schedules.
         if (ackId && isToUs(p) && storeForwardModule) {
             bool allow = false;
-#ifdef HAS_ADMIN_MODULE
             allow = moduleConfig.nodemodadmin.emit_custody_control_signals;
-#else
-            allow = moduleConfig.store_forward.emit_control_signals;
-#endif
             if (allow) {
                 storeForwardModule->broadcastDeliveredControl((uint32_t)ackId);
             }
@@ -282,11 +278,7 @@ void ReliableRouter::sniffReceived(const meshtastic_MeshPacket *p, const meshtas
                     (c->error_reason == meshtastic_Routing_Error_NO_CHANNEL ||
                      c->error_reason == meshtastic_Routing_Error_PKI_UNKNOWN_PUBKEY)) {
                     bool allow = false;
-#ifdef HAS_ADMIN_MODULE
                     allow = moduleConfig.nodemodadmin.emit_custody_control_signals;
-#else
-                    allow = moduleConfig.store_forward.emit_control_signals;
-#endif
                     if (allow) {
                         //fw+ Emit DF using original id if translated earlier; if not, nakId is sufficient
                         storeForwardModule->broadcastDeliveryFailedControl((uint32_t)nakId, (uint32_t)c->error_reason);

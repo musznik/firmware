@@ -758,11 +758,7 @@ void StoreForwardModule::sendCustodyAck(NodeNum to, uint32_t origId)
 {
     //fw+ gate on single control: prefer NodeModAdmin when available; fallback to StoreForward flag
     bool allow = false;
-#ifdef HAS_ADMIN_MODULE
     allow = moduleConfig.nodemodadmin.emit_custody_control_signals;
-#else
-    allow = moduleConfig.store_forward.emit_control_signals;
-#endif
     if (!allow) return;
 
     meshtastic_StoreAndForward sf = meshtastic_StoreAndForward_init_zero;
@@ -777,11 +773,7 @@ void StoreForwardModule::sendCustodyAck(NodeNum to, uint32_t origId)
 void StoreForwardModule::sendCustodyClaim(uint32_t origId)
 {
     bool allow = false;
-#ifdef HAS_ADMIN_MODULE
     allow = moduleConfig.nodemodadmin.emit_custody_control_signals;
-#else
-    allow = moduleConfig.store_forward.emit_control_signals;
-#endif
     if (!allow) return;
 
     //fw+ Gate claim broadcast on long peer detection (12h) and channel utilization
@@ -803,11 +795,7 @@ void StoreForwardModule::sendCustodyClaim(uint32_t origId)
 void StoreForwardModule::sendCustodyDelivered(uint32_t origId)
 {
     bool allow = false;
-#ifdef HAS_ADMIN_MODULE
     allow = moduleConfig.nodemodadmin.emit_custody_control_signals;
-#else
-    allow = moduleConfig.store_forward.emit_control_signals;
-#endif
     if (!allow) return;
 
     //fw+ Gate DR broadcast on long peer detection (12h) and channel utilization
@@ -834,11 +822,7 @@ static inline bool isTerminalNak(meshtastic_Routing_Error e)
 void StoreForwardModule::sendDeliveryFailed(uint32_t origId, uint32_t reasonCode)
 {
     bool allow = false;
-#ifdef HAS_ADMIN_MODULE
     allow = moduleConfig.nodemodadmin.emit_custody_control_signals;
-#else
-    allow = moduleConfig.store_forward.emit_control_signals;
-#endif
     if (!allow) return;
 
     //fw+ Gate DF broadcast on long peer detection (12h) and channel utilization
