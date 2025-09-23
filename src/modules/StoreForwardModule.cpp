@@ -1071,6 +1071,30 @@ void StoreForwardModule::processSchedules()
         for (uint32_t i = 0; i < this->packetHistoryTotalCount; i++) {
             if (this->packetHistory[i].id == s.id) {
                 if (isDelivered(s.id)) { p = nullptr; break; }
+                //fw+ Per-destination DM cap=1 and spacing guard just before send
+                if (s.isDM) {
+                    // Adaptive per-destination spacing
+                    uint32_t spacing = computePerDestSpacingMs(s.to, s, now);
+                    auto itLast = lastDestTxMs.find(s.to);
+                    if (itLast != lastDestTxMs.end()) {
+                        uint32_t last = itLast->second;
+                        if (now - last < spacing) {
+                            // defer to respect spacing
+                            s.nextAttemptMs = last + spacing;
+                            LOG_DEBUG("fw+ Per-dest spacing(adapt): defer id=0x%x to=%u next=%u ms", s.id, (unsigned)s.to, (unsigned)(s.nextAttemptMs - now));
+                            p = nullptr;
+                            break;
+                        }
+                    }
+                    // Re-check freshness/route confidence right before allocate
+                    if (!isDestFresh(s.to) || !hasSufficientRouteConfidence(s.to)) {
+                        // Back off softly rather than fail immediately
+                        s.nextAttemptMs = computeRetryDelayMs(s.tries ? s.tries : 1, estimateHops(s.to), s.lastTxMs, now) + addJitter(2000, dmJitterPct);
+                        LOG_DEBUG("fw+ Recheck failed: defer id=0x%x dest=%u", s.id, (unsigned)s.to);
+                        p = nullptr;
+                        break;
+                    }
+                }
                 p = allocDataPacket();
                 if (!p) {
                     // fw+ DRAM pressure: back off in mini-server mode instead of risking instability
@@ -1152,6 +1176,7 @@ void StoreForwardModule::processSchedules()
             service->sendToMesh(p);
             s.lastTxMs = nowMs();
             if (s.isDM && dmSendsThisPass < 0xFFFFFFFF) dmSendsThisPass++;
+            if (s.isDM) lastDestTxMs[s.to] = s.lastTxMs;
             // Keep DM scheduled; cancel on ACK (via ReliableRouter hook). Broadcasts are one-shot.
             if (!s.isDM) {
                 //fw+ Immediately clear broadcast history to free DRAM in mini-server mode
@@ -1194,6 +1219,35 @@ void StoreForwardModule::processSchedules()
         LOG_DEBUG("fw+ S&F reschedule id=0x%x in %u ms (try=%u)", s.id, (unsigned)(s.nextAttemptMs - now), s.tries);
         ++it;
     }
+}
+
+//fw+ Adaptive per-destination spacing computation (hops, density, chanutil, peers, TTL, queue depth)
+uint32_t StoreForwardModule::computePerDestSpacingMs(NodeNum dest, const CustodySchedule &s, uint32_t now) const
+{
+    // Base: 20s + 5s per estimated hop
+    uint8_t hops = estimateHops(dest);
+    uint32_t base = 20000 + (uint32_t)hops * 5000;
+    // Density bump
+    if (isDenseEnvironment()) base += 15000;
+    // Channel utilization clamp
+    if (airTime && airTime->max_channel_util_percent >= 40) {
+        if (base < 60000) base = 60000;
+    }
+    // Recent FW+ peers → small extra
+    if (hasRecentSfPeers(12 * 60 * 60 * 1000UL)) base += 5000;
+    // Queue depth to same dest → minimum 30s
+    uint32_t sameDestQueued = 0;
+    for (const auto &kv : scheduleById) if (kv.second.isDM && kv.second.to == dest) sameDestQueued++;
+    if (sameDestQueued > 1 && base < 30000) base = 30000;
+    // TTL budget: try to spread remaining attempts
+    if (s.deadlineMs > now) {
+        uint32_t remaining = s.deadlineMs - now;
+        uint32_t triesLeft = (dmMaxTries > s.tries ? (uint32_t)(dmMaxTries - s.tries) : 1u);
+        uint32_t perTry = (triesLeft ? remaining / triesLeft : remaining);
+        if (perTry > 5000) perTry -= 5000; // leave 5s guard
+        if (base > perTry) base = perTry;  // clamp to TTL budget
+    }
+    return addJitter(base, dmJitterPct);
 }
 //fw+ Locate endpoints for a stored id
 bool StoreForwardModule::getHistoryEndpoints(uint32_t id, NodeNum &src, NodeNum &dst, uint8_t &channel)

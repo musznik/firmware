@@ -91,6 +91,10 @@ class StoreForwardModule : private concurrency::OSThread, public ProtobufModule<
     uint32_t failTtlMs = 30 * 60 * 1000;   // 30 minutes
     //fw+ Per-destination cooldown duration after DF
     uint32_t destCooldownMs = 2 * 60 * 60 * 1000UL; // 2 hours
+    //fw+ Per-destination DM spacing to avoid local micro-bursts (in ms)
+    uint32_t perDestMinSpacingMs = 15000; // 15s
+    //fw+ Track last TX per destination for spacing and per-destination cap 1
+    std::unordered_map<NodeNum, uint32_t> lastDestTxMs;
     //fw+ gating thresholds
     uint8_t forwardMaxHops = 3;            // do not deliver if estimated hops exceed
     uint32_t destStaleSeconds = 1800;      // 30 min: do not deliver if dest unheard for longer
@@ -283,6 +287,8 @@ class StoreForwardModule : private concurrency::OSThread, public ProtobufModule<
     //fw+ Per-destination cooldown helpers
     bool isDestCooled(NodeNum dest) const { auto it = destCooldownUntilMs.find(dest); return it != destCooldownUntilMs.end() && nowMs() < it->second; }
     void startDestCooldown(NodeNum dest, uint32_t extraMs = 0) { destCooldownUntilMs[dest] = nowMs() + destCooldownMs + extraMs; }
+    //fw+ Adaptive per-destination spacing computation (hops, density, chanutil, peers, TTL, queue depth)
+    uint32_t computePerDestSpacingMs(NodeNum dest, const CustodySchedule &s, uint32_t now) const;
     //fw+ Send Custody ACK to original sender for DM takeover
     void sendCustodyAck(NodeNum to, uint32_t origId);
     //fw+ Opaque custody: add encrypted packet to history
