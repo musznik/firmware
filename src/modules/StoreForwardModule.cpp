@@ -756,11 +756,12 @@ bool StoreForwardModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp,
 //fw+ helpers
 void StoreForwardModule::sendCustodyAck(NodeNum to, uint32_t origId)
 {
-    //fw+ gate on config flags: moduleConfig.store_forward.emit_control_signals OR node_mod_admin override
+    //fw+ gate on single control: prefer NodeModAdmin when available; fallback to StoreForward flag
     bool allow = false;
-    if (moduleConfig.store_forward.emit_control_signals) allow = true;
 #ifdef HAS_ADMIN_MODULE
-    if (moduleConfig.nodemodadmin.emit_custody_control_signals) allow = true;
+    allow = moduleConfig.nodemodadmin.emit_custody_control_signals;
+#else
+    allow = moduleConfig.store_forward.emit_control_signals;
 #endif
     if (!allow) return;
 
@@ -776,9 +777,10 @@ void StoreForwardModule::sendCustodyAck(NodeNum to, uint32_t origId)
 void StoreForwardModule::sendCustodyClaim(uint32_t origId)
 {
     bool allow = false;
-    if (moduleConfig.store_forward.emit_control_signals) allow = true;
 #ifdef HAS_ADMIN_MODULE
-    if (moduleConfig.nodemodadmin.emit_custody_control_signals) allow = true;
+    allow = moduleConfig.nodemodadmin.emit_custody_control_signals;
+#else
+    allow = moduleConfig.store_forward.emit_control_signals;
 #endif
     if (!allow) return;
 
@@ -801,9 +803,10 @@ void StoreForwardModule::sendCustodyClaim(uint32_t origId)
 void StoreForwardModule::sendCustodyDelivered(uint32_t origId)
 {
     bool allow = false;
-    if (moduleConfig.store_forward.emit_control_signals) allow = true;
 #ifdef HAS_ADMIN_MODULE
-    if (moduleConfig.nodemodadmin.emit_custody_control_signals) allow = true;
+    allow = moduleConfig.nodemodadmin.emit_custody_control_signals;
+#else
+    allow = moduleConfig.store_forward.emit_control_signals;
 #endif
     if (!allow) return;
 
@@ -831,9 +834,10 @@ static inline bool isTerminalNak(meshtastic_Routing_Error e)
 void StoreForwardModule::sendDeliveryFailed(uint32_t origId, uint32_t reasonCode)
 {
     bool allow = false;
-    if (moduleConfig.store_forward.emit_control_signals) allow = true;
 #ifdef HAS_ADMIN_MODULE
-    if (moduleConfig.nodemodadmin.emit_custody_control_signals) allow = true;
+    allow = moduleConfig.nodemodadmin.emit_custody_control_signals;
+#else
+    allow = moduleConfig.store_forward.emit_control_signals;
 #endif
     if (!allow) return;
 
