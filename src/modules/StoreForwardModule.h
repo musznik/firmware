@@ -68,6 +68,8 @@ class StoreForwardModule : private concurrency::OSThread, public ProtobufModule<
     std::unordered_map<uint32_t, uint32_t> claimExpiryMs;       //fw+ id -> expiry ms
     std::unordered_map<uint32_t, uint32_t> failedExpiryMs;      //fw+ id -> expiry ms
     std::unordered_map<uint32_t, uint32_t> forwardedToOriginal; //fw+ forwardedId -> originalId
+    //fw+ Per-destination cooldown after DF to avoid wasteful retries
+    std::unordered_map<NodeNum, uint32_t> destCooldownUntilMs;  // destination -> resume time ms
 
     // Scheduling parameters (can be tuned later / moved to ModuleConfig)
     uint32_t dmInitialBaseMs = 5000;       // base 5s (legacy; initial now uses computeInitialDelayMs)
@@ -80,11 +82,15 @@ class StoreForwardModule : private concurrency::OSThread, public ProtobufModule<
     uint32_t bcMaxDelayMs = 12000;         // 12s
     uint8_t bcJitterPct = 20;
     uint32_t busyRetryMs = 2500;           //fw+ retry when channel busy
+    //fw+ Global DM concurrency cap (active custody deliveries at once)
+    uint8_t maxActiveDm = 2;               //fw+ default 2 (reduce queue TTL risk)
     //fw+ enforce minimum spacing between S&F retries to prevent overlap; now 60s base pacing
     uint32_t minRetrySpacingMs = 60000;    // 60s
     //fw+ network-wide suppression TTLs
     uint32_t claimTtlMs = 30 * 60 * 1000;  // 30 minutes
     uint32_t failTtlMs = 30 * 60 * 1000;   // 30 minutes
+    //fw+ Per-destination cooldown duration after DF
+    uint32_t destCooldownMs = 2 * 60 * 60 * 1000UL; // 2 hours
     //fw+ gating thresholds
     uint8_t forwardMaxHops = 3;            // do not deliver if estimated hops exceed
     uint32_t destStaleSeconds = 1800;      // 30 min: do not deliver if dest unheard for longer
@@ -274,6 +280,9 @@ class StoreForwardModule : private concurrency::OSThread, public ProtobufModule<
     void processSchedules();
     uint32_t addJitter(uint32_t ms, uint8_t pct) const;
     uint32_t nowMs() const { return millis(); }
+    //fw+ Per-destination cooldown helpers
+    bool isDestCooled(NodeNum dest) const { auto it = destCooldownUntilMs.find(dest); return it != destCooldownUntilMs.end() && nowMs() < it->second; }
+    void startDestCooldown(NodeNum dest, uint32_t extraMs = 0) { destCooldownUntilMs[dest] = nowMs() + destCooldownMs + extraMs; }
     //fw+ Send Custody ACK to original sender for DM takeover
     void sendCustodyAck(NodeNum to, uint32_t origId);
     //fw+ Opaque custody: add encrypted packet to history

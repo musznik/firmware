@@ -992,10 +992,17 @@ void StoreForwardModule::scheduleFromHistory(uint32_t id)
             bool isDM = (dest != NODENUM_BROADCAST && dest != NODENUM_BROADCAST_NO_LORA);
             if (!isDM) return; // do not take custody for broadcasts
             if (!this->packetHistory[i].want_ack) return; // only take custody for packets that wanted ACK
+            //fw+ Per-destination cooldown after DF
+            if (isDestCooled(dest)) {
+                LOG_DEBUG("fw+ Skip schedule id=0x%x due to dest cooldown %u ms left", id, (unsigned)(destCooldownUntilMs[dest] - nowMs()));
+                return;
+            }
             if (estimateHops(dest) > forwardMaxHops || !isDestFresh(dest) || !hasSufficientRouteConfidence(dest)) {
                 // Do not attempt; globally announce DF to stop others and mark failed locally
                 broadcastDeliveryFailedControl(id, (uint32_t)meshtastic_Routing_Error_NO_ROUTE);
                 markFailed(id);
+                //fw+ start per-destination cooldown as route is likely not viable now
+                startDestCooldown(dest);
                 clearHistoryById(id);
                 return;
             }
@@ -1038,6 +1045,8 @@ void StoreForwardModule::scheduleCustodyIfReady(uint32_t id)
 void StoreForwardModule::processSchedules()
 {
     uint32_t now = nowMs();
+    //fw+ Global DM concurrency cap: track DM sends issued in this pass
+    uint32_t dmSendsThisPass = 0;
     for (auto it = scheduleById.begin(); it != scheduleById.end();) {
         CustodySchedule &s = it->second;
         //fw+ remove delivered schedules early
@@ -1045,6 +1054,12 @@ void StoreForwardModule::processSchedules()
         //fw+ enforce minimum spacing from our last send for this id
         if (s.lastTxMs && (now - s.lastTxMs) < minRetrySpacingMs) {
             s.nextAttemptMs = s.lastTxMs + minRetrySpacingMs;
+        }
+        //fw+ Enforce global DM concurrency cap: defer when issued >= cap in this pass
+        if (s.isDM && dmSendsThisPass >= maxActiveDm) {
+            // push next attempt slightly forward to yield to others
+            s.nextAttemptMs = now + addJitter(busyRetryMs, dmJitterPct);
+            ++it; continue;
         }
         if (now < s.nextAttemptMs) { ++it; continue; }
         //fw+ Channel utilization gating: be less strict for DM deliveries, polite for broadcasts
@@ -1148,6 +1163,7 @@ void StoreForwardModule::processSchedules()
             LOG_INFO("fw+ S&F deliver orig=0x%x fwd=0x%x try=%u (activeHist=%u)", s.id, p->id, (unsigned)s.tries + 1, (unsigned)countActiveHistory());
             service->sendToMesh(p);
             s.lastTxMs = nowMs();
+            if (s.isDM && dmSendsThisPass < 0xFFFFFFFF) dmSendsThisPass++;
             // Keep DM scheduled; cancel on ACK (via ReliableRouter hook). Broadcasts are one-shot.
             if (!s.isDM) {
                 //fw+ Immediately clear broadcast history to free DRAM in mini-server mode
@@ -1168,6 +1184,8 @@ void StoreForwardModule::processSchedules()
             //fw+ terminal failure: emit DF and markFailed; drop schedule
             broadcastDeliveryFailedControl(s.id, (uint32_t)meshtastic_Routing_Error_NO_ROUTE);
             markFailed(s.id);
+            //fw+ Start per-destination cooldown after terminal DM failure
+            startDestCooldown(s.to);
             clearHistoryById(s.id);
             it = scheduleById.erase(it);
             continue;
@@ -1179,6 +1197,7 @@ void StoreForwardModule::processSchedules()
             // terminal: emit DF, markFailed and drop
             broadcastDeliveryFailedControl(s.id, (uint32_t)meshtastic_Routing_Error_NO_ROUTE);
             markFailed(s.id);
+            startDestCooldown(s.to);
             clearHistoryById(s.id);
             it = scheduleById.erase(it);
             continue;
