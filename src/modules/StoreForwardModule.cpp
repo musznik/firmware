@@ -698,7 +698,8 @@ bool StoreForwardModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp,
 
     default: {
         //fw+ DTN-like: interpret custom custody RR codes using control variants (no text payload)
-        if (p->rr == fwplus_custody::RR_ROUTER_CUSTODY_ACK || p->rr == fwplus_custody::RR_ROUTER_DELIVERED) {
+        if (p->rr == fwplus_custody::RR_ROUTER_CUSTODY_ACK || p->rr == fwplus_custody::RR_ROUTER_DELIVERED ||
+            p->rr == fwplus_custody::RR_ROUTER_CUSTODY_CLAIM) {
             //fw+ passive discovery: note FW+ S&F presence
             markSfServerSeen(getFrom(&mp));
             uint32_t id = 0;
@@ -710,6 +711,10 @@ bool StoreForwardModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp,
                 if (is_client) {
                     if (p->rr == fwplus_custody::RR_ROUTER_CUSTODY_ACK) {
                         LOG_INFO("fw+ Custody ACK for id=0x%x from router", id);
+                    } else if (p->rr == fwplus_custody::RR_ROUTER_CUSTODY_CLAIM) {
+                        LOG_INFO("fw+ Custody CLAIM for id=0x%x from router", id);
+                        //fw+ honor claim: avoid taking custody for this id
+                        markClaimed(id);
                     } else {
                         LOG_INFO("fw+ Delivered notice for id=0x%x from router", id);
                         //fw+ Adapt DV-ETX: reward path towards source using last relay hint if available
@@ -777,8 +782,16 @@ void StoreForwardModule::sendCustodyClaim(uint32_t origId)
 #endif
     if (!allow) return;
 
+    //fw+ Gate claim broadcast on long peer detection (12h) and channel utilization
+    bool peersSeen = hasRecentSfPeers(12 * 60 * 60 * 1000UL);
+    bool chanOk = (!airTime) || (airTime->max_channel_util_percent < 40);
+    if (!peersSeen || !chanOk) {
+        LOG_DEBUG("fw+ Skip CR broadcast (peersSeen=%d chanOk=%d)", (int)peersSeen, (int)chanOk);
+        return;
+    }
+
     meshtastic_StoreAndForward sf = meshtastic_StoreAndForward_init_zero;
-    sf.rr = (meshtastic_StoreAndForward_RequestResponse)fwplus_custody::RR_ROUTER_CUSTODY_ACK; // placeholder RR
+    sf.rr = (meshtastic_StoreAndForward_RequestResponse)fwplus_custody::RR_ROUTER_CUSTODY_CLAIM; //fw+
     sf.which_variant = meshtastic_StoreAndForward_history_tag;
     sf.variant.history.window = origId; // carry id
     storeForwardModule->sendMessage(NODENUM_BROADCAST, sf);
@@ -793,6 +806,14 @@ void StoreForwardModule::sendCustodyDelivered(uint32_t origId)
     if (moduleConfig.nodemodadmin.emit_custody_control_signals) allow = true;
 #endif
     if (!allow) return;
+
+    //fw+ Gate DR broadcast on long peer detection (12h) and channel utilization
+    bool peersSeen = hasRecentSfPeers(12 * 60 * 60 * 1000UL);
+    bool chanOk = (!airTime) || (airTime->max_channel_util_percent < 40);
+    if (!peersSeen || !chanOk) {
+        LOG_DEBUG("fw+ Skip DR broadcast (peersSeen=%d chanOk=%d)", (int)peersSeen, (int)chanOk);
+        return;
+    }
 
     meshtastic_StoreAndForward sf = meshtastic_StoreAndForward_init_zero;
     sf.rr = (meshtastic_StoreAndForward_RequestResponse)fwplus_custody::RR_ROUTER_DELIVERED; //fw+
@@ -815,6 +836,14 @@ void StoreForwardModule::sendDeliveryFailed(uint32_t origId, uint32_t reasonCode
     if (moduleConfig.nodemodadmin.emit_custody_control_signals) allow = true;
 #endif
     if (!allow) return;
+
+    //fw+ Gate DF broadcast on long peer detection (12h) and channel utilization
+    bool peersSeen = hasRecentSfPeers(12 * 60 * 60 * 1000UL);
+    bool chanOk = (!airTime) || (airTime->max_channel_util_percent < 40);
+    if (!peersSeen || !chanOk) {
+        LOG_DEBUG("fw+ Skip DF broadcast (peersSeen=%d chanOk=%d)", (int)peersSeen, (int)chanOk);
+        return;
+    }
 
     meshtastic_StoreAndForward sf = meshtastic_StoreAndForward_init_zero;
     sf.rr = (meshtastic_StoreAndForward_RequestResponse)fwplus_custody::RR_ROUTER_DELIVERY_FAILED; //fw+
@@ -978,8 +1007,8 @@ void StoreForwardModule::scheduleFromHistory(uint32_t id)
             //fw+ scale initial delay by estimated hops (dense mesh settling)
             uint8_t estHops = estimateHops(s.to);
             uint32_t base = s.isDM ? computeInitialDelayMs(estHops) : (random(bcMaxDelayMs - bcMinDelayMs + 1) + bcMinDelayMs);
-            //fw+ if we saw other FW+ S&F recently, increase initial delay slightly to reduce races
-            if (hasRecentSfPeers(30 * 60 * 1000UL)) { // last 30 minutes
+            //fw+ if we saw other FW+ S&F recently (12h), increase initial delay slightly to reduce races
+            if (hasRecentSfPeers(12 * 60 * 60 * 1000UL)) { // last 12 hours
                 uint32_t extra = (estHops + 1) * 500; // 0.5s per hop, min 0.5s
                 base += extra;
             }
