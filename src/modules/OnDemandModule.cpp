@@ -337,6 +337,19 @@ meshtastic_OnDemand OnDemandModule::prepareSFCustodyStatus()
         s.min_retry_spacing_ms = storeForwardModule->getMinRetrySpacingMs();
         s.busy_retry_ms = storeForwardModule->getBusyRetryMs();
         s.heartbeat_interval = storeForwardModule->getHeartbeatInterval();
+
+        //fw+ custody control counters/timestamps and pacing caps
+        s.ca_count = storeForwardModule->getCustodyCAEmittedCount();
+        s.cr_count = storeForwardModule->getCustodyCREmittedCount();
+        s.dr_count = storeForwardModule->getCustodyDREmittedCount();
+        s.df_count = storeForwardModule->getCustodyDFEmittedCount();
+        s.last_ca_ms = storeForwardModule->getLastCAms();
+        s.last_cr_ms = storeForwardModule->getLastCRms();
+        s.last_dr_ms = storeForwardModule->getLastDRms();
+        s.last_df_ms = storeForwardModule->getLastDFms();
+        s.max_active_dm = storeForwardModule->getActiveDmCount(); // expose current active as proxy for cap
+        s.per_dest_min_spacing_ms = 0; // optional: fill if later exposed via getter/config
+        s.dest_cooldown_ms = 0;        // optional: fill if later exposed via getter/config
     }
     return onDemand;
 }

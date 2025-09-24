@@ -222,6 +222,19 @@ typedef struct _meshtastic_SFCustodyStatus {
     uint32_t min_retry_spacing_ms; /* configuration: min spacing between retries for same id */
     uint32_t busy_retry_ms; /* configuration: retry delay when channel busy */
     uint32_t heartbeat_interval; /* heartbeat interval (secs), if enabled */
+    /* fw+ custody control counters/timestamps (emitted by this node) */
+    uint32_t ca_count; /* total Custody ACK (CA) emitted */
+    uint32_t cr_count; /* total Custody Claim (CR) emitted */
+    uint32_t dr_count; /* total Delivered Report (DR) emitted */
+    uint32_t df_count; /* total Delivery Failed (DF) emitted */
+    uint32_t last_ca_ms; /* last CA emit time (uptime ms) */
+    uint32_t last_cr_ms; /* last CR emit time (uptime ms) */
+    uint32_t last_dr_ms; /* last DR emit time (uptime ms) */
+    uint32_t last_df_ms; /* last DF emit time (uptime ms) */
+    /* fw+ optional pacing/cap exposure for UI */
+    uint32_t max_active_dm; /* global DM concurrency cap */
+    uint32_t per_dest_min_spacing_ms; /* baseline per-destination spacing */
+    uint32_t dest_cooldown_ms; /* per-destination cooldown after DF */
 } meshtastic_SFCustodyStatus;
 
 /* Routing table structures for UI */
@@ -322,7 +335,7 @@ extern "C" {
 #define meshtastic_OnDemandRequest_init_default  {_meshtastic_OnDemandType_MIN}
 #define meshtastic_OnDemandResponse_init_default {_meshtastic_OnDemandType_MIN, 0, {meshtastic_RxPacketHistory_init_default}}
 #define meshtastic_OnDemand_init_default         {false, 0, false, 0, 0, {meshtastic_OnDemandRequest_init_default}}
-#define meshtastic_SFCustodyStatus_init_default  {0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+#define meshtastic_SFCustodyStatus_init_default  {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 #define meshtastic_RoutingTableEntry_init_default {0, 0, 0, 0, 0}
 #define meshtastic_RoutingTable_init_default     {0, {meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default}}
 #define meshtastic_FwPlusVersion_init_zero       {0}
@@ -343,7 +356,7 @@ extern "C" {
 #define meshtastic_OnDemandRequest_init_zero     {_meshtastic_OnDemandType_MIN}
 #define meshtastic_OnDemandResponse_init_zero    {_meshtastic_OnDemandType_MIN, 0, {meshtastic_RxPacketHistory_init_zero}}
 #define meshtastic_OnDemand_init_zero            {false, 0, false, 0, 0, {meshtastic_OnDemandRequest_init_zero}}
-#define meshtastic_SFCustodyStatus_init_zero     {0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+#define meshtastic_SFCustodyStatus_init_zero     {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 #define meshtastic_RoutingTableEntry_init_zero   {0, 0, 0, 0, 0}
 #define meshtastic_RoutingTable_init_zero        {0, {meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero}}
 
@@ -427,6 +440,17 @@ extern "C" {
 #define meshtastic_SFCustodyStatus_min_retry_spacing_ms_tag 8
 #define meshtastic_SFCustodyStatus_busy_retry_ms_tag 9
 #define meshtastic_SFCustodyStatus_heartbeat_interval_tag 10
+#define meshtastic_SFCustodyStatus_ca_count_tag  11
+#define meshtastic_SFCustodyStatus_cr_count_tag  12
+#define meshtastic_SFCustodyStatus_dr_count_tag  13
+#define meshtastic_SFCustodyStatus_df_count_tag  14
+#define meshtastic_SFCustodyStatus_last_ca_ms_tag 15
+#define meshtastic_SFCustodyStatus_last_cr_ms_tag 16
+#define meshtastic_SFCustodyStatus_last_dr_ms_tag 17
+#define meshtastic_SFCustodyStatus_last_df_ms_tag 18
+#define meshtastic_SFCustodyStatus_max_active_dm_tag 19
+#define meshtastic_SFCustodyStatus_per_dest_min_spacing_ms_tag 20
+#define meshtastic_SFCustodyStatus_dest_cooldown_ms_tag 21
 #define meshtastic_RoutingTableEntry_dest_tag    1
 #define meshtastic_RoutingTableEntry_next_hop_tag 2
 #define meshtastic_RoutingTableEntry_cost_tag    3
@@ -639,7 +663,18 @@ X(a, STATIC,   SINGULAR, UINT32,   dm_max_tries,      6) \
 X(a, STATIC,   SINGULAR, FLOAT,    dm_backoff_factor,   7) \
 X(a, STATIC,   SINGULAR, UINT32,   min_retry_spacing_ms,   8) \
 X(a, STATIC,   SINGULAR, UINT32,   busy_retry_ms,     9) \
-X(a, STATIC,   SINGULAR, UINT32,   heartbeat_interval,  10)
+X(a, STATIC,   SINGULAR, UINT32,   heartbeat_interval,  10) \
+X(a, STATIC,   SINGULAR, UINT32,   ca_count,         11) \
+X(a, STATIC,   SINGULAR, UINT32,   cr_count,         12) \
+X(a, STATIC,   SINGULAR, UINT32,   dr_count,         13) \
+X(a, STATIC,   SINGULAR, UINT32,   df_count,         14) \
+X(a, STATIC,   SINGULAR, UINT32,   last_ca_ms,       15) \
+X(a, STATIC,   SINGULAR, UINT32,   last_cr_ms,       16) \
+X(a, STATIC,   SINGULAR, UINT32,   last_dr_ms,       17) \
+X(a, STATIC,   SINGULAR, UINT32,   last_df_ms,       18) \
+X(a, STATIC,   SINGULAR, UINT32,   max_active_dm,    19) \
+X(a, STATIC,   SINGULAR, UINT32,   per_dest_min_spacing_ms,  20) \
+X(a, STATIC,   SINGULAR, UINT32,   dest_cooldown_ms,  21)
 #define meshtastic_SFCustodyStatus_CALLBACK NULL
 #define meshtastic_SFCustodyStatus_DEFAULT NULL
 
@@ -725,7 +760,7 @@ extern const pb_msgdesc_t meshtastic_RoutingTable_msg;
 #define meshtastic_RoutingTable_size             1240
 #define meshtastic_RxAvgTimeHistory_size         240
 #define meshtastic_RxPacketHistory_size          240
-#define meshtastic_SFCustodyStatus_size          55
+#define meshtastic_SFCustodyStatus_size          127
 
 #ifdef __cplusplus
 } /* extern "C" */

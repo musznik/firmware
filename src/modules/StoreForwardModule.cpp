@@ -579,7 +579,8 @@ bool StoreForwardModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp,
                 this->busy = false;
             }
         }
-        break;
+        //fw+ Suppress forwarding STATS to phone regardless of client/server flags
+        return true;
 
     case meshtastic_StoreAndForward_RequestResponse_CLIENT_HISTORY:
         if (is_server) {
@@ -607,7 +608,8 @@ bool StoreForwardModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp,
                 }
             }
         }
-        break;
+        //fw+ Suppress forwarding HISTORY header to phone regardless of client/server flags
+        return true;
 
     case meshtastic_StoreAndForward_RequestResponse_CLIENT_PING:
         if (is_server) {
@@ -775,6 +777,8 @@ void StoreForwardModule::sendCustodyAck(NodeNum to, uint32_t origId)
     // Reuse history.window to carry original id in our CA-only design
     sf.variant.history.window = origId;
     storeForwardModule->sendMessage(to, sf);
+    //fw+ stats
+    custodyCountCA++; lastCAms = nowMs();
 }
 
 //fw+ Broadcast a custody-claim (CR) so other S&F servers back off for this id
@@ -797,6 +801,7 @@ void StoreForwardModule::sendCustodyClaim(uint32_t origId)
     sf.which_variant = meshtastic_StoreAndForward_history_tag;
     sf.variant.history.window = origId; // carry id
     storeForwardModule->sendMessage(NODENUM_BROADCAST, sf);
+    custodyCountCR++; lastCRms = nowMs();
 }
 
 //fw+ Broadcast a custody-delivered (DR) so other servers can drop it from history if desired
@@ -819,6 +824,7 @@ void StoreForwardModule::sendCustodyDelivered(uint32_t origId)
     sf.which_variant = meshtastic_StoreAndForward_history_tag;
     sf.variant.history.window = origId;
     storeForwardModule->sendMessage(NODENUM_BROADCAST, sf);
+    custodyCountDR++; lastDRms = nowMs();
 }
 
 //fw+ Broadcast a delivery-failed (DF) so other servers can drop and sources can mark failure
@@ -848,6 +854,7 @@ void StoreForwardModule::sendDeliveryFailed(uint32_t origId, uint32_t reasonCode
     sf.variant.history.window = origId;
     sf.variant.history.history_messages = reasonCode;
     storeForwardModule->sendMessage(NODENUM_BROADCAST, sf);
+    custodyCountDF++; lastDFms = nowMs();
 }
 
 //fw+ cancel schedule on destination ACK and mark delivered

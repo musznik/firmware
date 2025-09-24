@@ -198,6 +198,16 @@ class StoreForwardModule : private concurrency::OSThread, public ProtobufModule<
     uint32_t getBusyRetryMs() const { return busyRetryMs; }
     uint32_t getHeartbeatInterval() const { return heartbeatInterval; }
 
+    //fw+ Custody stats getters for OnDemand (to be wired into ondemand.proto by APK+)
+    uint32_t getCustodyCAEmittedCount() const { return custodyCountCA; }
+    uint32_t getCustodyCREmittedCount() const { return custodyCountCR; }
+    uint32_t getCustodyDREmittedCount() const { return custodyCountDR; }
+    uint32_t getCustodyDFEmittedCount() const { return custodyCountDF; }
+    uint32_t getLastCAms() const { return lastCAms; }
+    uint32_t getLastCRms() const { return lastCRms; }
+    uint32_t getLastDRms() const { return lastDRms; }
+    uint32_t getLastDFms() const { return lastDFms; }
+
     /*
       -Override the wantPacket method.
     */
@@ -230,6 +240,16 @@ class StoreForwardModule : private concurrency::OSThread, public ProtobufModule<
     uint32_t requests_history = 0; // Number of times the history was requested.
 
     uint32_t retry_delay = 0; // If server is busy, retry after this delay (in ms).
+
+    //fw+ Custody control emission counters and last timestamps (uptime ms)
+    uint32_t custodyCountCA = 0; // emitted Custody ACK (CA)
+    uint32_t custodyCountCR = 0; // emitted Custody Claim (CR)
+    uint32_t custodyCountDR = 0; // emitted Delivered Report (DR)
+    uint32_t custodyCountDF = 0; // emitted Delivery Failed (DF)
+    uint32_t lastCAms = 0;
+    uint32_t lastCRms = 0;
+    uint32_t lastDRms = 0;
+    uint32_t lastDFms = 0;
 
     //fw+ Passive discovery of other FW+ S&F servers (no extra frames)
     std::unordered_map<NodeNum, uint32_t> sfSeenMs; // server node -> last seen ms
