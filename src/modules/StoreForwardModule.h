@@ -197,6 +197,8 @@ class StoreForwardModule : private concurrency::OSThread, public ProtobufModule<
     uint32_t getMinRetrySpacingMs() const { return minRetrySpacingMs; }
     uint32_t getBusyRetryMs() const { return busyRetryMs; }
     uint32_t getHeartbeatInterval() const { return heartbeatInterval; }
+    uint32_t getPerDestMinSpacingMs() const { return perDestMinSpacingMs; }
+    uint32_t getDestCooldownMs() const { return destCooldownMs; }
 
     //fw+ Custody stats getters for OnDemand (to be wired into ondemand.proto by APK+)
     uint32_t getCustodyCAEmittedCount() const { return custodyCountCA; }
@@ -219,7 +221,9 @@ class StoreForwardModule : private concurrency::OSThread, public ProtobufModule<
         }
         switch (p->decoded.portnum) {
         case meshtastic_PortNum_TEXT_MESSAGE_APP:
+            return true;
         case meshtastic_PortNum_STORE_FORWARD_APP:
+            //fw+ FW+: accept for internal handling only; ensure other modules never see it
             return true;
         default:
             return false;
@@ -307,6 +311,7 @@ class StoreForwardModule : private concurrency::OSThread, public ProtobufModule<
     //fw+ Per-destination cooldown helpers
     bool isDestCooled(NodeNum dest) const { auto it = destCooldownUntilMs.find(dest); return it != destCooldownUntilMs.end() && nowMs() < it->second; }
     void startDestCooldown(NodeNum dest, uint32_t extraMs = 0) { destCooldownUntilMs[dest] = nowMs() + destCooldownMs + extraMs; }
+    void clearDestCooldown(NodeNum dest) { destCooldownUntilMs.erase(dest); }
     //fw+ Adaptive per-destination spacing computation (hops, density, chanutil, peers, TTL, queue depth)
     uint32_t computePerDestSpacingMs(NodeNum dest, const CustodySchedule &s, uint32_t now) const;
     //fw+ Send Custody ACK to original sender for DM takeover
@@ -323,6 +328,9 @@ class StoreForwardModule : private concurrency::OSThread, public ProtobufModule<
     void sendCustodyClaim(uint32_t origId);
     void sendCustodyDelivered(uint32_t origId);
     void sendDeliveryFailed(uint32_t origId, uint32_t reasonCode);
+    //fw+ custody control over PRIVATE_APP port to avoid app rendering
+    void sendCustodyControlPrivate(NodeNum dest, meshtastic_StoreAndForward_RequestResponse rr,
+                                   uint32_t origId, uint32_t reasonCode = 0);
     //fw+ helper: locate last history record for id and extract endpoints
     bool getHistoryEndpoints(uint32_t id, NodeNum &src, NodeNum &dst, uint8_t &channel);
     //fw+ estimate hop distance to destination using NodeDB, fallback to default (8)

@@ -146,6 +146,8 @@ typedef enum _meshtastic_PortNum {
     meshtastic_PortNum_ATAK_FORWARDER = 257,
     /* Node Modification proto for custom node status (text description) handling for Firmware+ */
     meshtastic_PortNum_NODE_MOD_APP = 278,
+    /* FW+ custody control channel (private; ignored by stock apps) */
+    meshtastic_PortNum_FWPLUS_CUSTODY_APP = 279, /* fw+ */
     /* IdleGame port */
     meshtastic_PortNum_IDLE_GAME_APP = 322,
     /* OnDemand requests port */

@@ -25,6 +25,36 @@
 #include "memGet.h"
 #include "mesh-pb-constants.h"
 #include "mesh/generated/meshtastic/storeforward.pb.h"
+#include "mesh/generated/meshtastic/portnums.pb.h"
+//fw+ Minimal private custody control frame over PRIVATE_APP to keep apps from rendering S&F controls
+//fw+ Use standard StoreAndForward protobuf envelope on a private custody port; no custom payload tag
+static size_t fwplus_encode_private_control(uint8_t *out, size_t outLen,
+                                            meshtastic_StoreAndForward_RequestResponse rr,
+                                            uint32_t id, uint32_t reason)
+{
+    // Deprecated: retained for compatibility; no longer used
+    return 0;
+}
+
+void StoreForwardModule::sendCustodyControlPrivate(NodeNum dest, meshtastic_StoreAndForward_RequestResponse rr,
+                                                   uint32_t origId, uint32_t reasonCode)
+{
+    //fw+ Send a normal StoreAndForward protobuf on a private port so apps ignore it
+    meshtastic_StoreAndForward sf = meshtastic_StoreAndForward_init_zero; //fw+
+    sf.rr = rr;                                                          //fw+
+    sf.which_variant = meshtastic_StoreAndForward_history_tag;           //fw+
+    // Reuse history.window to carry id; history_messages for reason      //fw+
+    sf.variant.history.window = origId;                                  //fw+
+    sf.variant.history.history_messages = reasonCode;                     //fw+
+
+    meshtastic_MeshPacket *p = allocDataProtobuf(sf);
+    if (!p) return;
+    p->to = dest;
+    p->decoded.portnum = meshtastic_PortNum_FWPLUS_CUSTODY_APP; //fw+
+    p->want_ack = false;
+    p->decoded.want_response = false;
+    service->sendToMesh(p);
+}
 #include "modules/ModuleDev.h"
 #include <Arduino.h>
 #include <stdio.h> //fw+ snprintf
@@ -38,6 +68,8 @@ StoreForwardModule *storeForwardModule;
 // to avoid leaking status/history to non-APK+ apps that render these frames as chat.
 // This can be relaxed in future via Admin config when available.
 static inline bool fwplus_allow_remote_sf_client_requests() { return false; }
+//fw+ Do not serve history to PhoneAPI in FW+ variant (prevent chat spam in apps)
+static inline bool fwplus_disable_phone_history() { return true; }
 
 int32_t StoreForwardModule::runOnce()
 {
@@ -134,7 +166,7 @@ void StoreForwardModule::historySend(uint32_t secAgo, uint32_t to)
     sf.variant.history.history_messages = queueSize;
     sf.variant.history.window = secAgo * 1000;
     sf.variant.history.last_request = lastRequest[to];
-    storeForwardModule->sendMessage(to, sf);
+    //storeForwardModule->sendMessage(to, sf); //fw+ suppress S&F path (no HISTORY to phone)
     setIntervalFromNow(this->packetTimeMax); // Delay start of sending payloads
 }
 
@@ -177,6 +209,8 @@ meshtastic_MeshPacket *StoreForwardModule::getForPhone()
 {
     if (moduleConfig.store_forward.enabled && is_server) {
         NodeNum to = nodeDB->getNodeNum();
+        //fw+ FW+: block serving history to phone entirely
+        if (fwplus_disable_phone_history()) return nullptr;
         if (!this->busy) {
             // Get number of packets we're going to send in this loop
             uint32_t histSize = getNumAvailablePackets(to, 0); // No time limit
@@ -504,18 +538,21 @@ ProcessMessage StoreForwardModule::handleReceived(const meshtastic_MeshPacket &m
 #if defined(ARCH_ESP32) || defined(ARCH_PORTDUINO) || defined(ARCH_NRF52)
     //fw+ Allow server-only mode: process server paths even if module disabled
     if (moduleConfig.store_forward.enabled || is_server) {
+        //fw+ If we hear the destination as a sender, clear its cooldown (node is reachable again)
+        if (is_server) {
+            NodeNum seen = getFrom(&mp);
+            if (seen && destCooldownUntilMs.find(seen) != destCooldownUntilMs.end()) {
+                clearDestCooldown(seen);
+            }
+        }
 
         if ((mp.decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP) && is_server) {
             auto &p = mp.decoded;
             if (isToUs(&mp) && (p.payload.bytes[0] == 'S') && (p.payload.bytes[1] == 'F') && (p.payload.bytes[2] == 0x00)) {
                 LOG_DEBUG("Legacy Request to send");
 
-                // Send the last 60 minutes of messages.
-                if (this->busy || channels.isDefaultChannel(mp.channel)) {
-                    sendErrorTextMessage(getFrom(&mp), mp.decoded.want_response);
-                } else {
-                    storeForwardModule->historySend(historyReturnWindow * 60, getFrom(&mp));
-                }
+                //fw+ FW+: block legacy 'SF\0' history requests from any client
+                storeForwardModule->sendMessage(getFrom(&mp), meshtastic_StoreAndForward_RequestResponse_ROUTER_BUSY);
             } else {
                 storeForwardModule->historyAdd(mp);
                 LOG_INFO("S&F stored. Active history entries: %u", (unsigned)countActiveHistory());
@@ -541,9 +578,25 @@ ProcessMessage StoreForwardModule::handleReceived(const meshtastic_MeshPacket &m
                     // if we can't decode it, nobody can process it!
                     return ProcessMessage::STOP;
                 }
-                return handleReceivedProtobuf(mp, decoded) ? ProcessMessage::STOP : ProcessMessage::CONTINUE;
+                //fw+ FW+: Never pass StoreForward frames beyond this module; always stop propagation to PhoneAPI
+                (void)handleReceivedProtobuf(mp, decoded);
+                return ProcessMessage::STOP;
             }
         } // all others are irrelevant
+    }
+    else {
+        //fw+ FW+: Even when S&F client/server is disabled, consume S&F frames to suppress PhoneAPI spam
+        if (!isFromUs(&mp) && mp.decoded.portnum == meshtastic_PortNum_STORE_FORWARD_APP &&
+            mp.which_payload_variant == meshtastic_MeshPacket_decoded_tag) {
+            meshtastic_StoreAndForward scratch;
+            if (pb_decode_from_bytes(mp.decoded.payload.bytes, mp.decoded.payload.size,
+                                     &meshtastic_StoreAndForward_msg, &scratch)) {
+                // Reuse suppression logic in protobuf handler; if it returns handled, stop propagation
+                if (handleReceivedProtobuf(mp, &scratch)) {
+                    return ProcessMessage::STOP;
+                }
+            }
+        }
     }
 
 #endif
@@ -593,6 +646,11 @@ bool StoreForwardModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp,
             LOG_INFO("Client Request to send HISTORY");
             // fw+ In mini-server mode, do not serve history replays to conserve RAM
             if (miniServerMode) {
+                storeForwardModule->sendMessage(getFrom(&mp), meshtastic_StoreAndForward_RequestResponse_ROUTER_BUSY);
+                break;
+            }
+            //fw+ FW+: never serve history replays (prevent chat spam in clients)
+            if (fwplus_disable_phone_history()) {
                 storeForwardModule->sendMessage(getFrom(&mp), meshtastic_StoreAndForward_RequestResponse_ROUTER_BUSY);
                 break;
             }
@@ -703,6 +761,12 @@ bool StoreForwardModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp,
         break;
 
     default: {
+        //fw+ Suppress S&F TEXT frames from reaching PhoneAPI (avoid chat spam)
+        if (p->which_variant == meshtastic_StoreAndForward_text_tag &&
+            (p->rr == meshtastic_StoreAndForward_RequestResponse_ROUTER_TEXT_DIRECT ||
+             p->rr == meshtastic_StoreAndForward_RequestResponse_ROUTER_TEXT_BROADCAST)) {
+            return true;
+        }
         //fw+ DTN-like: interpret custom custody RR codes using control variants (no text payload)
         if (p->rr == fwplus_custody::RR_ROUTER_CUSTODY_ACK || p->rr == fwplus_custody::RR_ROUTER_DELIVERED ||
             p->rr == fwplus_custody::RR_ROUTER_CUSTODY_CLAIM) {
@@ -771,12 +835,8 @@ void StoreForwardModule::sendCustodyAck(NodeNum to, uint32_t origId)
     allow = moduleConfig.nodemodadmin.emit_custody_control_signals;
     if (!allow) return;
 
-    meshtastic_StoreAndForward sf = meshtastic_StoreAndForward_init_zero;
-    sf.rr = (meshtastic_StoreAndForward_RequestResponse)fwplus_custody::RR_ROUTER_CUSTODY_ACK;
-    sf.which_variant = meshtastic_StoreAndForward_history_tag;
-    // Reuse history.window to carry original id in our CA-only design
-    sf.variant.history.window = origId;
-    storeForwardModule->sendMessage(to, sf);
+    //fw+ use private custody control port to avoid apps rendering S&F HISTORY frames
+    sendCustodyControlPrivate(to, (meshtastic_StoreAndForward_RequestResponse)fwplus_custody::RR_ROUTER_CUSTODY_ACK, origId, 0);
     //fw+ stats
     custodyCountCA++; lastCAms = nowMs();
 }
@@ -800,7 +860,8 @@ void StoreForwardModule::sendCustodyClaim(uint32_t origId)
     sf.rr = (meshtastic_StoreAndForward_RequestResponse)fwplus_custody::RR_ROUTER_CUSTODY_CLAIM; //fw+
     sf.which_variant = meshtastic_StoreAndForward_history_tag;
     sf.variant.history.window = origId; // carry id
-    storeForwardModule->sendMessage(NODENUM_BROADCAST, sf);
+    //storeForwardModule->sendMessage(NODENUM_BROADCAST, sf); //fw+ suppress S&F path
+    sendCustodyControlPrivate(NODENUM_BROADCAST, (meshtastic_StoreAndForward_RequestResponse)fwplus_custody::RR_ROUTER_CUSTODY_CLAIM, origId, 0);
     custodyCountCR++; lastCRms = nowMs();
 }
 
@@ -823,7 +884,8 @@ void StoreForwardModule::sendCustodyDelivered(uint32_t origId)
     sf.rr = (meshtastic_StoreAndForward_RequestResponse)fwplus_custody::RR_ROUTER_DELIVERED; //fw+
     sf.which_variant = meshtastic_StoreAndForward_history_tag;
     sf.variant.history.window = origId;
-    storeForwardModule->sendMessage(NODENUM_BROADCAST, sf);
+    //storeForwardModule->sendMessage(NODENUM_BROADCAST, sf); //fw+ suppress S&F path
+    sendCustodyControlPrivate(NODENUM_BROADCAST, (meshtastic_StoreAndForward_RequestResponse)fwplus_custody::RR_ROUTER_DELIVERED, origId, 0);
     custodyCountDR++; lastDRms = nowMs();
 }
 
@@ -853,7 +915,8 @@ void StoreForwardModule::sendDeliveryFailed(uint32_t origId, uint32_t reasonCode
     // Reuse window for id; encode reason into history_messages for compactness
     sf.variant.history.window = origId;
     sf.variant.history.history_messages = reasonCode;
-    storeForwardModule->sendMessage(NODENUM_BROADCAST, sf);
+    //storeForwardModule->sendMessage(NODENUM_BROADCAST, sf); //fw+ suppress S&F path
+    sendCustodyControlPrivate(NODENUM_BROADCAST, (meshtastic_StoreAndForward_RequestResponse)fwplus_custody::RR_ROUTER_DELIVERY_FAILED, origId, reasonCode);
     custodyCountDF++; lastDFms = nowMs();
 }
 
@@ -1157,16 +1220,10 @@ void StoreForwardModule::processSchedules()
                     memcpy(p->encrypted.bytes, this->packetHistory[i].payload, this->packetHistory[i].payload_size); //fw+
                     p->encrypted.size = this->packetHistory[i].payload_size;                                         //fw+
                 } else {
-                    //fw+ Use S&F protobuf wrapper for plaintext payload (avoid raw TEXT on-air)
-                    meshtastic_StoreAndForward sf = meshtastic_StoreAndForward_init_zero; //fw+
-                    sf.which_variant = meshtastic_StoreAndForward_text_tag;               //fw+
-                    sf.variant.text.size = this->packetHistory[i].payload_size;           //fw+
-                    memcpy(sf.variant.text.bytes, this->packetHistory[i].payload, this->packetHistory[i].payload_size); //fw+
-                    sf.rr = (s.isDM ? meshtastic_StoreAndForward_RequestResponse_ROUTER_TEXT_DIRECT
-                                    : meshtastic_StoreAndForward_RequestResponse_ROUTER_TEXT_BROADCAST);               //fw+
-                    p->decoded.portnum = meshtastic_PortNum_STORE_FORWARD_APP;                                           //fw+
-                    p->decoded.payload.size = pb_encode_to_bytes(p->decoded.payload.bytes, sizeof(p->decoded.payload.bytes),
-                                                                 &meshtastic_StoreAndForward_msg, &sf);                 //fw+
+                    //fw+ Send plaintext as regular TEXT message (not S&F TEXT) to avoid APK chat spam
+                    p->decoded.portnum = meshtastic_PortNum_TEXT_MESSAGE_APP;
+                    memcpy(p->decoded.payload.bytes, this->packetHistory[i].payload, this->packetHistory[i].payload_size);
+                    p->decoded.payload.size = this->packetHistory[i].payload_size;
                 }
                 //fw+ Elevate priority for DM in mini-server to reduce contention with relays
                 if (s.isDM && miniServerMode) {

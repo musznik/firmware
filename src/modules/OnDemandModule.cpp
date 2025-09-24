@@ -348,8 +348,8 @@ meshtastic_OnDemand OnDemandModule::prepareSFCustodyStatus()
         s.last_dr_ms = storeForwardModule->getLastDRms();
         s.last_df_ms = storeForwardModule->getLastDFms();
         s.max_active_dm = storeForwardModule->getActiveDmCount(); // expose current active as proxy for cap
-        s.per_dest_min_spacing_ms = 0; // optional: fill if later exposed via getter/config
-        s.dest_cooldown_ms = 0;        // optional: fill if later exposed via getter/config
+        s.per_dest_min_spacing_ms = storeForwardModule->getPerDestMinSpacingMs();
+        s.dest_cooldown_ms = storeForwardModule->getDestCooldownMs();
     }
     return onDemand;
 }
