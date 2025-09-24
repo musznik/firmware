@@ -1068,6 +1068,12 @@ void StoreForwardModule::scheduleFromHistory(uint32_t id)
                 LOG_DEBUG("fw+ Skip schedule id=0x%x due to dest cooldown %u ms left", id, (unsigned)(destCooldownUntilMs[dest] - nowMs()));
                 return;
             }
+            //fw+ Fast path: if destination appears near and route is healthy, prefer native delivery and do not schedule
+            uint8_t estHopsNear = estimateHops(dest);
+            if (estHopsNear <= 1 && isDestFresh(dest) && hasSufficientRouteConfidence(dest)) {
+                LOG_DEBUG("fw+ Near/healthy path detected, skip S&F schedule id=0x%x dest=%u", id, (unsigned)dest);
+                return;
+            }
             if (estimateHops(dest) > forwardMaxHops || !isDestFresh(dest) || !hasSufficientRouteConfidence(dest)) {
                 // Do not attempt; globally announce DF to stop others and mark failed locally
                 broadcastDeliveryFailedControl(id, (uint32_t)meshtastic_Routing_Error_NO_ROUTE);
@@ -1095,6 +1101,8 @@ void StoreForwardModule::scheduleFromHistory(uint32_t id)
             //fw+ In simulation, schedule DM sooner to observe forwarding quickly
             if (s.isDM) base = 400; // ~0.4s
 #endif
+            //fw+ adaptive grace: compute initialGrace and prefer native delivery during grace
+            s.initialGraceMs = computeAdaptiveGraceMs(s.to, this->packetHistory[i]);
             //fw+ never schedule in the past
             s.nextAttemptMs = nowMs() + (s.isDM ? base : addJitter(base, bcJitterPct));
             //fw+ set overall deadline (5 min from custody start)
@@ -1132,6 +1140,11 @@ void StoreForwardModule::processSchedules()
             // push next attempt slightly forward to yield to others
             s.nextAttemptMs = now + addJitter(busyRetryMs, dmJitterPct);
             ++it; continue;
+        }
+        //fw+ During adaptive initial grace, skip any action if destination was active very recently
+        if (s.tries == 0 && (now - s.createdMs) < s.initialGraceMs) {
+            // if destination active in last few seconds, keep waiting silently
+            if (wasDestActiveRecently(s.to, 3000)) { ++it; continue; }
         }
         if (now < s.nextAttemptMs) { ++it; continue; }
         //fw+ Channel utilization gating: be less strict for DM deliveries, polite for broadcasts
@@ -1343,6 +1356,40 @@ uint32_t StoreForwardModule::computePerDestSpacingMs(NodeNum dest, const Custody
         if (base > perTry) base = perTry;  // clamp to TTL budget
     }
     return addJitter(base, dmJitterPct);
+}
+
+//fw+ Compute adaptive grace window before S&F acts, based on hops, channel util, density, and signal quality
+uint32_t StoreForwardModule::computeAdaptiveGraceMs(NodeNum dest, const PacketHistoryStruct &rec) const
+{
+    // Base 8s .. 25s window depending on conditions
+    uint32_t base = 8000;
+    uint8_t hops = estimateHops(dest);
+    // +2s per hop
+    base += (uint32_t)hops * 2000;
+    // Channel utilization bump
+    if (airTime) {
+        // up to +8s for high util
+        uint32_t util = airTime->max_channel_util_percent;
+        if (util >= 40) base += 8000; else if (util >= 25) base += 4000; else if (util >= 15) base += 2000;
+    }
+    // Signal quality bump (low SNR -> more grace)
+    if (rec.rx_snr < 5.0f) base += 3000; else if (rec.rx_snr < 10.0f) base += 1500;
+    // Dense mesh bump
+    if (isDenseEnvironment()) base += 5000;
+    // Clamp to 8..25s and add jitter
+    if (base < 8000) base = 8000; if (base > 25000) base = 25000;
+    return addJitter(base, dmJitterPct);
+}
+
+//fw+ Detect if destination was active very recently (received by us)
+bool StoreForwardModule::wasDestActiveRecently(NodeNum dest, uint32_t recentMs) const
+{
+    if (!nodeDB) return false;
+    meshtastic_NodeInfoLite *n = nodeDB->getMeshNode(dest);
+    if (!n) return false;
+    uint32_t now = getValidTime(RTCQualityFromNet);
+    if (n->last_heard == 0 || now == 0) return false;
+    return (now - n->last_heard) * 1000UL <= recentMs;
 }
 //fw+ Locate endpoints for a stored id
 bool StoreForwardModule::getHistoryEndpoints(uint32_t id, NodeNum &src, NodeNum &dst, uint8_t &channel)

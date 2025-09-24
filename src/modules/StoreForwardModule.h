@@ -61,6 +61,8 @@ class StoreForwardModule : private concurrency::OSThread, public ProtobufModule<
         uint32_t deadlineMs = 0;
         //fw+ creation time for early-cancel grace window
         uint32_t createdMs = 0;
+        //fw+ adaptive initial grace window before first action (ms)
+        uint32_t initialGraceMs = 0;
     };
     std::unordered_map<uint32_t, CustodySchedule> scheduleById; // id -> schedule
     std::unordered_map<uint32_t, bool> pendingSchedule;         // ids awaiting history entry
@@ -316,6 +318,10 @@ class StoreForwardModule : private concurrency::OSThread, public ProtobufModule<
     void clearDestCooldown(NodeNum dest) { destCooldownUntilMs.erase(dest); }
     //fw+ Adaptive per-destination spacing computation (hops, density, chanutil, peers, TTL, queue depth)
     uint32_t computePerDestSpacingMs(NodeNum dest, const CustodySchedule &s, uint32_t now) const;
+    //fw+ Adaptive initial grace computation based on hops, util, density and signal quality
+    uint32_t computeAdaptiveGraceMs(NodeNum dest, const PacketHistoryStruct &rec) const;
+    //fw+ Very recent activity detection for destination
+    bool wasDestActiveRecently(NodeNum dest, uint32_t recentMs) const;
     //fw+ Send Custody ACK to original sender for DM takeover
     void sendCustodyAck(NodeNum to, uint32_t origId);
     //fw+ Opaque custody: add encrypted packet to history
