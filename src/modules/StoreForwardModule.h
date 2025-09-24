@@ -59,6 +59,8 @@ class StoreForwardModule : private concurrency::OSThread, public ProtobufModule<
         uint32_t lastTxMs = 0;
         //fw+ overall deadline to give up (since custody start)
         uint32_t deadlineMs = 0;
+        //fw+ creation time for early-cancel grace window
+        uint32_t createdMs = 0;
     };
     std::unordered_map<uint32_t, CustodySchedule> scheduleById; // id -> schedule
     std::unordered_map<uint32_t, bool> pendingSchedule;         // ids awaiting history entry
@@ -340,6 +342,33 @@ class StoreForwardModule : private concurrency::OSThread, public ProtobufModule<
     bool isDestFresh(NodeNum dest) const;
     //fw+ Dynamic staleness allowance: longer in sparse/quiet meshes
     uint32_t getDestStaleAllowance() const;
+    //fw+ Decide whether to defer CA for encrypted DM based on proximity and health
+    bool shouldDeferCustodyAckForEncrypted(NodeNum src, NodeNum dst) const
+    {
+        // Feature gate (temporarily default true until proto regen wires optional fields)
+        bool deferEnabled = true;
+        if (!deferEnabled) return false;
+        // Nearness threshold (default 1 hop)
+        uint32_t nearHops = 1;
+        // If source is far, don't defer
+        uint8_t hopsSrc = estimateHops(src);
+        if (hopsSrc > nearHops) return false;
+        // Require minimally sufficient route confidence to destination (freshness may be unknown early)
+        if (!hasSufficientRouteConfidence(dst)) return false;
+        return true;
+    }
+    //fw+ Grace window for deferred CA (ms)
+    uint32_t getDeferredCAGraceMs() const
+    {
+        uint32_t grace = 12000;
+        return grace;
+    }
+    //fw+ Soft grace for newly created schedules (ms) before any send, to allow native path to succeed
+    uint32_t getScheduleSoftGraceMs() const
+    {
+        // reuse CA grace as a sensible default
+        return getDeferredCAGraceMs();
+    }
     //fw+ compute DM initial delay (10–30s window scaled by hops)
     uint32_t computeInitialDelayMs(uint8_t estHops) const;
     //fw+ compute DM retry target time (>=60s + hop scaling, with jitter and spacing guards)

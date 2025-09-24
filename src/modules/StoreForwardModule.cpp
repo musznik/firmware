@@ -561,10 +561,19 @@ ProcessMessage StoreForwardModule::handleReceived(const meshtastic_MeshPacket &m
             //fw+ Opaque custody path for encrypted DM we can't decode locally
             LOG_DEBUG("fw+ Encrypted DM captured id=0x%x", mp.id);
             storeForwardModule->historyAddOpaque(mp);
-            // For DM, emit Custody ACK so the source stops retransmitting; mark claimed locally
+            // For DM, decide if CA should be deferred (near/healthy) or immediate (far/uncertain)
             if (mp.to != NODENUM_BROADCAST && mp.to != NODENUM_BROADCAST_NO_LORA) {
-                sendCustodyAck(getFrom(&mp), mp.id);
-                markClaimed(mp.id);
+                NodeNum src = getFrom(&mp);
+                NodeNum dst = mp.to;
+                if (shouldDeferCustodyAckForEncrypted(src, dst)) {
+                    // Defer CA: schedule CA to be sent just before first server attempt
+                    // We piggyback on the normal schedule; CA is emitted JIT in processSchedules when tries==0
+                    // No immediate CA here
+                } else {
+                    // Immediate CA: stop source retransmissions quickly
+                    sendCustodyAck(src, mp.id);
+                    markClaimed(mp.id);
+                }
             }
         } else if (!isFromUs(&mp) && mp.decoded.portnum == meshtastic_PortNum_STORE_FORWARD_APP) {
             auto &p = mp.decoded;
@@ -989,14 +998,12 @@ uint32_t StoreForwardModule::computeInitialDelayMs(uint8_t estHops) const
     uint32_t base0 = 10000;
     //fw+ apply dense overrides from NodeModAdmin (optional) or auto-dense heuristic
     bool dense = isDenseEnvironment();
-#ifdef HAS_ADMIN_MODULE
     if (moduleConfig.nodemodadmin.dense_initial_cap_secs) {
         dense = true;
         uint32_t v = moduleConfig.nodemodadmin.dense_initial_cap_secs * 1000;
         if (v > cap) cap = v;
         base0 = 15000;
     }
-#endif
     if (dense) {
         cap = (cap < 45000 ? 45000 : cap); // default to 45s cap if none provided
         base0 = 15000;
@@ -1012,13 +1019,11 @@ uint32_t StoreForwardModule::computeRetryDelayMs(uint8_t tries, uint8_t estHops,
     uint32_t minBase = 60000;
     //fw+ apply dense retry spacing from NodeModAdmin (optional) or auto-dense heuristic
     bool dense = isDenseEnvironment();
-#ifdef HAS_ADMIN_MODULE
     if (moduleConfig.nodemodadmin.dense_min_retry_secs) {
         dense = true;
         uint32_t v = moduleConfig.nodemodadmin.dense_min_retry_secs * 1000;
         if (v > minBase) minBase = v;
     }
-#endif
     if (dense && minBase < 90000) minBase = 90000; // default 90s if none provided
     uint32_t hops = estHops ? estHops : 1;
     uint32_t hopSpacing = 120000UL * hops; // 2 min per hop
@@ -1077,6 +1082,7 @@ void StoreForwardModule::scheduleFromHistory(uint32_t id)
             s.to = this->packetHistory[i].to;
             s.isDM = true;
             s.tries = 0;
+            s.createdMs = nowMs();
             //fw+ scale initial delay by estimated hops (dense mesh settling)
             uint8_t estHops = estimateHops(s.to);
             uint32_t base = s.isDM ? computeInitialDelayMs(estHops) : (random(bcMaxDelayMs - bcMinDelayMs + 1) + bcMinDelayMs);
@@ -1149,6 +1155,18 @@ void StoreForwardModule::processSchedules()
         for (uint32_t i = 0; i < this->packetHistoryTotalCount; i++) {
             if (this->packetHistory[i].id == s.id) {
                 if (isDelivered(s.id)) { p = nullptr; break; }
+                //fw+ Early cancel: during soft grace window, if we already observed activity indicating native delivery
+                // cancel schedule without sending anything. We detect by: destination is fresh and we recently saw
+                // Routing/ACK or any reply from destination (proxied via isDestFresh + spacing as heuristic).
+                if (now - s.createdMs < getScheduleSoftGraceMs()) {
+                    if (isDestFresh(s.to)) {
+                        // cancel schedule and clear history entry to avoid rescheduling
+                        LOG_DEBUG("fw+ Soft-grace cancel id=0x%x dest=%u", s.id, (unsigned)s.to);
+                        it = scheduleById.erase(it);
+                        clearHistoryById(s.id);
+                        break;
+                    }
+                }
                 //fw+ Per-destination DM cap=1 and spacing guard just before send
                 if (s.isDM) {
                     // Adaptive per-destination spacing
@@ -1240,7 +1258,12 @@ void StoreForwardModule::processSchedules()
                 // Unicast CA to source to stop its retransmissions; broadcast CR for other S&F
                 NodeNum src = 0, dst = 0; uint8_t ch = 0;
                 if (getHistoryEndpoints(s.id, src, dst, ch)) {
-                    sendCustodyAck(src, s.id);
+                    // If encrypted path requested deferral, we may still be in soft grace; only send CA if grace elapsed
+                    if (now - s.createdMs >= getDeferredCAGraceMs()) {
+                        sendCustodyAck(src, s.id);
+                    } else {
+                        // still within CA grace: skip CA this time
+                    }
                 }
                 sendCustodyClaim(s.id);
             }
