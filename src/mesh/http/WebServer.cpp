@@ -135,7 +135,7 @@ void createSSLCert()
 {
     //fw+ On boards without PSRAM, allow HTTPS unless S&F server is active; then skip cert generation
     if (memGet.getPsramSize() == 0) { //fw+
-        bool sfServerActive = (storeForwardModule && storeForwardModule->isStoreForwardServerActive()); //fw+
+        bool sfServerActive = (storeForwardModule && storeForwardModule->isServer()); //fw+
         if (sfServerActive) {                                                                           //fw+
             LOG_INFO("fw+ No PSRAM and S&F server active, skipping HTTPS cert generation");           //fw+
             isCertReady = true;                                                                         //fw+
@@ -212,7 +212,8 @@ void initWebServer()
 
     // We can now use the new certificate to setup our server as usual.
     insecureServer = new HTTPServer();
-    bool sfServerActive = (storeForwardModule && storeForwardModule->isStoreForwardServerActive()); //fw+
+    //fw+ use isServer() (legacy isStoreForwardServerActive removed)
+    bool sfServerActive = (storeForwardModule && storeForwardModule->isServer()); //fw+
     //fw+ Respect admin override to force-disable HTTPS
     bool forceDisableHttps = moduleConfig.nodemodadmin.force_disable_https; // fw+
     //fw+ Policy:

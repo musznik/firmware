@@ -96,6 +96,9 @@ typedef struct _meshtastic_LocalModuleConfig {
     /* IdleGameConfig Config */
     bool has_idlegame;
     meshtastic_ModuleConfig_IdleGameConfig idlegame;
+    /* FW+ DTN Config */
+    bool has_dtn_overlay;
+    meshtastic_ModuleConfig_DtnOverlayConfig dtn_overlay;
 } meshtastic_LocalModuleConfig;
 
 
@@ -105,9 +108,9 @@ extern "C" {
 
 /* Initializer values for message structs */
 #define meshtastic_LocalConfig_init_default      {false, meshtastic_Config_DeviceConfig_init_default, false, meshtastic_Config_PositionConfig_init_default, false, meshtastic_Config_PowerConfig_init_default, false, meshtastic_Config_NetworkConfig_init_default, false, meshtastic_Config_DisplayConfig_init_default, false, meshtastic_Config_LoRaConfig_init_default, false, meshtastic_Config_BluetoothConfig_init_default, 0, false, meshtastic_Config_SecurityConfig_init_default}
-#define meshtastic_LocalModuleConfig_init_default {false, meshtastic_ModuleConfig_MQTTConfig_init_default, false, meshtastic_ModuleConfig_SerialConfig_init_default, false, meshtastic_ModuleConfig_ExternalNotificationConfig_init_default, false, meshtastic_ModuleConfig_StoreForwardConfig_init_default, false, meshtastic_ModuleConfig_RangeTestConfig_init_default, false, meshtastic_ModuleConfig_TelemetryConfig_init_default, false, meshtastic_ModuleConfig_CannedMessageConfig_init_default, 0, false, meshtastic_ModuleConfig_AudioConfig_init_default, false, meshtastic_ModuleConfig_RemoteHardwareConfig_init_default, false, meshtastic_ModuleConfig_NeighborInfoConfig_init_default, false, meshtastic_ModuleConfig_AmbientLightingConfig_init_default, false, meshtastic_ModuleConfig_DetectionSensorConfig_init_default, false, meshtastic_ModuleConfig_PaxcounterConfig_init_default, false, meshtastic_ModuleConfig_NodeModConfig_init_default, false, meshtastic_ModuleConfig_NodeModAdminConfig_init_default, false, meshtastic_ModuleConfig_IdleGameConfig_init_default}
+#define meshtastic_LocalModuleConfig_init_default {false, meshtastic_ModuleConfig_MQTTConfig_init_default, false, meshtastic_ModuleConfig_SerialConfig_init_default, false, meshtastic_ModuleConfig_ExternalNotificationConfig_init_default, false, meshtastic_ModuleConfig_StoreForwardConfig_init_default, false, meshtastic_ModuleConfig_RangeTestConfig_init_default, false, meshtastic_ModuleConfig_TelemetryConfig_init_default, false, meshtastic_ModuleConfig_CannedMessageConfig_init_default, 0, false, meshtastic_ModuleConfig_AudioConfig_init_default, false, meshtastic_ModuleConfig_RemoteHardwareConfig_init_default, false, meshtastic_ModuleConfig_NeighborInfoConfig_init_default, false, meshtastic_ModuleConfig_AmbientLightingConfig_init_default, false, meshtastic_ModuleConfig_DetectionSensorConfig_init_default, false, meshtastic_ModuleConfig_PaxcounterConfig_init_default, false, meshtastic_ModuleConfig_NodeModConfig_init_default, false, meshtastic_ModuleConfig_NodeModAdminConfig_init_default, false, meshtastic_ModuleConfig_IdleGameConfig_init_default, false, meshtastic_ModuleConfig_DtnOverlayConfig_init_default}
 #define meshtastic_LocalConfig_init_zero         {false, meshtastic_Config_DeviceConfig_init_zero, false, meshtastic_Config_PositionConfig_init_zero, false, meshtastic_Config_PowerConfig_init_zero, false, meshtastic_Config_NetworkConfig_init_zero, false, meshtastic_Config_DisplayConfig_init_zero, false, meshtastic_Config_LoRaConfig_init_zero, false, meshtastic_Config_BluetoothConfig_init_zero, 0, false, meshtastic_Config_SecurityConfig_init_zero}
-#define meshtastic_LocalModuleConfig_init_zero   {false, meshtastic_ModuleConfig_MQTTConfig_init_zero, false, meshtastic_ModuleConfig_SerialConfig_init_zero, false, meshtastic_ModuleConfig_ExternalNotificationConfig_init_zero, false, meshtastic_ModuleConfig_StoreForwardConfig_init_zero, false, meshtastic_ModuleConfig_RangeTestConfig_init_zero, false, meshtastic_ModuleConfig_TelemetryConfig_init_zero, false, meshtastic_ModuleConfig_CannedMessageConfig_init_zero, 0, false, meshtastic_ModuleConfig_AudioConfig_init_zero, false, meshtastic_ModuleConfig_RemoteHardwareConfig_init_zero, false, meshtastic_ModuleConfig_NeighborInfoConfig_init_zero, false, meshtastic_ModuleConfig_AmbientLightingConfig_init_zero, false, meshtastic_ModuleConfig_DetectionSensorConfig_init_zero, false, meshtastic_ModuleConfig_PaxcounterConfig_init_zero, false, meshtastic_ModuleConfig_NodeModConfig_init_zero, false, meshtastic_ModuleConfig_NodeModAdminConfig_init_zero, false, meshtastic_ModuleConfig_IdleGameConfig_init_zero}
+#define meshtastic_LocalModuleConfig_init_zero   {false, meshtastic_ModuleConfig_MQTTConfig_init_zero, false, meshtastic_ModuleConfig_SerialConfig_init_zero, false, meshtastic_ModuleConfig_ExternalNotificationConfig_init_zero, false, meshtastic_ModuleConfig_StoreForwardConfig_init_zero, false, meshtastic_ModuleConfig_RangeTestConfig_init_zero, false, meshtastic_ModuleConfig_TelemetryConfig_init_zero, false, meshtastic_ModuleConfig_CannedMessageConfig_init_zero, 0, false, meshtastic_ModuleConfig_AudioConfig_init_zero, false, meshtastic_ModuleConfig_RemoteHardwareConfig_init_zero, false, meshtastic_ModuleConfig_NeighborInfoConfig_init_zero, false, meshtastic_ModuleConfig_AmbientLightingConfig_init_zero, false, meshtastic_ModuleConfig_DetectionSensorConfig_init_zero, false, meshtastic_ModuleConfig_PaxcounterConfig_init_zero, false, meshtastic_ModuleConfig_NodeModConfig_init_zero, false, meshtastic_ModuleConfig_NodeModAdminConfig_init_zero, false, meshtastic_ModuleConfig_IdleGameConfig_init_zero, false, meshtastic_ModuleConfig_DtnOverlayConfig_init_zero}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define meshtastic_LocalConfig_device_tag        1
@@ -136,6 +139,7 @@ extern "C" {
 #define meshtastic_LocalModuleConfig_nodemod_tag 20
 #define meshtastic_LocalModuleConfig_nodemodadmin_tag 21
 #define meshtastic_LocalModuleConfig_idlegame_tag 22
+#define meshtastic_LocalModuleConfig_dtn_overlay_tag 23
 
 /* Struct field encoding specification for nanopb */
 #define meshtastic_LocalConfig_FIELDLIST(X, a) \
@@ -176,7 +180,8 @@ X(a, STATIC,   OPTIONAL, MESSAGE,  detection_sensor,  13) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  paxcounter,       14) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  nodemod,          20) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  nodemodadmin,     21) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  idlegame,         22)
+X(a, STATIC,   OPTIONAL, MESSAGE,  idlegame,         22) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  dtn_overlay,      23)
 #define meshtastic_LocalModuleConfig_CALLBACK NULL
 #define meshtastic_LocalModuleConfig_DEFAULT NULL
 #define meshtastic_LocalModuleConfig_mqtt_MSGTYPE meshtastic_ModuleConfig_MQTTConfig
@@ -195,6 +200,7 @@ X(a, STATIC,   OPTIONAL, MESSAGE,  idlegame,         22)
 #define meshtastic_LocalModuleConfig_nodemod_MSGTYPE meshtastic_ModuleConfig_NodeModConfig
 #define meshtastic_LocalModuleConfig_nodemodadmin_MSGTYPE meshtastic_ModuleConfig_NodeModAdminConfig
 #define meshtastic_LocalModuleConfig_idlegame_MSGTYPE meshtastic_ModuleConfig_IdleGameConfig
+#define meshtastic_LocalModuleConfig_dtn_overlay_MSGTYPE meshtastic_ModuleConfig_DtnOverlayConfig
 
 extern const pb_msgdesc_t meshtastic_LocalConfig_msg;
 extern const pb_msgdesc_t meshtastic_LocalModuleConfig_msg;
@@ -206,7 +212,7 @@ extern const pb_msgdesc_t meshtastic_LocalModuleConfig_msg;
 /* Maximum encoded size of messages (where known) */
 #define MESHTASTIC_MESHTASTIC_LOCALONLY_PB_H_MAX_SIZE meshtastic_LocalModuleConfig_size
 #define meshtastic_LocalConfig_size              749
-#define meshtastic_LocalModuleConfig_size        1680
+#define meshtastic_LocalModuleConfig_size        1699
 
 #ifdef __cplusplus
 } /* extern "C" */

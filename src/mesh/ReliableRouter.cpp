@@ -7,12 +7,8 @@
 #include "modules/NodeInfoModule.h"
 #include "modules/RoutingModule.h"
 #include "modules/StoreForwardModule.h"
-#include "modules/fwplus_custody.h" //fw+
-#include "MeshService.h" //fw+ for service->sendToMesh
-#include "mesh/generated/meshtastic/storeforward.pb.h" //fw+ S&F proto
-#include <pb_encode.h> //fw+ nanopb encode
 #include <stdlib.h>
-//fw+ Opportunistic ACK: RSSI-based election + duplicate suppression (kept separate to minimize diffs)
+//fw+ Opportunistic ACK: RSSI-based election + duplicate suppression
 namespace fwplus_ack
 {
     /*
@@ -214,48 +210,13 @@ void ReliableRouter::sniffReceived(const meshtastic_MeshPacket *p, const meshtas
                 nodeInfoModule->sendOurNodeInfo(p->from, false, p->channel, true);
             }
         }
-        //fw+ Treat S&F Custody ACK like an ACK for suppressing our retransmissions (DM custody takeover)
-        if (p->which_payload_variant == meshtastic_MeshPacket_decoded_tag &&
-            p->decoded.portnum == meshtastic_PortNum_STORE_FORWARD_APP) {
-            meshtastic_StoreAndForward sf = meshtastic_StoreAndForward_init_zero;
-            if (pb_decode_from_bytes(p->decoded.payload.bytes, p->decoded.payload.size, &meshtastic_StoreAndForward_msg, &sf)) {
-                uint32_t cid = 0;
-                if (sf.rr == (meshtastic_StoreAndForward_RequestResponse)fwplus_custody::RR_ROUTER_CUSTODY_ACK) {
-                    if (sf.which_variant == meshtastic_StoreAndForward_history_tag) {
-                        cid = sf.variant.history.window; // we encode id here
-                    }
-                }
-                if (cid) {
-                    LOG_INFO("fw+ Treat Custody ACK like ACK, stop retx for id=0x%x", cid);
-                    stopRetransmission(p->to, cid);
-                    if (storeForwardModule && storeForwardModule->isServer()) {
-                        // Mark claim locally so other S&F servers on this node back off
-                        storeForwardModule->markClaimed(cid);
-                    }
-                }
-            }
-        }
+        //fw+ remove custody ACK handling (legacy)
         // We consider an ack to be either a !routing packet with a request ID or a routing packet with !error
         PacketId ackId = ((c && c->error_reason == meshtastic_Routing_Error_NONE) || !c) ? p->decoded.request_id : 0;
-        //fw+ Translate forwarded S&F ACKs (forwardedId -> originalId) for server schedule cleanup
-        if (ackId && storeForwardModule && storeForwardModule->isServer()) {
-            uint32_t orig = storeForwardModule->translateForwardedToOriginal(ackId);
-            if (orig) {
-                LOG_INFO("fw+ Translate ACK forwardedId=0x%x -> originalId=0x%x", ackId, orig);
-                storeForwardModule->cancelScheduleForId(orig);
-                storeForwardModule->markDelivered(orig);
-                storeForwardModule->forgetForwarded(ackId);
-            }
-        }
+        //fw+ remove S&F forwarded ACK translation and schedule cleanup (legacy)
         //fw+ Source-side DR broadcast (FW+ optional): when we (destination/source of ACK) are the addressed node and receive ACK,
         // broadcast a delivered control so S&F servers that didn't hear the ACK can cancel schedules.
-        if (ackId && isToUs(p) && storeForwardModule) {
-            bool allow = false;
-            allow = moduleConfig.nodemodadmin.emit_custody_control_signals;
-            if (allow) {
-                storeForwardModule->broadcastDeliveredControl((uint32_t)ackId);
-            }
-        }
+        //fw+ remove custody control signal broadcast (DELIVERED)
 
         // A nak is a routing packt that has an  error code
         PacketId nakId = (c && c->error_reason != meshtastic_Routing_Error_NONE) ? p->decoded.request_id : 0;
@@ -267,35 +228,15 @@ void ReliableRouter::sniffReceived(const meshtastic_MeshPacket *p, const meshtas
                 stopRetransmission(p->to, ackId);
                 //fw+ Remember ACK to suppress followers
                 fwplus_ack::mark(getFrom(p), ackId, millis());
-                //fw+ If this ACK corresponds to a DM under S&F custody, cancel its schedule (already translated if needed)
-                if (storeForwardModule && storeForwardModule->isServer()) {
-                    storeForwardModule->cancelScheduleForId(ackId);
-                }
+                //fw+ remove custody schedule cancel on ACK (legacy)
             } else {
                 stopRetransmission(p->to, nakId);
-                //fw+ Source-side DF broadcast (FW+ optional): if NAK is terminal and adressee is us, inform mesh
-                if (nakId && isToUs(p) && storeForwardModule &&
-                    (c->error_reason == meshtastic_Routing_Error_NO_CHANNEL ||
-                     c->error_reason == meshtastic_Routing_Error_PKI_UNKNOWN_PUBKEY)) {
-                    bool allow = false;
-                    allow = moduleConfig.nodemodadmin.emit_custody_control_signals;
-                    if (allow) {
-                        //fw+ Emit DF using original id if translated earlier; if not, nakId is sufficient
-                        storeForwardModule->broadcastDeliveryFailedControl((uint32_t)nakId, (uint32_t)c->error_reason);
-                    }
-                }
+                //fw+ remove custody control signal broadcast (DELIVERY_FAILED)
             }
         }
     }
 
-    //fw+ Even if ACK is not addressed to us, cancel S&F DM schedule when we overhear it
-    if (storeForwardModule && storeForwardModule->isServer()) {
-        PacketId observedAckId = ((c && c->error_reason == meshtastic_Routing_Error_NONE) || !c) ? p->decoded.request_id : 0;
-        if (observedAckId) {
-            // Cancel only if ACK came from intended DM recipient
-            storeForwardModule->cancelScheduleOnAck(observedAckId, getFrom(p));
-        }
-    }
+    //fw+ remove custody overheard-ACK cancellation (legacy)
 
     // handle the packet as normal
     isBroadcast(p->to) ? FloodingRouter::sniffReceived(p, c) : NextHopRouter::sniffReceived(p, c);

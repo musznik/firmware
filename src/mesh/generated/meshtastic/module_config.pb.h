@@ -499,20 +499,6 @@ typedef struct _meshtastic_ModuleConfig_NodeModAdminConfig {
     /* fw+ Force disable HTTPS web server regardless of automation. Default false (HTTPS enabled).
  When true, firmware must not start HTTPS even if PSRAM is available. */
     bool force_disable_https; /* fw+ */
-    /* fw+ Allow router to emit CA/DR control-only custody signals */
-    bool emit_custody_control_signals; /* fw+ */
-    /* fw+ Dense/problematic terrain pacing knobs for custody delivery (optional; auto-dense still applies)
- Minimum retry spacing in seconds in dense environments (0 => default 90s) */
-    uint32_t dense_min_retry_secs; /* fw+ */
-    /* Initial delivery wait cap in seconds in dense environments (0 => default 45s) */
-    uint32_t dense_initial_cap_secs; /* fw+ */
-    /* fw+ Adaptive CA for encrypted DMs: defer CA when source is near and route is healthy
- Enable deferring CA for encrypted DMs (default true when field absent) */
-    bool defer_ca_if_near; /* fw+ */
-    /* Treat source within this many hops as "near" (0/1 recommended; default 1 when field absent) */
-    uint32_t ca_near_hops_threshold; /* fw+ */
-    /* Grace window before emitting CA when near and healthy (milliseconds). Default 12000. */
-    uint32_t ca_near_grace_ms; /* fw+ */
 } meshtastic_ModuleConfig_NodeModAdminConfig;
 
 /* fw+ DTN overlay configuration */
@@ -647,7 +633,6 @@ typedef struct _meshtastic_ModuleConfig {
         meshtastic_ModuleConfig_NodeModConfig node_mod;
         meshtastic_ModuleConfig_NodeModAdminConfig node_mod_admin;
         meshtastic_ModuleConfig_IdleGameConfig idle_game;
-        /* fw+ DTN overlay config */
         meshtastic_ModuleConfig_DtnOverlayConfig dtn_overlay;
     } payload_variant;
 } meshtastic_ModuleConfig;
@@ -739,7 +724,7 @@ extern "C" {
 #define meshtastic_ModuleConfig_CannedMessageConfig_init_default {0, 0, 0, 0, _meshtastic_ModuleConfig_CannedMessageConfig_InputEventChar_MIN, _meshtastic_ModuleConfig_CannedMessageConfig_InputEventChar_MIN, _meshtastic_ModuleConfig_CannedMessageConfig_InputEventChar_MIN, 0, 0, "", 0}
 #define meshtastic_ModuleConfig_AmbientLightingConfig_init_default {0, 0, 0, 0, 0}
 #define meshtastic_ModuleConfig_NodeModConfig_init_default {"", ""}
-#define meshtastic_ModuleConfig_NodeModAdminConfig_init_default {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+#define meshtastic_ModuleConfig_NodeModAdminConfig_init_default {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 #define meshtastic_ModuleConfig_DtnOverlayConfig_init_default {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 #define meshtastic_ModuleConfig_IdleGameKnownVillages_init_default {0, {meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default}}
 #define meshtastic_ModuleConfig_IdleGameAlliance_init_default {0, 0, {0, {0}}}
@@ -765,7 +750,7 @@ extern "C" {
 #define meshtastic_ModuleConfig_CannedMessageConfig_init_zero {0, 0, 0, 0, _meshtastic_ModuleConfig_CannedMessageConfig_InputEventChar_MIN, _meshtastic_ModuleConfig_CannedMessageConfig_InputEventChar_MIN, _meshtastic_ModuleConfig_CannedMessageConfig_InputEventChar_MIN, 0, 0, "", 0}
 #define meshtastic_ModuleConfig_AmbientLightingConfig_init_zero {0, 0, 0, 0, 0}
 #define meshtastic_ModuleConfig_NodeModConfig_init_zero {"", ""}
-#define meshtastic_ModuleConfig_NodeModAdminConfig_init_zero {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+#define meshtastic_ModuleConfig_NodeModAdminConfig_init_zero {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 #define meshtastic_ModuleConfig_DtnOverlayConfig_init_zero {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 #define meshtastic_ModuleConfig_IdleGameKnownVillages_init_zero {0, {meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero}}
 #define meshtastic_ModuleConfig_IdleGameAlliance_init_zero {0, 0, {0, {0}}}
@@ -924,12 +909,6 @@ extern "C" {
 #define meshtastic_ModuleConfig_NodeModAdminConfig_min_confidence_to_use_tag 43
 #define meshtastic_ModuleConfig_NodeModAdminConfig_hysteresis_cost_threshold_tenths_tag 44
 #define meshtastic_ModuleConfig_NodeModAdminConfig_force_disable_https_tag 45
-#define meshtastic_ModuleConfig_NodeModAdminConfig_emit_custody_control_signals_tag 46
-#define meshtastic_ModuleConfig_NodeModAdminConfig_dense_min_retry_secs_tag 47
-#define meshtastic_ModuleConfig_NodeModAdminConfig_dense_initial_cap_secs_tag 48
-#define meshtastic_ModuleConfig_NodeModAdminConfig_defer_ca_if_near_tag 49
-#define meshtastic_ModuleConfig_NodeModAdminConfig_ca_near_hops_threshold_tag 50
-#define meshtastic_ModuleConfig_NodeModAdminConfig_ca_near_grace_ms_tag 51
 #define meshtastic_ModuleConfig_DtnOverlayConfig_enabled_tag 1
 #define meshtastic_ModuleConfig_DtnOverlayConfig_ttl_minutes_tag 2
 #define meshtastic_ModuleConfig_DtnOverlayConfig_initial_delay_base_ms_tag 3
@@ -1240,13 +1219,7 @@ X(a, STATIC,   SINGULAR, UINT32,   route_ttl_per_conf_hours,  41) \
 X(a, STATIC,   SINGULAR, UINT32,   route_ttl_max_hours,  42) \
 X(a, STATIC,   SINGULAR, UINT32,   min_confidence_to_use,  43) \
 X(a, STATIC,   SINGULAR, UINT32,   hysteresis_cost_threshold_tenths,  44) \
-X(a, STATIC,   SINGULAR, BOOL,     force_disable_https,  45) \
-X(a, STATIC,   SINGULAR, BOOL,     emit_custody_control_signals,  46) \
-X(a, STATIC,   SINGULAR, UINT32,   dense_min_retry_secs,  47) \
-X(a, STATIC,   SINGULAR, UINT32,   dense_initial_cap_secs,  48) \
-X(a, STATIC,   SINGULAR, BOOL,     defer_ca_if_near,  49) \
-X(a, STATIC,   SINGULAR, UINT32,   ca_near_hops_threshold,  50) \
-X(a, STATIC,   SINGULAR, UINT32,   ca_near_grace_ms,  51)
+X(a, STATIC,   SINGULAR, BOOL,     force_disable_https,  45)
 #define meshtastic_ModuleConfig_NodeModAdminConfig_CALLBACK NULL
 #define meshtastic_ModuleConfig_NodeModAdminConfig_DEFAULT NULL
 
@@ -1404,7 +1377,7 @@ extern const pb_msgdesc_t meshtastic_RemoteHardwarePin_msg;
 #define meshtastic_ModuleConfig_MQTTConfig_size  224
 #define meshtastic_ModuleConfig_MapReportSettings_size 14
 #define meshtastic_ModuleConfig_NeighborInfoConfig_size 10
-#define meshtastic_ModuleConfig_NodeModAdminConfig_size 303
+#define meshtastic_ModuleConfig_NodeModAdminConfig_size 269
 #define meshtastic_ModuleConfig_NodeModConfig_size 207
 #define meshtastic_ModuleConfig_PaxcounterConfig_size 30
 #define meshtastic_ModuleConfig_RangeTestConfig_size 12
