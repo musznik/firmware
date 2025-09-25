@@ -117,8 +117,9 @@
 #include "modules/NodeMod.h"
 /* #include "modules/IdleGameModule.h"*/
 #include "modules/OnDemandModule.h"
-
 #include "modules/SignalReplyModule.h"
+#include "modules/DtnOverlayModule.h" //fw+
+
 
 
 /**
@@ -331,5 +332,6 @@ void setupModules()
     //idleGameModule = new IdleGameModule();
     onDemandModule = new OnDemandModule();
     signalReplyModule = new SignalReplyModule();
+    dtnOverlayModule = new DtnOverlayModule();
     routingModule = new RoutingModule();
 }

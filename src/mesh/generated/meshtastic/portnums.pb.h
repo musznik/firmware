@@ -148,6 +148,8 @@ typedef enum _meshtastic_PortNum {
     meshtastic_PortNum_NODE_MOD_APP = 278,
     /* FW+ custody control channel (private; ignored by stock apps) */
     meshtastic_PortNum_FWPLUS_CUSTODY_APP = 279, /* fw+ */
+    /* FW+ DTN overlay data/receipts port (private; ignored by stock apps) */
+    meshtastic_PortNum_FWPLUS_DTN_APP = 280, /* fw+ */
     /* IdleGame port */
     meshtastic_PortNum_IDLE_GAME_APP = 322,
     /* OnDemand requests port */

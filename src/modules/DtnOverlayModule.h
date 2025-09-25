@@ -1,0 +1,99 @@
+#pragma once
+
+//fw+ DTN overlay module (FW+ only). Guard compile until protobufs are generated.
+#if __has_include("mesh/generated/meshtastic/fwplus_dtn.pb.h")
+
+#include "ProtobufModule.h"
+#include "concurrency/OSThread.h"
+#include "mesh/generated/meshtastic/fwplus_dtn.pb.h"
+#include "mesh/generated/meshtastic/portnums.pb.h"
+#include <unordered_map>
+
+class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<meshtastic_FwplusDtn>
+{
+  public:
+    DtnOverlayModule();
+    //fw+ enqueue overlay data created from a captured DM (plaintext or encrypted)
+    void enqueueFromCaptured(uint32_t origId, uint32_t origFrom, uint32_t origTo, uint8_t channel,
+                             uint32_t deadlineMs, bool isEncrypted, const uint8_t *bytes, pb_size_t size,
+                             bool allowProxyFallback);
+
+  protected:
+    virtual int32_t runOnce() override;
+    virtual bool handleReceivedProtobuf(const meshtastic_MeshPacket &mp, meshtastic_FwplusDtn *msg) override;
+    virtual bool wantPacket(const meshtastic_MeshPacket *p) override
+    {
+        if (!p) return false;
+        // Accept our private FW+ DTN port
+        if (p->which_payload_variant == meshtastic_MeshPacket_decoded_tag &&
+            p->decoded.portnum == meshtastic_PortNum_FWPLUS_DTN_APP) return true;
+        // Capture encrypted DMs (non-broadcast)
+        if (p->which_payload_variant == meshtastic_MeshPacket_encrypted_tag && !isBroadcast(p->to)) return true;
+        // Capture plaintext DMs on TEXT port (non-broadcast)
+        if (p->which_payload_variant == meshtastic_MeshPacket_decoded_tag &&
+            p->decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP && !isBroadcast(p->to)) return true;
+        return false;
+    }
+
+  private:
+    struct Pending {
+        meshtastic_FwplusDtnData data;
+        uint32_t nextAttemptMs = 0;
+        uint8_t tries = 0;
+      uint32_t lastCarrier = 0; // node num of last hop we heard from
+    };
+    std::unordered_map<uint32_t, Pending> pendingById; // key: orig_id
+    void handleData(const meshtastic_MeshPacket &mp, const meshtastic_FwplusDtnData &d);
+    void handleReceipt(const meshtastic_MeshPacket &mp, const meshtastic_FwplusDtnReceipt &r);
+    void scheduleOrUpdate(uint32_t id, const meshtastic_FwplusDtnData &d);
+    void tryForward(uint32_t id, Pending &p);
+    void emitReceipt(uint32_t to, uint32_t origId, meshtastic_FwplusDtnStatus status, uint32_t reason = 0);
+    void maybeProbeFwplus(NodeNum dest);
+    void deliverLocal(const meshtastic_FwplusDtnData &d);
+
+    // Config snapshot
+    bool configEnabled = true;
+    uint32_t configTtlMinutes = 5;
+    uint32_t configInitialDelayBaseMs = 8000;
+    uint32_t configRetryBackoffMs = 60000;
+    uint32_t configMaxTries = 3;
+    bool configLateFallback = false;
+    uint32_t configFallbackTailPercent = 20;
+    bool configMilestonesEnabled = false;
+    uint32_t configPerDestMinSpacingMs = 30000;
+    uint32_t configMaxActiveDm = 2;
+    bool configProbeFwplusNearDeadline = false;
+
+    // Capability cache of FW+ peers
+    std::unordered_map<NodeNum, uint32_t> fwplusSeenMs;
+    void markFwplusSeen(NodeNum n) { fwplusSeenMs[n] = millis(); }
+    bool isFwplus(NodeNum n) const {
+        auto it = fwplusSeenMs.find(n);
+        if (it == fwplusSeenMs.end()) return false;
+        return (millis() - it->second) <= (24 * 60 * 60 * 1000UL);
+    }
+
+    // DV-ETX gating wrapper
+    bool hasSufficientRouteConfidence(NodeNum dest) const {
+        if (!router) return true;
+        // minimal confidence 1 like S&F
+        return router->hasRouteConfidence(dest, 1);
+    }
+
+    // Simple FNV-1a 32-bit
+    static uint32_t fnv1a32(uint32_t x) {
+        uint32_t h = 2166136261u;
+        for (int i = 0; i < 4; ++i) {
+            uint8_t b = (x >> (i * 8)) & 0xFFu;
+            h ^= b;
+            h *= 16777619u;
+        }
+        return h;
+    }
+};
+
+extern DtnOverlayModule *dtnOverlayModule; //fw+
+
+#endif // has fwplus_dtn.pb.h
+
+

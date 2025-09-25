@@ -10,7 +10,7 @@ class SignalReplyModule : public SinglePortModule, public Observable<const mesht
     /** Constructor
      * name is for debugging output
      */
-    SignalReplyModule() : SinglePortModule("XXXXMod", meshtastic_PortNum_TEXT_MESSAGE_APP) {}
+    SignalReplyModule() : SinglePortModule("SignalReplyModule", meshtastic_PortNum_TEXT_MESSAGE_APP) {}
 
   //virtual ~SignalReplyModule() {}
 
