@@ -946,7 +946,7 @@ void NodeDB::installDefaultModuleConfig()
 
     //fw+ DTN overlay defaults (ensure APK sees post-install defaults)
     moduleConfig.has_dtn_overlay = true;
-    moduleConfig.dtn_overlay.enabled = true;
+    moduleConfig.dtn_overlay.enabled = false; //fw+ default OFF for safe testing
     moduleConfig.dtn_overlay.ttl_minutes = 5;
     moduleConfig.dtn_overlay.initial_delay_base_ms = 8000;
     moduleConfig.dtn_overlay.retry_backoff_ms = 60000;
@@ -1385,9 +1385,10 @@ void NodeDB::loadFromDisk()
         if (dtn.fallback_tail_percent == 0) { dtn.fallback_tail_percent = 20; mutated = true; }
         if (dtn.per_dest_min_spacing_ms == 0) { dtn.per_dest_min_spacing_ms = 30000; mutated = true; }
         if (dtn.max_active_dm == 0) { dtn.max_active_dm = 2; mutated = true; }
-        // Booleans: only set when unset/zero to avoid flipping user choices
-        if (!dtn.enabled) { dtn.enabled = true; mutated = true; }
-        if (!dtn.milestones_enabled) { dtn.milestones_enabled = true; mutated = true; }
+        // Booleans: do not force-enable module by default; respect existing setting
+        // If field is absent/zero on upgrade, keep default OFF for safety; enable only by user action
+        // Do backfill milestones default to true only when module is enabled explicitly later.
+        // Here we do not flip enabled/milestones.
         // leave late_fallback_enabled=false and probe_fwplus_near_deadline=false by default
 
         if (mutated) {

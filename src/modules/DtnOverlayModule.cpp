@@ -43,7 +43,7 @@ DtnOverlayModule::DtnOverlayModule()
       ProtobufModule("FwplusDtn", meshtastic_PortNum_FWPLUS_DTN_APP, &meshtastic_FwplusDtn_msg)
 {
     //fw+ read config with sensible defaults (moduleConfig.dtn_overlay may not exist yet; use defaults)
-    configEnabled = true;
+    configEnabled = false; // default OFF; user can enable in ModuleConfig
     configTtlMinutes = 5;
     configInitialDelayBaseMs = 8000;
     configRetryBackoffMs = 60000;
@@ -56,8 +56,8 @@ DtnOverlayModule::DtnOverlayModule()
     configProbeFwplusNearDeadline = false;
  
     if (moduleConfig.has_dtn_overlay) {
-        // enabled flag: default true if field absent
-        configEnabled = moduleConfig.dtn_overlay.enabled || (!moduleConfig.dtn_overlay.enabled && true);
+        // enabled flag directly from config; default stays OFF if absent
+        configEnabled = moduleConfig.dtn_overlay.enabled;
         if (moduleConfig.dtn_overlay.ttl_minutes) configTtlMinutes = moduleConfig.dtn_overlay.ttl_minutes;
         if (moduleConfig.dtn_overlay.initial_delay_base_ms) configInitialDelayBaseMs = moduleConfig.dtn_overlay.initial_delay_base_ms;
         if (moduleConfig.dtn_overlay.retry_backoff_ms) configRetryBackoffMs = moduleConfig.dtn_overlay.retry_backoff_ms;
