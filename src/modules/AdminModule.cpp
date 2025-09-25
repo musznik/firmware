@@ -943,6 +943,13 @@ bool AdminModule::handleSetModuleConfig(const meshtastic_ModuleConfig &c)
         moduleConfig.nodemodadmin = c.payload_variant.node_mod_admin;
         do_reboot=false;
         break;
+    //fw+ handle DTN overlay config from APK
+    case meshtastic_ModuleConfig_dtn_overlay_tag:
+        LOG_INFO("Set module config: DTN Overlay");
+        moduleConfig.has_dtn_overlay = true;
+        moduleConfig.dtn_overlay = c.payload_variant.dtn_overlay;
+        do_reboot = false;
+        break;
     }
 
     saveChanges(SEGMENT_MODULECONFIG,do_reboot);
