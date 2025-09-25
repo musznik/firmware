@@ -1,29 +1,7 @@
 #include "NextHopRouter.h"
-//fw+
 #include "MeshService.h"
-#include "mesh/generated/meshtastic/heard.pb.h"
 #include <pb.h>
 #include <pb_decode.h>
-
-//fw+ decode callback for HeardAssist.percent_per_ring
-struct HeardPercDecodeCtx {
-    uint8_t *percent_per_ring; // index 1..7 used
-    uint8_t nextIdx;
-};
-
-static bool decodeHeardPerc(pb_istream_t *stream, const pb_field_t * /*field*/, void **arg)
-{
-    HeardPercDecodeCtx *ctx = static_cast<HeardPercDecodeCtx *>(*arg);
-    uint64_t v = 0;
-    if (!pb_decode_varint(stream, &v)) return false;
-    if (ctx->percent_per_ring && ctx->nextIdx <= 7) {
-        ctx->percent_per_ring[ctx->nextIdx] = (uint8_t)v;
-        ctx->nextIdx++;
-    }
-    return true;
-}
-#include <pb_encode.h>
-
 #include "MeshTypes.h"
 #include "meshUtils.h"
 #if !MESHTASTIC_EXCLUDE_TRACEROUTE

@@ -55,6 +55,8 @@ bool IdleGameModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, mes
     switch (mp.which_payload_variant) {
         case meshtastic_ModuleConfig_IdleGameConfig_state_tag: {
             meshtastic_IdleGameState receivedState = t->variant.state;
+            //fw+ silence unused-but-set warning until state handling is implemented
+            (void)receivedState;
             // LOG_INFO("IdleGame: received state: %s, ppopulation=%u",
             //          receivedState.village_name,
             //          receivedState.population);

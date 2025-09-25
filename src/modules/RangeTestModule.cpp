@@ -141,8 +141,8 @@ void RangeTestModuleRadio::sendPayload(NodeNum dest, bool wantReplies)
     packetSequence++;
 
     // Patch 2024-12-31
-    float lat = static_cast<float>(gpsStatus->getLatitude() * 1e-7);
-    float lon = static_cast<float>(gpsStatus->getLongitude() * 1e-7);
+    //float lat = static_cast<float>(gpsStatus->getLatitude() * 1e-7);
+    //float lon = static_cast<float>(gpsStatus->getLongitude() * 1e-7);
     static char heartbeatString[MAX_LORA_PAYLOAD_LEN + 1];
     snprintf(heartbeatString, sizeof(heartbeatString), "seq %u https://www.google.com/maps/place/%.6f,%.6f",
              packetSequence,
