@@ -24,6 +24,7 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     virtual bool wantPacket(const meshtastic_MeshPacket *p) override
     {
         if (!p) return false;
+        if (!configEnabled) return false; //fw+ allow full disable via ModuleConfig
         // Accept our private FW+ DTN port
         if (p->which_payload_variant == meshtastic_MeshPacket_decoded_tag &&
             p->decoded.portnum == meshtastic_PortNum_FWPLUS_DTN_APP) return true;
