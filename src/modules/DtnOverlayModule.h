@@ -17,6 +17,23 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     void enqueueFromCaptured(uint32_t origId, uint32_t origFrom, uint32_t origTo, uint8_t channel,
                              uint32_t deadlineMs, bool isEncrypted, const uint8_t *bytes, pb_size_t size,
                              bool allowProxyFallback);
+    //fw+ expose minimal stats snapshot for OnDemand
+    size_t getPendingCount() const { return pendingById.size(); }
+    //fw+ DTN stats snapshot
+    struct DtnStatsSnapshot {
+        size_t pendingCount;
+        uint32_t forwardsAttempted;
+        uint32_t fallbacksAttempted;
+        uint32_t receiptsEmitted;
+        uint32_t receiptsReceived;
+        uint32_t expired;
+        uint32_t giveUps;
+        uint32_t milestonesSent;
+        uint32_t probesSent;
+        uint32_t lastForwardAgeSecs;
+        bool enabled;
+    };
+    void getStatsSnapshot(DtnStatsSnapshot &out) const;
 
   protected:
     virtual int32_t runOnce() override;
@@ -64,6 +81,17 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     uint32_t configPerDestMinSpacingMs = 30000;
     uint32_t configMaxActiveDm = 2;
     bool configProbeFwplusNearDeadline = false;
+
+    //fw+ DTN counters for diagnostics
+    uint32_t ctrForwardsAttempted = 0;
+    uint32_t ctrFallbacksAttempted = 0;
+    uint32_t ctrReceiptsEmitted = 0;
+    uint32_t ctrReceiptsReceived = 0;
+    uint32_t ctrExpired = 0;
+    uint32_t ctrGiveUps = 0;
+    uint32_t ctrMilestonesSent = 0;
+    uint32_t ctrProbesSent = 0;
+    uint32_t lastForwardMs = 0;
 
     // Capability cache of FW+ peers
     std::unordered_map<NodeNum, uint32_t> fwplusSeenMs;

@@ -15,6 +15,7 @@
 #include "SPILock.h"
 #include "FSCommon.h"
 #include "StoreForwardModule.h" //fw+
+#include "DtnOverlayModule.h" //fw+
  
 
 OnDemandModule *onDemandModule;
@@ -98,6 +99,10 @@ bool OnDemandModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, mes
                 {
                     sendPacketToRequester(*pkt, mp);
                 }
+                break;
+            }
+            case 26: { //fw+ REQUEST_DTN_OVERLAY_STATS (compat if headers not regenerated)
+                sendPacketToRequester(prepareDtnOverlayStats(), mp);
                 break;
             }
             default:
@@ -336,6 +341,51 @@ meshtastic_OnDemand OnDemandModule::prepareFwPlusVersion()
     onDemand.variant.response.response_type = meshtastic_OnDemandType_RESPONSE_FW_PLUS_VERSION;
     onDemand.variant.response.which_response_data = meshtastic_OnDemandResponse_fw_plus_version_tag;
     onDemand.variant.response.response_data.fw_plus_version.version_number = FW_PLUS_VERSION;
+    return onDemand;
+}
+
+meshtastic_OnDemand OnDemandModule::prepareDtnOverlayStats()
+{
+    meshtastic_OnDemand onDemand = meshtastic_OnDemand_init_zero;
+    onDemand.which_variant = meshtastic_OnDemand_response_tag;
+    //fw+ set response type; prefer enum if available, fallback to numeric 27
+#ifdef meshtastic_OnDemandType_RESPONSE_DTN_OVERLAY_STATS
+    onDemand.variant.response.response_type = meshtastic_OnDemandType_RESPONSE_DTN_OVERLAY_STATS;
+#else
+    onDemand.variant.response.response_type = (meshtastic_OnDemandType)27;
+#endif
+    //fw+ select oneof tag; prefer generated tag if available
+#ifdef meshtastic_OnDemandResponse_dtn_overlay_stats_tag
+    onDemand.variant.response.which_response_data = meshtastic_OnDemandResponse_dtn_overlay_stats_tag;
+#else
+    // If headers are stale, use the known numeric tag index (matches .proto order). This is fragile but gated by build.
+    onDemand.variant.response.which_response_data = 13;
+#endif
+
+    auto &dst = onDemand.variant.response.response_data.dtn_overlay_stats; // requires regenerated headers
+
+#if __has_include("mesh/generated/meshtastic/fwplus_dtn.pb.h")
+    dst.has_enabled = true;
+    dst.enabled = (dtnOverlayModule != nullptr);
+    if (dtnOverlayModule) {
+        DtnOverlayModule::DtnStatsSnapshot s{};
+        dtnOverlayModule->getStatsSnapshot(s);
+        dst.has_pending_count = true; dst.pending_count = (uint32_t)s.pendingCount;
+        dst.has_forwards_attempted = true; dst.forwards_attempted = s.forwardsAttempted;
+        dst.has_fallbacks_attempted = true; dst.fallbacks_attempted = s.fallbacksAttempted;
+        dst.has_receipts_emitted = true; dst.receipts_emitted = s.receiptsEmitted;
+        dst.has_receipts_received = true; dst.receipts_received = s.receiptsReceived;
+        dst.has_expired = true; dst.expired = s.expired;
+        dst.has_give_ups = true; dst.give_ups = s.giveUps;
+        dst.has_milestones_sent = true; dst.milestones_sent = s.milestonesSent;
+        dst.has_probes_sent = true; dst.probes_sent = s.probesSent;
+        dst.has_last_forward_age_secs = true; dst.last_forward_age_secs = s.lastForwardAgeSecs;
+    }
+#else
+    dst.has_enabled = true;
+    dst.enabled = false;
+#endif
+
     return onDemand;
 }
 

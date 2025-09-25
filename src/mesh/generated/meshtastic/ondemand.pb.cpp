@@ -66,6 +66,9 @@ PB_BIND(meshtastic_RoutingTableEntry, meshtastic_RoutingTableEntry, AUTO)
 PB_BIND(meshtastic_RoutingTable, meshtastic_RoutingTable, 2)
 
 
+PB_BIND(meshtastic_DtnOverlayStats, meshtastic_DtnOverlayStats, AUTO)
+
+
 
 
 

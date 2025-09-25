@@ -38,6 +38,22 @@ void DtnOverlayModule::deliverLocal(const meshtastic_FwplusDtnData &d)
     }
 }
 
+void DtnOverlayModule::getStatsSnapshot(DtnStatsSnapshot &out) const
+{
+    out.pendingCount = pendingById.size();
+    out.forwardsAttempted = ctrForwardsAttempted;
+    out.fallbacksAttempted = ctrFallbacksAttempted;
+    out.receiptsEmitted = ctrReceiptsEmitted;
+    out.receiptsReceived = ctrReceiptsReceived;
+    out.expired = ctrExpired;
+    out.giveUps = ctrGiveUps;
+    out.milestonesSent = ctrMilestonesSent;
+    out.probesSent = ctrProbesSent;
+    out.enabled = configEnabled;
+    uint32_t now = millis();
+    out.lastForwardAgeSecs = (lastForwardMs == 0 || now < lastForwardMs) ? 0 : (now - lastForwardMs) / 1000;
+}
+
 DtnOverlayModule::DtnOverlayModule()
     : concurrency::OSThread("DtnOverlay"),
       ProtobufModule("FwplusDtn", meshtastic_PortNum_FWPLUS_DTN_APP, &meshtastic_FwplusDtn_msg)
@@ -70,12 +86,12 @@ DtnOverlayModule::DtnOverlayModule()
         configProbeFwplusNearDeadline = moduleConfig.dtn_overlay.probe_fwplus_near_deadline;
     }
     //fw+ DTN: log config snapshot on init
-    LOG_INFO("fw+ DTN init: enabled=%d ttl_min=%u initDelayMs=%u backoffMs=%u maxTries=%u lateFallback=%d tail%%=%u milestones=%d perDestMinMs=%u maxActive=%u probeNearDeadline=%d",
-             (int)configEnabled, (unsigned)configTtlMinutes, (unsigned)configInitialDelayBaseMs,
-             (unsigned)configRetryBackoffMs, (unsigned)configMaxTries, (int)configLateFallback,
-             (unsigned)configFallbackTailPercent, (int)configMilestonesEnabled,
-             (unsigned)configPerDestMinSpacingMs, (unsigned)configMaxActiveDm,
-             (int)configProbeFwplusNearDeadline);
+    // LOG_INFO("fw+ DTN init: enabled=%d ttl_min=%u initDelayMs=%u backoffMs=%u maxTries=%u lateFallback=%d tail%%=%u milestones=%d perDestMinMs=%u maxActive=%u probeNearDeadline=%d",
+    //          (int)configEnabled, (unsigned)configTtlMinutes, (unsigned)configInitialDelayBaseMs,
+    //          (unsigned)configRetryBackoffMs, (unsigned)configMaxTries, (int)configLateFallback,
+    //          (unsigned)configFallbackTailPercent, (int)configMilestonesEnabled,
+    //          (unsigned)configPerDestMinSpacingMs, (unsigned)configMaxActiveDm,
+    //          (int)configProbeFwplusNearDeadline);
 }
 
 int32_t DtnOverlayModule::runOnce()
@@ -95,14 +111,15 @@ int32_t DtnOverlayModule::runOnce()
             } else {
                 // push a bit forward
                 p.nextAttemptMs = now + 1000 + (uint32_t)random(500);
-                LOG_DEBUG("fw+ DTN defer(id=0x%x): global cap reached, next in %u ms", it->first, (unsigned)(p.nextAttemptMs - now));
+                LOG_DEBUG("DTN defer(id=0x%x): glob cap reached, next in %u ms", it->first, (unsigned)(p.nextAttemptMs - now));
             }
         }
         // Remove if past deadline
         if (p.data.deadline_ms && nowEpoch > p.data.deadline_ms) {
             // emit EXPIRED receipt to source and drop
-            LOG_WARN("fw+ DTN expire id=0x%x dl=%u now=%u", it->first, (unsigned)p.data.deadline_ms, (unsigned)nowEpoch);
+            LOG_WARN("DTN expire id=0x%x dl=%u now=%u", it->first, (unsigned)p.data.deadline_ms, (unsigned)nowEpoch);
             emitReceipt(p.data.orig_from, it->first, meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_EXPIRED, 0);
+            ctrExpired++; //fw+
             it = pendingById.erase(it);
         } else {
             ++it;
@@ -125,16 +142,17 @@ bool DtnOverlayModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, m
                 uint32_t via = nodeDB->getNodeNum() & 0xFFu;
                 emitReceipt(msg->variant.data.orig_from, msg->variant.data.orig_id,
                             meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_PROGRESSED, via);
+                ctrMilestonesSent++; //fw+
             }
         }
-        LOG_INFO("fw+ DTN rx DATA id=0x%x from=0x%x to=0x%x enc=%d dl=%u", msg->variant.data.orig_id,
+        LOG_INFO("DTN rx DATA id=0x%x from=0x%x to=0x%x enc=%d dl=%u", msg->variant.data.orig_id,
                  (unsigned)getFrom(&mp), (unsigned)msg->variant.data.orig_to, (int)msg->variant.data.is_encrypted,
                  (unsigned)msg->variant.data.deadline_ms);
         handleData(mp, msg->variant.data);
         return true;
     } else if (msg && msg->which_variant == meshtastic_FwplusDtn_receipt_tag) {
         markFwplusSeen(getFrom(&mp));
-        LOG_INFO("fw+ DTN rx RECEIPT id=0x%x status=%u from=0x%x", msg->variant.receipt.orig_id,
+        LOG_INFO("DTN rx RECEIPT id=0x%x status=%u from=0x%x", msg->variant.receipt.orig_id,
                  (unsigned)msg->variant.receipt.status, (unsigned)getFrom(&mp));
         handleReceipt(mp, msg->variant.receipt);
         return true;
@@ -177,7 +195,7 @@ void DtnOverlayModule::enqueueFromCaptured(uint32_t origId, uint32_t origFrom, u
     if (size > sizeof(d.payload.bytes)) size = sizeof(d.payload.bytes);
     memcpy(d.payload.bytes, bytes, size);
     d.payload.size = size;
-    LOG_DEBUG("fw+ DTN capture id=0x%x src=0x%x dst=0x%x enc=%d ch=%u ttlms=%u", origId, (unsigned)origFrom,
+    LOG_DEBUG("DTN capture id=0x%x src=0x%x dst=0x%x enc=%d ch=%u ttlms=%u", origId, (unsigned)origFrom,
               (unsigned)origTo, (int)isEncrypted, (unsigned)channel, (unsigned)(deadlineMs));
     scheduleOrUpdate(origId, d);
 }
@@ -189,7 +207,7 @@ void DtnOverlayModule::handleData(const meshtastic_MeshPacket &mp, const meshtas
         deliverLocal(d);
         // Send DELIVERED receipt back to source (include via=proxy in reason low byte) //fw+
         uint32_t via = nodeDB->getNodeNum() & 0xFFu; // 1-byte hint
-        LOG_INFO("fw+ DTN delivered id=0x%x to=0x%x src=0x%x via=0x%x", d.orig_id, (unsigned)nodeDB->getNodeNum(), (unsigned)d.orig_from, (unsigned)via);
+        LOG_INFO("DTN delivered id=0x%x to=0x%x src=0x%x via=0x%x", d.orig_id, (unsigned)nodeDB->getNodeNum(), (unsigned)d.orig_from, (unsigned)via);
         emitReceipt(d.orig_from, d.orig_id, meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_DELIVERED, via);
         // If source is stock (not FW+), optionally send native ACK to improve UX //fw+
         if (!isFwplus(d.orig_from)) {
@@ -208,6 +226,7 @@ void DtnOverlayModule::handleReceipt(const meshtastic_MeshPacket &mp, const mesh
     // Simplest: stop any pending entry
     (void)mp;
     pendingById.erase(r.orig_id);
+    ctrReceiptsReceived++; //fw+
 }
 
 void DtnOverlayModule::scheduleOrUpdate(uint32_t id, const meshtastic_FwplusDtnData &d)
@@ -230,7 +249,7 @@ void DtnOverlayModule::scheduleOrUpdate(uint32_t id, const meshtastic_FwplusDtnD
         if (target < itLast->second + spacing) target = itLast->second + spacing + (uint32_t)random(500);
     }
     p.nextAttemptMs = target;
-    LOG_DEBUG("fw+ DTN schedule id=0x%x next=%u ms (base=%u slot=%u)", id, (unsigned)(p.nextAttemptMs - millis()), (unsigned)base, (unsigned)slot);
+    LOG_DEBUG("DTN schedule id=0x%x next=%u ms (base=%u slot=%u)", id, (unsigned)(p.nextAttemptMs - millis()), (unsigned)base, (unsigned)slot);
 }
 
 void DtnOverlayModule::tryForward(uint32_t id, Pending &p)
@@ -243,7 +262,7 @@ void DtnOverlayModule::tryForward(uint32_t id, Pending &p)
     if (!hasSufficientRouteConfidence(p.data.orig_to)) {
         // Backoff softly
         p.nextAttemptMs = millis() + configRetryBackoffMs + (uint32_t)random(2000);
-        LOG_DEBUG("fw+ DTN low confidence: defer id=0x%x", id);
+        LOG_DEBUG("DTN low confidence: defer id=0x%x", id);
         return;
     }
 
@@ -265,8 +284,9 @@ void DtnOverlayModule::tryForward(uint32_t id, Pending &p)
     //fw+ respect allow_proxy_fallback and limit tries
     if (configMaxTries && p.tries >= configMaxTries) {
         emitReceipt(p.data.orig_from, id, meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_EXPIRED, 0); //fw+
-        LOG_WARN("fw+ DTN give up id=0x%x tries=%u", id, (unsigned)p.tries);
+        LOG_WARN("DTN give up id=0x%x tries=%u", id, (unsigned)p.tries);
         pendingById.erase(id);
+        ctrGiveUps++; //fw+
         return;
     }
 
@@ -298,7 +318,8 @@ void DtnOverlayModule::tryForward(uint32_t id, Pending &p)
         service->sendToMesh(dm, RX_SRC_LOCAL, false);
         p.tries++;
         p.nextAttemptMs = millis() + configRetryBackoffMs;
-        LOG_INFO("fw+ DTN fallback DM id=0x%x dst=0x%x try=%u", id, (unsigned)p.data.orig_to, (unsigned)p.tries);
+        LOG_INFO("DTN fallback DM id=0x%x dst=0x%x try=%u", id, (unsigned)p.data.orig_to, (unsigned)p.tries);
+        ctrFallbacksAttempted++; //fw+
         return;
     }
 
@@ -319,12 +340,14 @@ void DtnOverlayModule::tryForward(uint32_t id, Pending &p)
     mp->priority = meshtastic_MeshPacket_Priority_DEFAULT;
     service->sendToMesh(mp, RX_SRC_LOCAL, false);
     p.tries++;
+    ctrForwardsAttempted++; //fw+
+    lastForwardMs = millis(); //fw+
     // update per-destination last tx
     static std::unordered_map<NodeNum, uint32_t> lastDestTxMs;
     lastDestTxMs[p.data.orig_to] = millis();
     // schedule next attempt with backoff
     p.nextAttemptMs = millis() + (configRetryBackoffMs ? configRetryBackoffMs : 60000);
-    LOG_INFO("fw+ DTN fwd overlay id=0x%x dst=0x%x try=%u next=%u ms", id, (unsigned)p.data.orig_to, (unsigned)p.tries,
+    LOG_INFO("DTN fwd overlay id=0x%x dst=0x%x try=%u next=%u ms", id, (unsigned)p.data.orig_to, (unsigned)p.tries,
              (unsigned)(p.nextAttemptMs - millis()));
 }
 
@@ -345,6 +368,7 @@ void DtnOverlayModule::maybeProbeFwplus(NodeNum dest)
     p->priority = meshtastic_MeshPacket_Priority_BACKGROUND;
     service->sendToMesh(p, RX_SRC_LOCAL, false);
     LOG_DEBUG("fw+ DTN probe FW+ dest=0x%x", (unsigned)dest);
+    ctrProbesSent++; //fw+
 }
 
 void DtnOverlayModule::emitReceipt(uint32_t to, uint32_t origId, meshtastic_FwplusDtnStatus status, uint32_t reason)
@@ -366,6 +390,7 @@ void DtnOverlayModule::emitReceipt(uint32_t to, uint32_t origId, meshtastic_Fwpl
     p->priority = meshtastic_MeshPacket_Priority_BACKGROUND;
     service->sendToMesh(p, RX_SRC_LOCAL, false);
     LOG_DEBUG("fw+ DTN tx RECEIPT id=0x%x status=%u to=0x%x", (unsigned)origId, (unsigned)status, (unsigned)to);
+    ctrReceiptsEmitted++; //fw+
 }
 #endif
 
