@@ -918,10 +918,10 @@ void NodeDB::installDefaultModuleConfig()
     // proactive traceroute defaults (FW+)
     moduleConfig.nodemodadmin.proactive_traceroute_enabled = true;
     moduleConfig.nodemodadmin.traceroute_stale_ratio_threshold_percent = 30; // percent
-    moduleConfig.nodemodadmin.traceroute_global_cooldown_hours = 12;        // hours
-    moduleConfig.nodemodadmin.traceroute_per_dest_cooldown_hours = 12;      // hours
+    moduleConfig.nodemodadmin.traceroute_global_cooldown_hours = 8;        // hours
+    moduleConfig.nodemodadmin.traceroute_per_dest_cooldown_hours = 8;      // hours
     moduleConfig.nodemodadmin.traceroute_chanutil_threshold_percent = 15;   // percent
-    moduleConfig.nodemodadmin.traceroute_max_per_day = 2;                   // per day
+    moduleConfig.nodemodadmin.traceroute_max_per_day = 4;                   // per day
     moduleConfig.nodemodadmin.traceroute_expanding_ring_initial_hop = 1;
     moduleConfig.nodemodadmin.traceroute_expanding_ring_max_hops = 3;
     moduleConfig.nodemodadmin.traceroute_probe_jitter_ms = 5000;            // ms
@@ -943,6 +943,20 @@ void NodeDB::installDefaultModuleConfig()
     moduleConfig.detection_sensor.enabled = false;
     moduleConfig.detection_sensor.detection_trigger_type = meshtastic_ModuleConfig_DetectionSensorConfig_TriggerType_LOGIC_HIGH;
     moduleConfig.detection_sensor.minimum_broadcast_secs = 45;
+
+    //fw+ DTN overlay defaults (ensure APK sees post-install defaults)
+    moduleConfig.has_dtn_overlay = true;
+    moduleConfig.dtn_overlay.enabled = true;
+    moduleConfig.dtn_overlay.ttl_minutes = 5;
+    moduleConfig.dtn_overlay.initial_delay_base_ms = 8000;
+    moduleConfig.dtn_overlay.retry_backoff_ms = 60000;
+    moduleConfig.dtn_overlay.max_tries = 3;
+    moduleConfig.dtn_overlay.late_fallback_enabled = false;
+    moduleConfig.dtn_overlay.fallback_tail_percent = 20;
+    moduleConfig.dtn_overlay.milestones_enabled = true;
+    moduleConfig.dtn_overlay.per_dest_min_spacing_ms = 30000;
+    moduleConfig.dtn_overlay.max_active_dm = 2;
+    moduleConfig.dtn_overlay.probe_fwplus_near_deadline = false;
 
     moduleConfig.has_ambient_lighting = true;
     moduleConfig.ambient_lighting.current = 10;
@@ -1355,6 +1369,30 @@ void NodeDB::loadFromDisk()
             installDefaultModuleConfig();
         } else {
             LOG_INFO("Loaded saved moduleConfig version %d", moduleConfig.version);
+        }
+    }
+
+    //fw+
+    // Normalize DTN overlay defaults so APK never sees zeroed fields on upgrade without factory reset
+    {
+        bool mutated = false;
+        moduleConfig.has_dtn_overlay = true; // ensure section is marked present
+        auto &dtn = moduleConfig.dtn_overlay;
+        if (dtn.ttl_minutes == 0) { dtn.ttl_minutes = 5; mutated = true; }
+        if (dtn.initial_delay_base_ms == 0) { dtn.initial_delay_base_ms = 8000; mutated = true; }
+        if (dtn.retry_backoff_ms == 0) { dtn.retry_backoff_ms = 60000; mutated = true; }
+        if (dtn.max_tries == 0) { dtn.max_tries = 3; mutated = true; }
+        if (dtn.fallback_tail_percent == 0) { dtn.fallback_tail_percent = 20; mutated = true; }
+        if (dtn.per_dest_min_spacing_ms == 0) { dtn.per_dest_min_spacing_ms = 30000; mutated = true; }
+        if (dtn.max_active_dm == 0) { dtn.max_active_dm = 2; mutated = true; }
+        // Booleans: only set when unset/zero to avoid flipping user choices
+        if (!dtn.enabled) { dtn.enabled = true; mutated = true; }
+        if (!dtn.milestones_enabled) { dtn.milestones_enabled = true; mutated = true; }
+        // leave late_fallback_enabled=false and probe_fwplus_near_deadline=false by default
+
+        if (mutated) {
+            saveToDisk(SEGMENT_MODULECONFIG);
+            LOG_INFO("Normalized DTN overlay defaults (filled zero/unset values)");
         }
     }
 
