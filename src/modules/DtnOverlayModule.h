@@ -102,6 +102,9 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
         return (millis() - it->second) <= (24 * 60 * 60 * 1000UL);
     }
 
+    //fw+ cap pending queue to avoid memory growth/fragmentation under load
+    static constexpr size_t kMaxPendingEntries = 32;
+
     // DV-ETX gating wrapper
     bool hasSufficientRouteConfidence(NodeNum dest) const {
         if (!router) return true;

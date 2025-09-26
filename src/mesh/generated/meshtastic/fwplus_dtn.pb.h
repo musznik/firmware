@@ -29,7 +29,7 @@ typedef struct _meshtastic_FwplusDtnData {
     uint32_t orig_from;
     uint32_t orig_to;
     /* Channel index the original packet used */
-    uint32_t channel;
+    uint8_t channel;
     /* Original receive time at the carrier (seconds since epoch or mesh time) */
     uint32_t orig_rx_time;
     /* Absolute deadline (millis since boot or epoch depending on firmware timebase) */
@@ -136,9 +136,9 @@ extern const pb_msgdesc_t meshtastic_FwplusDtn_msg;
 
 /* Maximum encoded size of messages (where known) */
 #define MESHTASTIC_MESHTASTIC_FWPLUS_DTN_PB_H_MAX_SIZE meshtastic_FwplusDtn_size
-#define meshtastic_FwplusDtnData_size            283
+#define meshtastic_FwplusDtnData_size            280
 #define meshtastic_FwplusDtnReceipt_size         11
-#define meshtastic_FwplusDtn_size                286
+#define meshtastic_FwplusDtn_size                283
 
 #ifdef __cplusplus
 } /* extern "C" */

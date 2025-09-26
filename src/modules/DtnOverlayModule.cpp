@@ -183,7 +183,19 @@ void DtnOverlayModule::enqueueFromCaptured(uint32_t origId, uint32_t origFrom, u
                                            uint32_t deadlineMs, bool isEncrypted, const uint8_t *bytes, pb_size_t size,
                                            bool allowProxyFallback)
 {
+    //fw+ guard: if payload won't fit into FW+ DTN container, skip overlay to avoid corrupting DM
     meshtastic_FwplusDtnData d = meshtastic_FwplusDtnData_init_zero;
+    if (size > sizeof(d.payload.bytes)) {
+        LOG_WARN("DTN skip too-large DM id=0x%x size=%u limit=%u", origId, (unsigned)size, (unsigned)sizeof(d.payload.bytes));
+        return;
+    }
+
+    //fw+ guard: cap queue to avoid memory growth/fragmentation
+    if (pendingById.size() >= kMaxPendingEntries) {
+        LOG_WARN("DTN queue full (%u), drop id=0x%x", (unsigned)pendingById.size(), origId);
+        return;
+    }
+
     d.orig_id = origId;
     d.orig_from = origFrom;
     d.orig_to = origTo;
@@ -192,7 +204,6 @@ void DtnOverlayModule::enqueueFromCaptured(uint32_t origId, uint32_t origFrom, u
     d.deadline_ms = deadlineMs; // absolute epoch ms
     d.is_encrypted = isEncrypted;
     d.allow_proxy_fallback = allowProxyFallback;
-    if (size > sizeof(d.payload.bytes)) size = sizeof(d.payload.bytes);
     memcpy(d.payload.bytes, bytes, size);
     d.payload.size = size;
     LOG_DEBUG("DTN capture id=0x%x src=0x%x dst=0x%x enc=%d ch=%u ttlms=%u", origId, (unsigned)origFrom,
