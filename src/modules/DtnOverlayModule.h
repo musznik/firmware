@@ -95,6 +95,7 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
 
     // Capability cache of FW+ peers
     std::unordered_map<NodeNum, uint32_t> fwplusSeenMs;
+    std::unordered_map<NodeNum, uint32_t> lastDestTxMs; // per-destination last tx time ms (bounded)
     void markFwplusSeen(NodeNum n) { fwplusSeenMs[n] = millis(); }
     bool isFwplus(NodeNum n) const {
         auto it = fwplusSeenMs.find(n);
@@ -104,6 +105,8 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
 
     //fw+ cap pending queue to avoid memory growth/fragmentation under load
     static constexpr size_t kMaxPendingEntries = 32;
+    static constexpr size_t kMaxPerDestCacheEntries = 64;
+    uint32_t lastPruneMs = 0;
 
     // DV-ETX gating wrapper
     bool hasSufficientRouteConfidence(NodeNum dest) const {

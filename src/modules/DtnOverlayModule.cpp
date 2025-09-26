@@ -125,6 +125,21 @@ int32_t DtnOverlayModule::runOnce()
             ++it;
         }
     }
+    //fw+ bounded maintenance of per-destination cache to avoid growth
+    if (millis() - lastPruneMs > 30000) {
+        lastPruneMs = millis();
+        if (lastDestTxMs.size() > kMaxPerDestCacheEntries) {
+            // simple aging prune: drop oldest ~25% entries
+            size_t target = kMaxPerDestCacheEntries * 3 / 4;
+            while (lastDestTxMs.size() > target) {
+                auto oldest = lastDestTxMs.begin();
+                for (auto it = lastDestTxMs.begin(); it != lastDestTxMs.end(); ++it) {
+                    if (it->second < oldest->second) oldest = it;
+                }
+                lastDestTxMs.erase(oldest);
+            }
+        }
+    }
     return 500;
 }
 
@@ -353,8 +368,7 @@ void DtnOverlayModule::tryForward(uint32_t id, Pending &p)
     p.tries++;
     ctrForwardsAttempted++; //fw+
     lastForwardMs = millis(); //fw+
-    // update per-destination last tx
-    static std::unordered_map<NodeNum, uint32_t> lastDestTxMs;
+    // update per-destination last tx (bounded map)
     lastDestTxMs[p.data.orig_to] = millis();
     // schedule next attempt with backoff
     p.nextAttemptMs = millis() + (configRetryBackoffMs ? configRetryBackoffMs : 60000);
