@@ -45,11 +45,18 @@ ProcessMessage BroadcastAssistModule::handleReceived(const meshtastic_MeshPacket
     }
     rec->count++;
 
-    // Degree check
+    // Degree gating (hard or probabilistic)
+    uint8_t neighbors = countDirectNeighbors();
     uint32_t degThr = moduleConfig.broadcast_assist.degree_threshold;
     if (degThr) {
-        uint8_t neighbors = countDirectNeighbors();
         if (neighbors > degThr) { statSuppressedDegree++; return ProcessMessage::CONTINUE; }
+    } else {
+        // Probabilistic scaling if no hard threshold configured
+        float p = computeRefloodProbability(neighbors);
+        // Convert to [0..1) using deterministic jitter from id to avoid rand global state
+        uint32_t jitter = (mp.id ^ nodeDB->getNodeNum()) & 0xFFFF;
+        float r = (float)(jitter) / 65536.0f;
+        if (r > p) { statSuppressedDegree++; return ProcessMessage::CONTINUE; }
     }
 
     // Duplicate suppression
@@ -117,8 +124,7 @@ bool BroadcastAssistModule::isAllowedPort(const meshtastic_MeshPacket &mp) const
     const auto &cfg = moduleConfig.broadcast_assist;
     if (cfg.allowed_ports_count == 0) {
         // default whitelist: TEXT_MESSAGE and POSITION
-        //return mp.decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP || mp.decoded.portnum == meshtastic_PortNum_POSITION_APP;
-        return mp.decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP;
+        return mp.decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP || mp.decoded.portnum == meshtastic_PortNum_POSITION_APP;
     }
     for (size_t i = 0; i < cfg.allowed_ports_count; ++i) {
         if (cfg.allowed_ports[i] == (uint32_t)mp.decoded.portnum) return true;
@@ -129,6 +135,19 @@ bool BroadcastAssistModule::isAllowedPort(const meshtastic_MeshPacket &mp) const
 bool BroadcastAssistModule::airtimeOk() const
 {
     return (!airTime) || airTime->isTxAllowedChannelUtil(true);
+}
+
+float BroadcastAssistModule::computeRefloodProbability(uint8_t neighborCount) const
+{
+    // Base probability decreases with neighbor count (dense → lower p)
+    // Also scale by (1 - channelUtil) to be polite under load
+    float base = 1.0f / (1.0f + (float)neighborCount); // 1, 0.5, 0.33, ...
+    float util = airTime ? (airTime->channelUtilizationPercent() / 100.0f) : 0.0f;
+    float p = base * (1.0f - util);
+    // Clamp
+    if (p < 0.05f) p = 0.05f;      // never zero
+    if (p > 0.9f) p = 0.9f;        // avoid implosion
+    return p;
 }
 
 void BroadcastAssistModule::getStatsSnapshot(BaStatsSnapshot &out) const

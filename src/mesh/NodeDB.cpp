@@ -961,7 +961,7 @@ void NodeDB::installDefaultModuleConfig()
     // fw+ Broadcast Assist defaults
     moduleConfig.has_broadcast_assist = true;
     moduleConfig.broadcast_assist.enabled = false;
-    moduleConfig.broadcast_assist.degree_threshold = 3;
+    moduleConfig.broadcast_assist.degree_threshold = 0; // 0 => automatic probabilistic mode
     moduleConfig.broadcast_assist.dup_threshold = 1;
     moduleConfig.broadcast_assist.window_ms = 600;
     moduleConfig.broadcast_assist.max_extra_hops = 1;
@@ -1419,7 +1419,7 @@ void NodeDB::loadFromDisk()
         uint32_t origJit = ba.jitter_ms;
         uint32_t origMax = ba.max_extra_hops;
 
-        if (ba.degree_threshold == 0) { ba.degree_threshold = 3; mutated = true; }
+        // degree_threshold == 0 now means auto; do not backfill
         if (ba.dup_threshold == 0) { ba.dup_threshold = 1; mutated = true; }
         if (ba.window_ms == 0) { ba.window_ms = 600; mutated = true; }
         if (ba.jitter_ms == 0) { ba.jitter_ms = 400; mutated = true; }

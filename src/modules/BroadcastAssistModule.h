@@ -43,6 +43,7 @@ class BroadcastAssistModule : public MeshModule
     uint8_t countDirectNeighbors(uint32_t freshnessSecs = 3600) const;
     bool isAllowedPort(const meshtastic_MeshPacket &mp) const;
     bool airtimeOk() const;
+    float computeRefloodProbability(uint8_t neighborCount) const;
 
     // stats
     uint32_t statRefloodAttempts = 0;
