@@ -16,6 +16,7 @@
 #include "FSCommon.h"
 #include "StoreForwardModule.h" //fw+
 #include "DtnOverlayModule.h" //fw+
+#include "BroadcastAssistModule.h" //fw+
  
 
 OnDemandModule *onDemandModule;
@@ -99,6 +100,10 @@ bool OnDemandModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, mes
                 {
                     sendPacketToRequester(*pkt, mp);
                 }
+                break;
+            }
+            case meshtastic_OnDemandType_REQUEST_BROADCAST_ASSIST_STATS: {
+                sendPacketToRequester(prepareBroadcastAssistStats(), mp);
                 break;
             }
             case 26: { //fw+ REQUEST_DTN_OVERLAY_STATS (compat if headers not regenerated)
@@ -386,6 +391,34 @@ meshtastic_OnDemand OnDemandModule::prepareDtnOverlayStats()
     dst.enabled = false;
 #endif
 
+    return onDemand;
+}
+
+meshtastic_OnDemand OnDemandModule::prepareBroadcastAssistStats()
+{
+    meshtastic_OnDemand onDemand = meshtastic_OnDemand_init_zero;
+    onDemand.which_variant = meshtastic_OnDemand_response_tag;
+#ifdef meshtastic_OnDemandType_RESPONSE_BROADCAST_ASSIST_STATS
+    onDemand.variant.response.response_type = meshtastic_OnDemandType_RESPONSE_BROADCAST_ASSIST_STATS;
+#else
+    onDemand.variant.response.response_type = (meshtastic_OnDemandType)29;
+#endif
+#ifdef meshtastic_OnDemandResponse_broadcast_assist_stats_tag
+    onDemand.variant.response.which_response_data = meshtastic_OnDemandResponse_broadcast_assist_stats_tag;
+#else
+    onDemand.variant.response.which_response_data = 14;
+#endif
+
+    auto &dst = onDemand.variant.response.response_data.broadcast_assist_stats;
+    BaStatsSnapshot s{};
+    if (broadcastAssistModule) broadcastAssistModule->getStatsSnapshot(s);
+    dst.has_enabled = true; dst.enabled = s.enabled;
+    dst.has_reflood_attempts = true; dst.reflood_attempts = s.refloodAttempts;
+    dst.has_reflood_sent = true; dst.reflood_sent = s.refloodSent;
+    dst.has_suppressed_dup = true; dst.suppressed_dup = s.suppressedDup;
+    dst.has_suppressed_degree = true; dst.suppressed_degree = s.suppressedDegree;
+    dst.has_suppressed_airtime = true; dst.suppressed_airtime = s.suppressedAirtime;
+    dst.has_last_reflood_age_secs = true; dst.last_reflood_age_secs = s.lastRefloodAgeSecs;
     return onDemand;
 }
 

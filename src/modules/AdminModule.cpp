@@ -950,6 +950,13 @@ bool AdminModule::handleSetModuleConfig(const meshtastic_ModuleConfig &c)
         moduleConfig.dtn_overlay = c.payload_variant.dtn_overlay;
         do_reboot = false;
         break;
+    // fw+ Broadcast Assist config
+    case meshtastic_ModuleConfig_broadcast_assist_tag:
+        LOG_INFO("Set module config: Broadcast Assist");
+        moduleConfig.has_broadcast_assist = true;
+        moduleConfig.broadcast_assist = c.payload_variant.broadcast_assist;
+        do_reboot = false;
+        break;
     }
 
     saveChanges(SEGMENT_MODULECONFIG,do_reboot);
@@ -1136,10 +1143,15 @@ void AdminModule::handleGetModuleConfig(const meshtastic_MeshPacket &req, const 
             res.get_module_config_response.which_payload_variant = meshtastic_ModuleConfig_node_mod_tag;
             res.get_module_config_response.payload_variant.node_mod = moduleConfig.nodemod;
             break;
-      case meshtastic_AdminMessage_ModuleConfigType_DTN_OVERLAY_CONFIG:
+        case meshtastic_AdminMessage_ModuleConfigType_DTN_OVERLAY_CONFIG:
             LOG_INFO("Get module config: DTN config module");
             res.get_module_config_response.which_payload_variant = meshtastic_ModuleConfig_dtn_overlay_tag;
             res.get_module_config_response.payload_variant.dtn_overlay = moduleConfig.dtn_overlay;
+            break;
+        case meshtastic_AdminMessage_ModuleConfigType_BROADCAST_ASSIST_CONFIG:
+            LOG_INFO("Get module config: Broadcast Assist");
+            res.get_module_config_response.which_payload_variant = meshtastic_ModuleConfig_broadcast_assist_tag;
+            res.get_module_config_response.payload_variant.broadcast_assist = moduleConfig.broadcast_assist;
             break;
         case meshtastic_AdminMessage_ModuleConfigType_NODEMOD_ADMIN_CONFIG:
             LOG_INFO("Get module config: NodeModAdmin");

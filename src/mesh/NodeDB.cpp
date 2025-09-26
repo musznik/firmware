@@ -958,6 +958,16 @@ void NodeDB::installDefaultModuleConfig()
     moduleConfig.dtn_overlay.max_active_dm = 2;
     moduleConfig.dtn_overlay.probe_fwplus_near_deadline = false;
 
+    // fw+ Broadcast Assist defaults
+    moduleConfig.has_broadcast_assist = true;
+    moduleConfig.broadcast_assist.enabled = false;
+    moduleConfig.broadcast_assist.degree_threshold = 3;
+    moduleConfig.broadcast_assist.dup_threshold = 1;
+    moduleConfig.broadcast_assist.window_ms = 600;
+    moduleConfig.broadcast_assist.max_extra_hops = 1;
+    moduleConfig.broadcast_assist.jitter_ms = 400;
+    moduleConfig.broadcast_assist.airtime_guard = true;
+
     moduleConfig.has_ambient_lighting = true;
     moduleConfig.ambient_lighting.current = 10;
     // Default to a color based on our node number
@@ -1394,6 +1404,36 @@ void NodeDB::loadFromDisk()
         if (mutated) {
             saveToDisk(SEGMENT_MODULECONFIG);
             LOG_INFO("Normalized DTN overlay defaults (filled zero/unset values)");
+        }
+    }
+
+    // fw+ Normalize Broadcast Assist defaults on upgrade without factory reset (fill only if unset)
+    {
+        bool mutated = false;
+        moduleConfig.has_broadcast_assist = true;
+        auto &ba = moduleConfig.broadcast_assist;
+        // Capture original values to detect 'all unset' state for booleans
+        uint32_t origDeg = ba.degree_threshold;
+        uint32_t origDup = ba.dup_threshold;
+        uint32_t origWin = ba.window_ms;
+        uint32_t origJit = ba.jitter_ms;
+        uint32_t origMax = ba.max_extra_hops;
+
+        if (ba.degree_threshold == 0) { ba.degree_threshold = 3; mutated = true; }
+        if (ba.dup_threshold == 0) { ba.dup_threshold = 1; mutated = true; }
+        if (ba.window_ms == 0) { ba.window_ms = 600; mutated = true; }
+        if (ba.jitter_ms == 0) { ba.jitter_ms = 400; mutated = true; }
+        if (ba.max_extra_hops == 0) { ba.max_extra_hops = 1; mutated = true; }
+
+        // Do not auto-enable; respect user
+        // If config looked entirely unset, default airtime_guard to true
+        if (!ba.airtime_guard && origDeg == 0 && origDup == 0 && origWin == 0 && origJit == 0 && origMax == 0) {
+            ba.airtime_guard = true;
+            mutated = true;
+        }
+        if (mutated) {
+            saveToDisk(SEGMENT_MODULECONFIG);
+            LOG_INFO("Normalized BroadcastAssist defaults (filled unset values)");
         }
     }
 

@@ -119,6 +119,7 @@
 #include "modules/OnDemandModule.h"
 #include "modules/SignalReplyModule.h"
 #include "modules/DtnOverlayModule.h" //fw+
+#include "modules/BroadcastAssistModule.h" //fw+
 
 
 
@@ -333,5 +334,8 @@ void setupModules()
     onDemandModule = new OnDemandModule();
     signalReplyModule = new SignalReplyModule();
     dtnOverlayModule = new DtnOverlayModule();
+    if (moduleConfig.has_broadcast_assist && moduleConfig.broadcast_assist.enabled) {
+        new BroadcastAssistModule();
+    }
     routingModule = new RoutingModule();
 }

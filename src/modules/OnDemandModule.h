@@ -58,6 +58,8 @@ class OnDemandModule : private concurrency::OSThread, public ProtobufModule<mesh
     meshtastic_OnDemand prepareSFCustodyStatus();
     //fw+ DTN overlay stats
     meshtastic_OnDemand prepareDtnOverlayStats();
+    //fw+ Broadcast Assist stats
+    meshtastic_OnDemand prepareBroadcastAssistStats();
 
   private:
     uint32_t lastSentToMesh = 0;

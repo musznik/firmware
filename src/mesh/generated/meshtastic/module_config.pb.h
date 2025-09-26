@@ -506,26 +506,47 @@ typedef struct _meshtastic_ModuleConfig_DtnOverlayConfig {
     /* Enable FW+ DTN overlay module */
     bool enabled;
     /* Absolute TTL in minutes for DM overlay deliveries (default 5) */
-    uint32_t ttl_minutes;
+    uint16_t ttl_minutes;
     /* Initial delay base in milliseconds (default 8000) */
     uint32_t initial_delay_base_ms;
     /* Retry backoff base in milliseconds (default 60000) */
     uint32_t retry_backoff_ms;
     /* Maximum tries before declare failed (default 3) */
-    uint32_t max_tries;
+    uint8_t max_tries;
     /* Enable late proxy fallback to native DM near deadline */
     bool late_fallback_enabled;
     /* Fallback window portion of TTL (percent of TTL near deadline, default 20) */
-    uint32_t fallback_tail_percent;
+    uint8_t fallback_tail_percent;
     /* Enable milestone progress receipts (rare, for debugging/telemetry) */
     bool milestones_enabled;
     /* Minimum spacing between attempts to the same destination (ms; default 30000) */
-    uint32_t per_dest_min_spacing_ms;
+    uint16_t per_dest_min_spacing_ms;
     /* Global cap of concurrently active DTN DMs per node (default 2) */
-    uint32_t max_active_dm;
+    uint8_t max_active_dm;
     /* Probe FW+ capability (OnDemand) near deadline if dest capability unknown */
     bool probe_fwplus_near_deadline;
 } meshtastic_ModuleConfig_DtnOverlayConfig;
+
+/* fw+ Broadcast Assist configuration for controlled reflooding of broadcasts */
+typedef struct _meshtastic_ModuleConfig_BroadcastAssistConfig {
+    /* Enable the module */
+    bool enabled;
+    /* Only reflood when estimated neighbors are at or below this threshold (0 disables check) */
+    uint8_t degree_threshold;
+    /* Suppress reflood if we heard at least this many duplicates within window (0 disables) */
+    uint8_t dup_threshold;
+    /* Time window for duplicate counting, in milliseconds */
+    uint16_t window_ms;
+    /* Max extra hops we add when reflooding */
+    uint8_t max_extra_hops;
+    /* Random jitter before reflood to avoid collisions */
+    uint16_t jitter_ms;
+    /* Check airtime utilization before reflooding (be polite) */
+    bool airtime_guard;
+    /* Whitelisted port numbers to consider for reflooding (values from PortNum) */
+    pb_size_t allowed_ports_count;
+    uint32_t allowed_ports[8];
+} meshtastic_ModuleConfig_BroadcastAssistConfig;
 
 typedef PB_BYTES_ARRAY_T(1) meshtastic_ModuleConfig_IdleGameAlliance_morale_bonus_t;
 typedef struct _meshtastic_ModuleConfig_IdleGameAlliance {
@@ -634,6 +655,8 @@ typedef struct _meshtastic_ModuleConfig {
         meshtastic_ModuleConfig_NodeModAdminConfig node_mod_admin;
         meshtastic_ModuleConfig_IdleGameConfig idle_game;
         meshtastic_ModuleConfig_DtnOverlayConfig dtn_overlay;
+        /* fw+ Broadcast Assist module config */
+        meshtastic_ModuleConfig_BroadcastAssistConfig broadcast_assist;
     } payload_variant;
 } meshtastic_ModuleConfig;
 
@@ -701,6 +724,7 @@ extern "C" {
 
 
 
+
 #define meshtastic_ModuleConfig_IdleGameAction_action_type_ENUMTYPE meshtastic_ModuleConfig_IdleGameActionType
 
 
@@ -726,6 +750,7 @@ extern "C" {
 #define meshtastic_ModuleConfig_NodeModConfig_init_default {"", ""}
 #define meshtastic_ModuleConfig_NodeModAdminConfig_init_default {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 #define meshtastic_ModuleConfig_DtnOverlayConfig_init_default {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+#define meshtastic_ModuleConfig_BroadcastAssistConfig_init_default {0, 0, 0, 0, 0, 0, 0, 0, {0, 0, 0, 0, 0, 0, 0, 0}}
 #define meshtastic_ModuleConfig_IdleGameKnownVillages_init_default {0, {meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default, meshtastic_ModuleConfig_IdleGameState_init_default}}
 #define meshtastic_ModuleConfig_IdleGameAlliance_init_default {0, 0, {0, {0}}}
 #define meshtastic_ModuleConfig_IdleGamePatron_init_default {0, 0}
@@ -752,6 +777,7 @@ extern "C" {
 #define meshtastic_ModuleConfig_NodeModConfig_init_zero {"", ""}
 #define meshtastic_ModuleConfig_NodeModAdminConfig_init_zero {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 #define meshtastic_ModuleConfig_DtnOverlayConfig_init_zero {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+#define meshtastic_ModuleConfig_BroadcastAssistConfig_init_zero {0, 0, 0, 0, 0, 0, 0, 0, {0, 0, 0, 0, 0, 0, 0, 0}}
 #define meshtastic_ModuleConfig_IdleGameKnownVillages_init_zero {0, {meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero, meshtastic_ModuleConfig_IdleGameState_init_zero}}
 #define meshtastic_ModuleConfig_IdleGameAlliance_init_zero {0, 0, {0, {0}}}
 #define meshtastic_ModuleConfig_IdleGamePatron_init_zero {0, 0}
@@ -920,6 +946,14 @@ extern "C" {
 #define meshtastic_ModuleConfig_DtnOverlayConfig_per_dest_min_spacing_ms_tag 9
 #define meshtastic_ModuleConfig_DtnOverlayConfig_max_active_dm_tag 10
 #define meshtastic_ModuleConfig_DtnOverlayConfig_probe_fwplus_near_deadline_tag 11
+#define meshtastic_ModuleConfig_BroadcastAssistConfig_enabled_tag 1
+#define meshtastic_ModuleConfig_BroadcastAssistConfig_degree_threshold_tag 2
+#define meshtastic_ModuleConfig_BroadcastAssistConfig_dup_threshold_tag 3
+#define meshtastic_ModuleConfig_BroadcastAssistConfig_window_ms_tag 4
+#define meshtastic_ModuleConfig_BroadcastAssistConfig_max_extra_hops_tag 5
+#define meshtastic_ModuleConfig_BroadcastAssistConfig_jitter_ms_tag 6
+#define meshtastic_ModuleConfig_BroadcastAssistConfig_airtime_guard_tag 7
+#define meshtastic_ModuleConfig_BroadcastAssistConfig_allowed_ports_tag 8
 #define meshtastic_ModuleConfig_IdleGameAlliance_node_id_tag 1
 #define meshtastic_ModuleConfig_IdleGameAlliance_started_at_tag 2
 #define meshtastic_ModuleConfig_IdleGameAlliance_morale_bonus_tag 3
@@ -967,6 +1001,7 @@ extern "C" {
 #define meshtastic_ModuleConfig_node_mod_admin_tag 21
 #define meshtastic_ModuleConfig_idle_game_tag    22
 #define meshtastic_ModuleConfig_dtn_overlay_tag  23
+#define meshtastic_ModuleConfig_broadcast_assist_tag 24
 
 /* Struct field encoding specification for nanopb */
 #define meshtastic_ModuleConfig_FIELDLIST(X, a) \
@@ -986,7 +1021,8 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (payload_variant,paxcounter,payload_variant.p
 X(a, STATIC,   ONEOF,    MESSAGE,  (payload_variant,node_mod,payload_variant.node_mod),  20) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (payload_variant,node_mod_admin,payload_variant.node_mod_admin),  21) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (payload_variant,idle_game,payload_variant.idle_game),  22) \
-X(a, STATIC,   ONEOF,    MESSAGE,  (payload_variant,dtn_overlay,payload_variant.dtn_overlay),  23)
+X(a, STATIC,   ONEOF,    MESSAGE,  (payload_variant,dtn_overlay,payload_variant.dtn_overlay),  23) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (payload_variant,broadcast_assist,payload_variant.broadcast_assist),  24)
 #define meshtastic_ModuleConfig_CALLBACK NULL
 #define meshtastic_ModuleConfig_DEFAULT NULL
 #define meshtastic_ModuleConfig_payload_variant_mqtt_MSGTYPE meshtastic_ModuleConfig_MQTTConfig
@@ -1006,6 +1042,7 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (payload_variant,dtn_overlay,payload_variant.
 #define meshtastic_ModuleConfig_payload_variant_node_mod_admin_MSGTYPE meshtastic_ModuleConfig_NodeModAdminConfig
 #define meshtastic_ModuleConfig_payload_variant_idle_game_MSGTYPE meshtastic_ModuleConfig_IdleGameConfig
 #define meshtastic_ModuleConfig_payload_variant_dtn_overlay_MSGTYPE meshtastic_ModuleConfig_DtnOverlayConfig
+#define meshtastic_ModuleConfig_payload_variant_broadcast_assist_MSGTYPE meshtastic_ModuleConfig_BroadcastAssistConfig
 
 #define meshtastic_ModuleConfig_MQTTConfig_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, BOOL,     enabled,           1) \
@@ -1238,6 +1275,18 @@ X(a, STATIC,   SINGULAR, BOOL,     probe_fwplus_near_deadline,  11)
 #define meshtastic_ModuleConfig_DtnOverlayConfig_CALLBACK NULL
 #define meshtastic_ModuleConfig_DtnOverlayConfig_DEFAULT NULL
 
+#define meshtastic_ModuleConfig_BroadcastAssistConfig_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, BOOL,     enabled,           1) \
+X(a, STATIC,   SINGULAR, UINT32,   degree_threshold,   2) \
+X(a, STATIC,   SINGULAR, UINT32,   dup_threshold,     3) \
+X(a, STATIC,   SINGULAR, UINT32,   window_ms,         4) \
+X(a, STATIC,   SINGULAR, UINT32,   max_extra_hops,    5) \
+X(a, STATIC,   SINGULAR, UINT32,   jitter_ms,         6) \
+X(a, STATIC,   SINGULAR, BOOL,     airtime_guard,     7) \
+X(a, STATIC,   REPEATED, UINT32,   allowed_ports,     8)
+#define meshtastic_ModuleConfig_BroadcastAssistConfig_CALLBACK NULL
+#define meshtastic_ModuleConfig_BroadcastAssistConfig_DEFAULT NULL
+
 #define meshtastic_ModuleConfig_IdleGameKnownVillages_FIELDLIST(X, a) \
 X(a, STATIC,   REPEATED, MESSAGE,  known,             1)
 #define meshtastic_ModuleConfig_IdleGameKnownVillages_CALLBACK NULL
@@ -1322,6 +1371,7 @@ extern const pb_msgdesc_t meshtastic_ModuleConfig_AmbientLightingConfig_msg;
 extern const pb_msgdesc_t meshtastic_ModuleConfig_NodeModConfig_msg;
 extern const pb_msgdesc_t meshtastic_ModuleConfig_NodeModAdminConfig_msg;
 extern const pb_msgdesc_t meshtastic_ModuleConfig_DtnOverlayConfig_msg;
+extern const pb_msgdesc_t meshtastic_ModuleConfig_BroadcastAssistConfig_msg;
 extern const pb_msgdesc_t meshtastic_ModuleConfig_IdleGameKnownVillages_msg;
 extern const pb_msgdesc_t meshtastic_ModuleConfig_IdleGameAlliance_msg;
 extern const pb_msgdesc_t meshtastic_ModuleConfig_IdleGamePatron_msg;
@@ -1350,6 +1400,7 @@ extern const pb_msgdesc_t meshtastic_RemoteHardwarePin_msg;
 #define meshtastic_ModuleConfig_NodeModConfig_fields &meshtastic_ModuleConfig_NodeModConfig_msg
 #define meshtastic_ModuleConfig_NodeModAdminConfig_fields &meshtastic_ModuleConfig_NodeModAdminConfig_msg
 #define meshtastic_ModuleConfig_DtnOverlayConfig_fields &meshtastic_ModuleConfig_DtnOverlayConfig_msg
+#define meshtastic_ModuleConfig_BroadcastAssistConfig_fields &meshtastic_ModuleConfig_BroadcastAssistConfig_msg
 #define meshtastic_ModuleConfig_IdleGameKnownVillages_fields &meshtastic_ModuleConfig_IdleGameKnownVillages_msg
 #define meshtastic_ModuleConfig_IdleGameAlliance_fields &meshtastic_ModuleConfig_IdleGameAlliance_msg
 #define meshtastic_ModuleConfig_IdleGamePatron_fields &meshtastic_ModuleConfig_IdleGamePatron_msg
@@ -1363,9 +1414,10 @@ extern const pb_msgdesc_t meshtastic_RemoteHardwarePin_msg;
 #define MESHTASTIC_MESHTASTIC_MODULE_CONFIG_PB_H_MAX_SIZE meshtastic_ModuleConfig_size
 #define meshtastic_ModuleConfig_AmbientLightingConfig_size 14
 #define meshtastic_ModuleConfig_AudioConfig_size 19
+#define meshtastic_ModuleConfig_BroadcastAssistConfig_size 69
 #define meshtastic_ModuleConfig_CannedMessageConfig_size 49
 #define meshtastic_ModuleConfig_DetectionSensorConfig_size 44
-#define meshtastic_ModuleConfig_DtnOverlayConfig_size 50
+#define meshtastic_ModuleConfig_DtnOverlayConfig_size 37
 #define meshtastic_ModuleConfig_ExternalNotificationConfig_size 42
 #define meshtastic_ModuleConfig_IdleGameAction_size 11
 #define meshtastic_ModuleConfig_IdleGameAlliance_size 9

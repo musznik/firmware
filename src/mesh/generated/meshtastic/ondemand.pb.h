@@ -39,7 +39,10 @@ typedef enum _meshtastic_OnDemandType {
     meshtastic_OnDemandType_RESPONSE_ROUTING_TABLE = 25,
     /* fw+ DTN overlay stats */
     meshtastic_OnDemandType_REQUEST_DTN_OVERLAY_STATS = 26,
-    meshtastic_OnDemandType_RESPONSE_DTN_OVERLAY_STATS = 27
+    meshtastic_OnDemandType_RESPONSE_DTN_OVERLAY_STATS = 27,
+    /* fw+ Broadcast Assist stats */
+    meshtastic_OnDemandType_REQUEST_BROADCAST_ASSIST_STATS = 28,
+    meshtastic_OnDemandType_RESPONSE_BROADCAST_ASSIST_STATS = 29
 } meshtastic_OnDemandType;
 
 /* Struct definitions */
@@ -261,6 +264,24 @@ typedef struct _meshtastic_DtnOverlayStats {
     uint32_t last_forward_age_secs;
 } meshtastic_DtnOverlayStats;
 
+/* fw+ Broadcast Assist statistics for UI/diagnostics */
+typedef struct _meshtastic_BroadcastAssistStats {
+    bool has_enabled;
+    bool enabled;
+    bool has_reflood_attempts;
+    uint16_t reflood_attempts;
+    bool has_reflood_sent;
+    uint16_t reflood_sent;
+    bool has_suppressed_dup;
+    uint16_t suppressed_dup;
+    bool has_suppressed_degree;
+    uint16_t suppressed_degree;
+    bool has_suppressed_airtime;
+    uint16_t suppressed_airtime;
+    bool has_last_reflood_age_secs;
+    uint16_t last_reflood_age_secs;
+} meshtastic_BroadcastAssistStats;
+
 typedef struct _meshtastic_OnDemandResponse {
     meshtastic_OnDemandType response_type;
     pb_size_t which_response_data;
@@ -278,6 +299,8 @@ typedef struct _meshtastic_OnDemandResponse {
         meshtastic_RoutingTable routing_table;
         /* fw+ DTN overlay stats response */
         meshtastic_DtnOverlayStats dtn_overlay_stats;
+        /* fw+ Broadcast Assist stats response */
+        meshtastic_BroadcastAssistStats broadcast_assist_stats;
     } response_data;
 } meshtastic_OnDemandResponse;
 
@@ -300,8 +323,8 @@ extern "C" {
 
 /* Helper constants for enums */
 #define _meshtastic_OnDemandType_MIN meshtastic_OnDemandType_UNKNOWN_TYPE
-#define _meshtastic_OnDemandType_MAX meshtastic_OnDemandType_RESPONSE_DTN_OVERLAY_STATS
-#define _meshtastic_OnDemandType_ARRAYSIZE ((meshtastic_OnDemandType)(meshtastic_OnDemandType_RESPONSE_DTN_OVERLAY_STATS+1))
+#define _meshtastic_OnDemandType_MAX meshtastic_OnDemandType_RESPONSE_BROADCAST_ASSIST_STATS
+#define _meshtastic_OnDemandType_ARRAYSIZE ((meshtastic_OnDemandType)(meshtastic_OnDemandType_RESPONSE_BROADCAST_ASSIST_STATS+1))
 
 
 
@@ -321,6 +344,7 @@ extern "C" {
 #define meshtastic_OnDemandRequest_request_type_ENUMTYPE meshtastic_OnDemandType
 
 #define meshtastic_OnDemandResponse_response_type_ENUMTYPE meshtastic_OnDemandType
+
 
 
 
@@ -349,6 +373,7 @@ extern "C" {
 #define meshtastic_RoutingTableEntry_init_default {0, 0, 0, 0, 0}
 #define meshtastic_RoutingTable_init_default     {0, {meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default}}
 #define meshtastic_DtnOverlayStats_init_default  {false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0}
+#define meshtastic_BroadcastAssistStats_init_default {false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0}
 #define meshtastic_FwPlusVersion_init_zero       {0}
 #define meshtastic_NodeStats_init_zero           {false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, "", false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0}
 #define meshtastic_RxPacketHistory_init_zero     {0, {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}}
@@ -370,6 +395,7 @@ extern "C" {
 #define meshtastic_RoutingTableEntry_init_zero   {0, 0, 0, 0, 0}
 #define meshtastic_RoutingTable_init_zero        {0, {meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero}}
 #define meshtastic_DtnOverlayStats_init_zero     {false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0}
+#define meshtastic_BroadcastAssistStats_init_zero {false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define meshtastic_FwPlusVersion_version_number_tag 1
@@ -458,6 +484,13 @@ extern "C" {
 #define meshtastic_DtnOverlayStats_probes_sent_tag 9
 #define meshtastic_DtnOverlayStats_enabled_tag   10
 #define meshtastic_DtnOverlayStats_last_forward_age_secs_tag 11
+#define meshtastic_BroadcastAssistStats_enabled_tag 1
+#define meshtastic_BroadcastAssistStats_reflood_attempts_tag 2
+#define meshtastic_BroadcastAssistStats_reflood_sent_tag 3
+#define meshtastic_BroadcastAssistStats_suppressed_dup_tag 4
+#define meshtastic_BroadcastAssistStats_suppressed_degree_tag 5
+#define meshtastic_BroadcastAssistStats_suppressed_airtime_tag 6
+#define meshtastic_BroadcastAssistStats_last_reflood_age_secs_tag 7
 #define meshtastic_OnDemandResponse_response_type_tag 1
 #define meshtastic_OnDemandResponse_rx_packet_history_tag 2
 #define meshtastic_OnDemandResponse_node_list_tag 3
@@ -471,6 +504,7 @@ extern "C" {
 #define meshtastic_OnDemandResponse_routing_errors_tag 11
 #define meshtastic_OnDemandResponse_routing_table_tag 12
 #define meshtastic_OnDemandResponse_dtn_overlay_stats_tag 13
+#define meshtastic_OnDemandResponse_broadcast_assist_stats_tag 14
 #define meshtastic_OnDemand_packet_index_tag     1
 #define meshtastic_OnDemand_packet_total_tag     2
 #define meshtastic_OnDemand_request_tag          3
@@ -628,7 +662,8 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (response_data,node_stats,response_data.node_
 X(a, STATIC,   ONEOF,    MESSAGE,  (response_data,fw_plus_version,response_data.fw_plus_version),  10) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (response_data,routing_errors,response_data.routing_errors),  11) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (response_data,routing_table,response_data.routing_table),  12) \
-X(a, STATIC,   ONEOF,    MESSAGE,  (response_data,dtn_overlay_stats,response_data.dtn_overlay_stats),  13)
+X(a, STATIC,   ONEOF,    MESSAGE,  (response_data,dtn_overlay_stats,response_data.dtn_overlay_stats),  13) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (response_data,broadcast_assist_stats,response_data.broadcast_assist_stats),  14)
 #define meshtastic_OnDemandResponse_CALLBACK NULL
 #define meshtastic_OnDemandResponse_DEFAULT NULL
 #define meshtastic_OnDemandResponse_response_data_rx_packet_history_MSGTYPE meshtastic_RxPacketHistory
@@ -643,6 +678,7 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (response_data,dtn_overlay_stats,response_dat
 #define meshtastic_OnDemandResponse_response_data_routing_errors_MSGTYPE meshtastic_RoutingErrorsHistory
 #define meshtastic_OnDemandResponse_response_data_routing_table_MSGTYPE meshtastic_RoutingTable
 #define meshtastic_OnDemandResponse_response_data_dtn_overlay_stats_MSGTYPE meshtastic_DtnOverlayStats
+#define meshtastic_OnDemandResponse_response_data_broadcast_assist_stats_MSGTYPE meshtastic_BroadcastAssistStats
 
 #define meshtastic_OnDemand_FIELDLIST(X, a) \
 X(a, STATIC,   OPTIONAL, UINT32,   packet_index,      1) \
@@ -684,6 +720,17 @@ X(a, STATIC,   OPTIONAL, UINT32,   last_forward_age_secs,  11)
 #define meshtastic_DtnOverlayStats_CALLBACK NULL
 #define meshtastic_DtnOverlayStats_DEFAULT NULL
 
+#define meshtastic_BroadcastAssistStats_FIELDLIST(X, a) \
+X(a, STATIC,   OPTIONAL, BOOL,     enabled,           1) \
+X(a, STATIC,   OPTIONAL, UINT32,   reflood_attempts,   2) \
+X(a, STATIC,   OPTIONAL, UINT32,   reflood_sent,      3) \
+X(a, STATIC,   OPTIONAL, UINT32,   suppressed_dup,    4) \
+X(a, STATIC,   OPTIONAL, UINT32,   suppressed_degree,   5) \
+X(a, STATIC,   OPTIONAL, UINT32,   suppressed_airtime,   6) \
+X(a, STATIC,   OPTIONAL, UINT32,   last_reflood_age_secs,   7)
+#define meshtastic_BroadcastAssistStats_CALLBACK NULL
+#define meshtastic_BroadcastAssistStats_DEFAULT NULL
+
 extern const pb_msgdesc_t meshtastic_FwPlusVersion_msg;
 extern const pb_msgdesc_t meshtastic_NodeStats_msg;
 extern const pb_msgdesc_t meshtastic_RxPacketHistory_msg;
@@ -705,6 +752,7 @@ extern const pb_msgdesc_t meshtastic_OnDemand_msg;
 extern const pb_msgdesc_t meshtastic_RoutingTableEntry_msg;
 extern const pb_msgdesc_t meshtastic_RoutingTable_msg;
 extern const pb_msgdesc_t meshtastic_DtnOverlayStats_msg;
+extern const pb_msgdesc_t meshtastic_BroadcastAssistStats_msg;
 
 /* Defines for backwards compatibility with code written before nanopb-0.4.0 */
 #define meshtastic_FwPlusVersion_fields &meshtastic_FwPlusVersion_msg
@@ -728,11 +776,13 @@ extern const pb_msgdesc_t meshtastic_DtnOverlayStats_msg;
 #define meshtastic_RoutingTableEntry_fields &meshtastic_RoutingTableEntry_msg
 #define meshtastic_RoutingTable_fields &meshtastic_RoutingTable_msg
 #define meshtastic_DtnOverlayStats_fields &meshtastic_DtnOverlayStats_msg
+#define meshtastic_BroadcastAssistStats_fields &meshtastic_BroadcastAssistStats_msg
 
 /* Maximum encoded size of messages (where known) */
 #define MESHTASTIC_MESHTASTIC_ONDEMAND_PB_H_MAX_SIZE meshtastic_OnDemand_size
 #define meshtastic_AirActivityEntry_size         18
 #define meshtastic_AirActivityHistory_size       200
+#define meshtastic_BroadcastAssistStats_size     26
 #define meshtastic_DtnOverlayStats_size          62
 #define meshtastic_ExchangeEntry_size            18
 #define meshtastic_ExchangeList_size             240

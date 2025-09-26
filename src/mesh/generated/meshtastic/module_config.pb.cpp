@@ -60,6 +60,9 @@ PB_BIND(meshtastic_ModuleConfig_NodeModAdminConfig, meshtastic_ModuleConfig_Node
 PB_BIND(meshtastic_ModuleConfig_DtnOverlayConfig, meshtastic_ModuleConfig_DtnOverlayConfig, AUTO)
 
 
+PB_BIND(meshtastic_ModuleConfig_BroadcastAssistConfig, meshtastic_ModuleConfig_BroadcastAssistConfig, AUTO)
+
+
 PB_BIND(meshtastic_ModuleConfig_IdleGameKnownVillages, meshtastic_ModuleConfig_IdleGameKnownVillages, 2)
 
 
