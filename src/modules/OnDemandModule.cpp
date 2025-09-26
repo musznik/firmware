@@ -36,6 +36,11 @@ bool OnDemandModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, mes
 {
     if (t->which_variant == meshtastic_OnDemand_request_tag) 
     {
+        //fw+ only answer if request is for us or originated locally (phone)
+        if (mp.from != RX_SRC_LOCAL && mp.to != nodeDB->getNodeNum()) {
+            return false; // not our request; let it route
+        }
+        
         switch(t->variant.request.request_type) 
         {
             case meshtastic_OnDemandType_REQUEST_FW_PLUS_VERSION: {
@@ -106,7 +111,7 @@ bool OnDemandModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, mes
                 sendPacketToRequester(prepareBroadcastAssistStats(), mp);
                 break;
             }
-            case 26: { //fw+ REQUEST_DTN_OVERLAY_STATS (compat if headers not regenerated)
+            case meshtastic_OnDemandType_REQUEST_DTN_OVERLAY_STATS: {
                 sendPacketToRequester(prepareDtnOverlayStats(), mp);
                 break;
             }
@@ -353,44 +358,48 @@ meshtastic_OnDemand OnDemandModule::prepareDtnOverlayStats()
 {
     meshtastic_OnDemand onDemand = meshtastic_OnDemand_init_zero;
     onDemand.which_variant = meshtastic_OnDemand_response_tag;
-    //fw+ set response type; prefer enum if available, fallback to numeric 27
-#ifdef meshtastic_OnDemandType_RESPONSE_DTN_OVERLAY_STATS
     onDemand.variant.response.response_type = meshtastic_OnDemandType_RESPONSE_DTN_OVERLAY_STATS;
-#else
-    onDemand.variant.response.response_type = (meshtastic_OnDemandType)27;
-#endif
-    //fw+ select oneof tag; prefer generated tag if available
-#ifdef meshtastic_OnDemandResponse_dtn_overlay_stats_tag
     onDemand.variant.response.which_response_data = meshtastic_OnDemandResponse_dtn_overlay_stats_tag;
-#else
-    // If headers are stale, use the known numeric tag index (matches .proto order). This is fragile but gated by build.
-    onDemand.variant.response.which_response_data = 13;
-#endif
 
-    auto &dst = onDemand.variant.response.response_data.dtn_overlay_stats; // requires regenerated headers
-
-#if __has_include("mesh/generated/meshtastic/fwplus_dtn.pb.h")
+    auto &dst = onDemand.variant.response.response_data.dtn_overlay_stats;
     dst.has_enabled = true;
-    dst.enabled = (dtnOverlayModule != nullptr);
+    dst.enabled = (moduleConfig.has_dtn_overlay && moduleConfig.dtn_overlay.enabled);
     if (dtnOverlayModule) {
         DtnOverlayModule::DtnStatsSnapshot s{};
         dtnOverlayModule->getStatsSnapshot(s);
-        dst.has_pending_count = true; dst.pending_count = (uint32_t)s.pendingCount;
-        dst.has_forwards_attempted = true; dst.forwards_attempted = s.forwardsAttempted;
-        dst.has_fallbacks_attempted = true; dst.fallbacks_attempted = s.fallbacksAttempted;
-        dst.has_receipts_emitted = true; dst.receipts_emitted = s.receiptsEmitted;
-        dst.has_receipts_received = true; dst.receipts_received = s.receiptsReceived;
-        dst.has_expired = true; dst.expired = s.expired;
-        dst.has_give_ups = true; dst.give_ups = s.giveUps;
-        dst.has_milestones_sent = true; dst.milestones_sent = s.milestonesSent;
-        dst.has_probes_sent = true; dst.probes_sent = s.probesSent;
-        dst.has_last_forward_age_secs = true; dst.last_forward_age_secs = s.lastForwardAgeSecs;
+        if (s.pendingCount > 0) { dst.has_pending_count = true; dst.pending_count = (uint32_t)s.pendingCount; }
+        if (s.forwardsAttempted > 0) { dst.has_forwards_attempted = true; dst.forwards_attempted = s.forwardsAttempted; }
+        if (s.fallbacksAttempted > 0) { dst.has_fallbacks_attempted = true; dst.fallbacks_attempted = s.fallbacksAttempted; }
+        if (s.receiptsEmitted > 0) { dst.has_receipts_emitted = true; dst.receipts_emitted = s.receiptsEmitted; }
+        if (s.receiptsReceived > 0) { dst.has_receipts_received = true; dst.receipts_received = s.receiptsReceived; }
+        if (s.expired > 0) { dst.has_expired = true; dst.expired = s.expired; }
+        if (s.giveUps > 0) { dst.has_give_ups = true; dst.give_ups = s.giveUps; }
+        if (s.milestonesSent > 0) { dst.has_milestones_sent = true; dst.milestones_sent = s.milestonesSent; }
+        if (s.probesSent > 0) { dst.has_probes_sent = true; dst.probes_sent = s.probesSent; }
+        if (s.lastForwardAgeSecs > 0) { dst.has_last_forward_age_secs = true; dst.last_forward_age_secs = s.lastForwardAgeSecs; }
     }
-#else
-    dst.has_enabled = true;
-    dst.enabled = false;
-#endif
 
+    //fw+ guard against radio MTU: trim least critical fields 
+    if (!fitsInPacket(onDemand, MAX_PACKET_SIZE)) {
+        dst.has_milestones_sent = false;
+        dst.has_probes_sent = false;
+    }
+    if (!fitsInPacket(onDemand, MAX_PACKET_SIZE)) {
+        dst.has_last_forward_age_secs = false;
+    }
+    if (!fitsInPacket(onDemand, MAX_PACKET_SIZE)) {
+        dst.has_receipts_received = false;
+        dst.has_receipts_emitted = false;
+    }
+    if (!fitsInPacket(onDemand, MAX_PACKET_SIZE)) {
+        dst.has_fallbacks_attempted = false;
+        dst.has_forwards_attempted = false;
+    }
+    if (!fitsInPacket(onDemand, MAX_PACKET_SIZE)) {
+        dst.has_give_ups = false;
+        dst.has_expired = false;
+    }
+   
     return onDemand;
 }
 
@@ -398,16 +407,8 @@ meshtastic_OnDemand OnDemandModule::prepareBroadcastAssistStats()
 {
     meshtastic_OnDemand onDemand = meshtastic_OnDemand_init_zero;
     onDemand.which_variant = meshtastic_OnDemand_response_tag;
-#ifdef meshtastic_OnDemandType_RESPONSE_BROADCAST_ASSIST_STATS
     onDemand.variant.response.response_type = meshtastic_OnDemandType_RESPONSE_BROADCAST_ASSIST_STATS;
-#else
-    onDemand.variant.response.response_type = (meshtastic_OnDemandType)29;
-#endif
-#ifdef meshtastic_OnDemandResponse_broadcast_assist_stats_tag
     onDemand.variant.response.which_response_data = meshtastic_OnDemandResponse_broadcast_assist_stats_tag;
-#else
-    onDemand.variant.response.which_response_data = 14;
-#endif
 
     auto &dst = onDemand.variant.response.response_data.broadcast_assist_stats;
     BaStatsSnapshot s{};

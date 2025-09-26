@@ -86,12 +86,12 @@ DtnOverlayModule::DtnOverlayModule()
         configProbeFwplusNearDeadline = moduleConfig.dtn_overlay.probe_fwplus_near_deadline;
     }
     //fw+ DTN: log config snapshot on init
-    // LOG_INFO("fw+ DTN init: enabled=%d ttl_min=%u initDelayMs=%u backoffMs=%u maxTries=%u lateFallback=%d tail%%=%u milestones=%d perDestMinMs=%u maxActive=%u probeNearDeadline=%d",
-    //          (int)configEnabled, (unsigned)configTtlMinutes, (unsigned)configInitialDelayBaseMs,
-    //          (unsigned)configRetryBackoffMs, (unsigned)configMaxTries, (int)configLateFallback,
-    //          (unsigned)configFallbackTailPercent, (int)configMilestonesEnabled,
-    //          (unsigned)configPerDestMinSpacingMs, (unsigned)configMaxActiveDm,
-    //          (int)configProbeFwplusNearDeadline);
+    LOG_INFO("fw+ DTN init: enabled=%d ttl_min=%u initDelayMs=%u backoffMs=%u maxTries=%u lateFallback=%d tail%%=%u milestones=%d perDestMinMs=%u maxActive=%u probeNearDeadline=%d",
+             (int)configEnabled, (unsigned)configTtlMinutes, (unsigned)configInitialDelayBaseMs,
+             (unsigned)configRetryBackoffMs, (unsigned)configMaxTries, (int)configLateFallback,
+             (unsigned)configFallbackTailPercent, (int)configMilestonesEnabled,
+             (unsigned)configPerDestMinSpacingMs, (unsigned)configMaxActiveDm,
+             (int)configProbeFwplusNearDeadline);
 }
 
 int32_t DtnOverlayModule::runOnce()

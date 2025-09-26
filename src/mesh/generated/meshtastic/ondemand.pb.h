@@ -231,53 +231,60 @@ typedef struct _meshtastic_RoutingTable {
 typedef struct _meshtastic_DtnOverlayStats {
     /* Current queue size of pending entries */
     bool has_pending_count;
-    uint32_t pending_count;
+    uint16_t pending_count;
     /* Total overlay forwards attempted */
     bool has_forwards_attempted;
-    uint32_t forwards_attempted;
+    uint16_t forwards_attempted;
     /* Total native DM fallbacks attempted */
     bool has_fallbacks_attempted;
-    uint32_t fallbacks_attempted;
+    uint16_t fallbacks_attempted;
     /* Receipts emitted by this node (DELIVERED/PROGRESSED/EXPIRED) */
     bool has_receipts_emitted;
-    uint32_t receipts_emitted;
+    uint16_t receipts_emitted;
     /* Receipts received by this node for its originated messages */
     bool has_receipts_received;
-    uint32_t receipts_received;
+    uint16_t receipts_received;
     /* Entries expired by deadline */
     bool has_expired;
-    uint32_t expired;
+    uint16_t expired;
     /* Entries abandoned due to max tries */
     bool has_give_ups;
-    uint32_t give_ups;
+    uint16_t give_ups;
     /* Milestone progress notifications sent */
     bool has_milestones_sent;
-    uint32_t milestones_sent;
+    uint16_t milestones_sent;
     /* FW+ probe packets sent near deadlines */
     bool has_probes_sent;
-    uint32_t probes_sent;
+    uint16_t probes_sent;
     /* Whether DTN overlay is enabled via config */
     bool has_enabled;
     bool enabled;
     /* Seconds since last forward attempt (0 if none) */
     bool has_last_forward_age_secs;
-    uint32_t last_forward_age_secs;
+    uint16_t last_forward_age_secs;
 } meshtastic_DtnOverlayStats;
 
 /* fw+ Broadcast Assist statistics for UI/diagnostics */
 typedef struct _meshtastic_BroadcastAssistStats {
+    /* Whether Broadcast Assist module is currently enabled */
     bool has_enabled;
     bool enabled;
+    /* Number of reflood decisions considered (attempted to schedule/send) in this session */
     bool has_reflood_attempts;
     uint16_t reflood_attempts;
+    /* Number of reflood packets actually sent to the mesh */
     bool has_reflood_sent;
     uint16_t reflood_sent;
+    /* Refloods suppressed due to duplicate suppression threshold within window_ms */
     bool has_suppressed_dup;
     uint16_t suppressed_dup;
+    /* Refloods suppressed due to neighbor degree gating (hard threshold or probabilistic) */
     bool has_suppressed_degree;
     uint16_t suppressed_degree;
+    /* Refloods suppressed by airtime/channel-utilization guard */
     bool has_suppressed_airtime;
     uint16_t suppressed_airtime;
+    /* Age in seconds since the last reflood was sent (0 if none yet) */
     bool has_last_reflood_age_secs;
     uint16_t last_reflood_age_secs;
 } meshtastic_BroadcastAssistStats;
@@ -783,7 +790,7 @@ extern const pb_msgdesc_t meshtastic_BroadcastAssistStats_msg;
 #define meshtastic_AirActivityEntry_size         18
 #define meshtastic_AirActivityHistory_size       200
 #define meshtastic_BroadcastAssistStats_size     26
-#define meshtastic_DtnOverlayStats_size          62
+#define meshtastic_DtnOverlayStats_size          42
 #define meshtastic_ExchangeEntry_size            18
 #define meshtastic_ExchangeList_size             240
 #define meshtastic_FwPlusVersion_size            6
