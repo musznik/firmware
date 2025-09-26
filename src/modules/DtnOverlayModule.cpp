@@ -58,6 +58,10 @@ DtnOverlayModule::DtnOverlayModule()
     : concurrency::OSThread("DtnOverlay"),
       ProtobufModule("FwplusDtn", meshtastic_PortNum_FWPLUS_DTN_APP, &meshtastic_FwplusDtn_msg)
 {
+    //fw+ enable promiscuous sniffing and acceptance of encrypted packets for overlay capture
+    isPromiscuous = true;
+    encryptedOk = true;
+
     //fw+ read config with sensible defaults (moduleConfig.dtn_overlay may not exist yet; use defaults)
     configEnabled = false; // default OFF; user can enable in ModuleConfig
     configTtlMinutes = 5;
