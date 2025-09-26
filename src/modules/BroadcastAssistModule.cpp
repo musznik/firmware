@@ -117,7 +117,8 @@ bool BroadcastAssistModule::isAllowedPort(const meshtastic_MeshPacket &mp) const
     const auto &cfg = moduleConfig.broadcast_assist;
     if (cfg.allowed_ports_count == 0) {
         // default whitelist: TEXT_MESSAGE and POSITION
-        return mp.decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP || mp.decoded.portnum == meshtastic_PortNum_POSITION_APP;
+        //return mp.decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP || mp.decoded.portnum == meshtastic_PortNum_POSITION_APP;
+        return mp.decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP;
     }
     for (size_t i = 0; i < cfg.allowed_ports_count; ++i) {
         if (cfg.allowed_ports[i] == (uint32_t)mp.decoded.portnum) return true;
