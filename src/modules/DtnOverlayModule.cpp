@@ -265,7 +265,6 @@ void DtnOverlayModule::scheduleOrUpdate(uint32_t id, const meshtastic_FwplusDtnD
     p.data = d;
     p.lastCarrier = nodeDB->getNodeNum();
     // Per-destination spacing: if we tried to the same destination too recently, postpone //fw+
-    static std::unordered_map<NodeNum, uint32_t> lastDestTxMs;
     auto itLast = lastDestTxMs.find(d.orig_to);
     // Anti-storm election window: deterministic slot based on id^me //fw+
     uint32_t base = configInitialDelayBaseMs ? configInitialDelayBaseMs : 8000;
