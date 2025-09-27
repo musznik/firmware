@@ -251,10 +251,15 @@ bool DtnOverlayModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, m
         if (isDM) {
             //fw+ capture-time gating: ignore far/unknown unicasts to avoid ballooning pending
             uint8_t hopsToDest = getHopsAway(mp.to);
+            uint8_t hopsToSrc = getHopsAway(getFrom(&mp));
             bool farFromDest = (configMaxRingsToAct > 0 && hopsToDest != 255 && hopsToDest > configMaxRingsToAct);
             bool nearEitherEnd = isDirectNeighbor(getFrom(&mp)) || isDirectNeighbor(mp.to);
             // If both endpoints are our neighbors, prefer direct-only (skip overlay capture) //fw+
             if (isDirectNeighbor(getFrom(&mp)) && isDirectNeighbor(mp.to)) {
+                return false;
+            }
+            // If we are closer to source than to destination, skip capture (let nodes closer to dest act) //fw+
+            if (hopsToSrc != 255 && hopsToDest != 255 && hopsToDest > hopsToSrc) {
                 return false;
             }
             bool haveRoute = hasSufficientRouteConfidence(mp.to);
@@ -511,7 +516,7 @@ void DtnOverlayModule::tryForward(uint32_t id, Pending &p)
         return;
     }
 
-    // Basic forward attempt using overlay again
+    // Basic forward attempt using overlay again (ring-aware leader election)
     meshtastic_FwplusDtn msg = meshtastic_FwplusDtn_init_zero;
     msg.which_variant = meshtastic_FwplusDtn_data_tag;
     msg.variant.data = p.data;
@@ -538,6 +543,13 @@ void DtnOverlayModule::tryForward(uint32_t id, Pending &p)
         mp->priority = (nowEpoch >= tailStart && nearDst) ? meshtastic_MeshPacket_Priority_DEFAULT : meshtastic_MeshPacket_Priority_BACKGROUND;
     } else {
         mp->priority = meshtastic_MeshPacket_Priority_BACKGROUND;
+    }
+    // Before sending, if we are further from the destination than the source, back off extra to favor closer relayers //fw+
+    uint8_t hopsToDest = getHopsAway(p.data.orig_to);
+    uint8_t hopsToSrc = getHopsAway(p.data.orig_from);
+    if (hopsToSrc != 255 && hopsToDest != 255 && hopsToDest > hopsToSrc) {
+        p.nextAttemptMs = millis() + configRetryBackoffMs + 5000 + (uint32_t)random(2000);
+        return;
     }
     service->sendToMesh(mp, RX_SRC_LOCAL, false);
     p.tries++;
