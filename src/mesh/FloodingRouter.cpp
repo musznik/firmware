@@ -93,9 +93,9 @@ bool FloodingRouter::shouldFilterReceived(const meshtastic_MeshPacket *p)
     if (seenRecently) {
         printPacket("Ignore dupe incoming msg", p);
         rxDupe++;
-        //fw+ notify BroadcastAssist about upstream duplicate drops without including module headers
-        extern void fwplus_ba_onUpstreamDupeDropped();
-        fwplus_ba_onUpstreamDupeDropped();
+        //fw+ notify BroadcastAssist about upstream duplicate drops (by sender+id) without including module headers
+        extern void fwplus_ba_onOverheardFromId(uint32_t from, uint32_t id);
+        fwplus_ba_onOverheardFromId(getFrom(p), p->id);
 
         /* If the original transmitter is doing retransmissions (hopStart equals hopLimit) for a reliable transmission, e.g., when
         the ACK got lost, we will handle the packet again to make sure it gets an implicit ACK. */

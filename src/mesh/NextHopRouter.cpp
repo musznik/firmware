@@ -270,9 +270,9 @@ bool NextHopRouter::shouldFilterReceived(const meshtastic_MeshPacket *p)
             stopRetransmission(p->from, p->id);
         }
 
-        //fw+ notify BroadcastAssist about upstream duplicate drops without including module headers
-        extern void fwplus_ba_onUpstreamDupeDropped();
-        fwplus_ba_onUpstreamDupeDropped();
+        //fw+ notify BroadcastAssist about upstream duplicate drops (by sender+id) without including module headers
+        extern void fwplus_ba_onOverheardFromId(uint32_t from, uint32_t id);
+        fwplus_ba_onOverheardFromId(getFrom(p), p->id);
 
         // If it was a fallback to flooding, try to relay again
         if (wasFallback) {

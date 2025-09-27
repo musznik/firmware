@@ -33,7 +33,7 @@ ProcessMessage BroadcastAssistModule::handleReceived(const meshtastic_MeshPacket
     if (!moduleConfig.has_broadcast_assist || !moduleConfig.broadcast_assist.enabled) return ProcessMessage::CONTINUE;
 
     uint32_t now = millis();
-    auto *rec = findOrCreate(mp.id, now);
+    auto *rec = findOrCreate(mp.id, getFrom(&mp), now);
     if (!rec) return ProcessMessage::CONTINUE;
 
     // Windowing
@@ -42,6 +42,7 @@ ProcessMessage BroadcastAssistModule::handleReceived(const meshtastic_MeshPacket
         rec->firstMs = now;
         rec->count = 0;
         rec->reflooded = false;
+        rec->overheard = false;
     }
     rec->count++;
 
@@ -59,9 +60,13 @@ ProcessMessage BroadcastAssistModule::handleReceived(const meshtastic_MeshPacket
         if (r > p) { statSuppressedDegree++; return ProcessMessage::CONTINUE; }
     }
 
-    // Duplicate suppression
+    // Duplicate suppression with opportunistic backbone exception if not overheard
     uint32_t dupThr = moduleConfig.broadcast_assist.dup_threshold ? moduleConfig.broadcast_assist.dup_threshold : 1;
-    if (rec->count > dupThr) { statSuppressedDup++; return ProcessMessage::CONTINUE; }
+    if (isBackboneRole() && !rec->overheard) {
+        if (rec->count > (dupThr + 1)) { statSuppressedDup++; return ProcessMessage::CONTINUE; }
+    } else {
+        if (rec->count > dupThr) { statSuppressedDup++; return ProcessMessage::CONTINUE; }
+    }
 
     if (rec->reflooded) return ProcessMessage::CONTINUE;
 
@@ -93,17 +98,19 @@ ProcessMessage BroadcastAssistModule::handleReceived(const meshtastic_MeshPacket
     return ProcessMessage::CONTINUE;
 }
 
-BroadcastAssistModule::SeenRec *BroadcastAssistModule::findOrCreate(uint32_t id, uint32_t nowMs)
+BroadcastAssistModule::SeenRec *BroadcastAssistModule::findOrCreate(uint32_t id, uint32_t from, uint32_t nowMs)
 {
     // Find existing
-    for (int i = 0; i < SEEN_CAP; ++i) if (seen[i].id == id) return &seen[i];
+    for (int i = 0; i < SEEN_CAP; ++i) if (seen[i].id == id && seen[i].from == from) return &seen[i];
     // Reuse slot
     SeenRec &slot = seen[seenIdx];
     seenIdx = (seenIdx + 1) % SEEN_CAP;
     slot.id = id;
+    slot.from = from;
     slot.firstMs = nowMs;
     slot.count = 0;
     slot.reflooded = false;
+    slot.overheard = false;
     return &slot;
 }
 
@@ -138,6 +145,15 @@ bool BroadcastAssistModule::airtimeOk() const
     return (!airTime) || airTime->isTxAllowedChannelUtil(true);
 }
 
+//fw+ backbone role check used for opportunistic second attempt
+bool BroadcastAssistModule::isBackboneRole() const
+{
+    auto role = config.device.role;
+    return role == meshtastic_Config_DeviceConfig_Role_ROUTER ||
+           role == meshtastic_Config_DeviceConfig_Role_REPEATER ||
+           role == meshtastic_Config_DeviceConfig_Role_ROUTER_LATE;
+}
+
 float BroadcastAssistModule::computeRefloodProbability(uint8_t neighborCount) const
 {
     // Base probability decreases with neighbor count (dense → lower p)
@@ -149,6 +165,28 @@ float BroadcastAssistModule::computeRefloodProbability(uint8_t neighborCount) co
     if (p < 0.05f) p = 0.05f;      // never zero
     if (p > 0.9f) p = 0.9f;        // avoid implosion
     return p;
+}
+
+void BroadcastAssistModule::onOverheardFromId(uint32_t from, uint32_t id)
+{
+    uint32_t now = millis();
+    // Try to find quickly; don't allocate new slot just to mark overheard
+    for (int i = 0; i < SEEN_CAP; ++i) {
+        if (seen[i].id == id && seen[i].from == from) {
+            // if window expired, refresh basic fields
+            uint32_t windowMs = moduleConfig.broadcast_assist.window_ms ? moduleConfig.broadcast_assist.window_ms : 600;
+            if (now - seen[i].firstMs > windowMs) {
+                seen[i].firstMs = now;
+                seen[i].count = 0;
+                seen[i].reflooded = false;
+            }
+            seen[i].overheard = true;
+            return;
+        }
+    }
+    // Optionally prime a slot so that subsequent handleReceived can observe overheard
+    SeenRec *slot = findOrCreate(id, from, now);
+    if (slot) slot->overheard = true;
 }
 
 void BroadcastAssistModule::getStatsSnapshot(BaStatsSnapshot &out) const
@@ -169,6 +207,13 @@ void BroadcastAssistModule::getStatsSnapshot(BaStatsSnapshot &out) const
 void fwplus_ba_onUpstreamDupeDropped()
 {
     if (broadcastAssistModule) broadcastAssistModule->onUpstreamDupeDropped();
+}
+
+//fw+ shim with id/from to mark overheard in BA window
+void fwplus_ba_onOverheardFromId(uint32_t from, uint32_t id)
+{
+    if (!broadcastAssistModule) return;
+    broadcastAssistModule->onOverheardFromId(from, id);
 }
 
 

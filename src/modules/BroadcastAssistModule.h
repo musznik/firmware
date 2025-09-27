@@ -25,6 +25,8 @@ class BroadcastAssistModule : public MeshModule
     BroadcastAssistModule();
     //fw+ observe when router drops a duplicate upstream (pre-module)
     inline void onUpstreamDupeDropped() { statUpstreamDupDropped++; }
+    //fw+ mark overheard by id/from within the window
+    void onOverheardFromId(uint32_t from, uint32_t id);
 
   protected:
     virtual bool wantPacket(const meshtastic_MeshPacket *p) override;
@@ -33,9 +35,11 @@ class BroadcastAssistModule : public MeshModule
   private:
     struct SeenRec {
         uint32_t id = 0;
+        uint32_t from = 0; //fw+ sender for uniqueness
         uint32_t firstMs = 0;
         uint16_t count = 0;
         bool reflooded = false;
+        bool overheard = false; //fw+ router observed a duplicate for this id/from
     };
 
     static const int SEEN_CAP = 32;
@@ -43,11 +47,12 @@ class BroadcastAssistModule : public MeshModule
     int seenIdx = 0;
 
     // helpers
-    SeenRec *findOrCreate(uint32_t id, uint32_t nowMs);
+    SeenRec *findOrCreate(uint32_t id, uint32_t from, uint32_t nowMs);
     uint8_t countDirectNeighbors(uint32_t freshnessSecs = 3600) const;
     bool isAllowedPort(const meshtastic_MeshPacket &mp) const;
     bool airtimeOk() const;
     float computeRefloodProbability(uint8_t neighborCount) const;
+    bool isBackboneRole() const; //fw+
 
     // stats
     uint32_t statRefloodAttempts = 0;
