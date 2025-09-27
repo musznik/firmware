@@ -12,6 +12,10 @@
 #include "NodeDB.h"
 #include "gps/GeoCoord.h"
 
+//fw+ forward declare BroadcastAssist to avoid depending on module headers
+class BroadcastAssistModule;
+extern BroadcastAssistModule *broadcastAssistModule;
+
 FloodingRouter::FloodingRouter() {
     // Initialize profile defaults (no designated initializers to keep C++11 compatible)
     profileParamsSparse.base = 10;
@@ -89,6 +93,9 @@ bool FloodingRouter::shouldFilterReceived(const meshtastic_MeshPacket *p)
     if (seenRecently) {
         printPacket("Ignore dupe incoming msg", p);
         rxDupe++;
+        //fw+ notify BroadcastAssist about upstream duplicate drops without including module headers
+        extern void fwplus_ba_onUpstreamDupeDropped();
+        fwplus_ba_onUpstreamDupeDropped();
 
         /* If the original transmitter is doing retransmissions (hopStart equals hopLimit) for a reliable transmission, e.g., when
         the ACK got lost, we will handle the packet again to make sure it gets an implicit ACK. */

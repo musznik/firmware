@@ -159,8 +159,16 @@ void BroadcastAssistModule::getStatsSnapshot(BaStatsSnapshot &out) const
     out.suppressedDup = statSuppressedDup;
     out.suppressedDegree = statSuppressedDegree;
     out.suppressedAirtime = statSuppressedAirtime;
+    //fw+ include upstream router duplicate drop count in snapshot
+    out.upstreamDupDropped = statUpstreamDupDropped;
     uint32_t now = millis();
     out.lastRefloodAgeSecs = (lastRefloodMs == 0 || now < lastRefloodMs) ? 0 : (now - lastRefloodMs) / 1000;
+}
+
+//fw+ shim for routers to report upstream duplicate drops without including module headers
+void fwplus_ba_onUpstreamDupeDropped()
+{
+    if (broadcastAssistModule) broadcastAssistModule->onUpstreamDupeDropped();
 }
 
 

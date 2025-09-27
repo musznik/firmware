@@ -14,6 +14,8 @@ struct BaStatsSnapshot {
     uint32_t suppressedDegree = 0;
     uint32_t suppressedAirtime = 0;
     uint32_t lastRefloodAgeSecs = 0;
+    //fw+ upstream router duplicate drops observed in this node
+    uint32_t upstreamDupDropped = 0;
 };
 
 extern class BroadcastAssistModule *broadcastAssistModule;
@@ -21,6 +23,8 @@ class BroadcastAssistModule : public MeshModule
 {
   public:
     BroadcastAssistModule();
+    //fw+ observe when router drops a duplicate upstream (pre-module)
+    inline void onUpstreamDupeDropped() { statUpstreamDupDropped++; }
 
   protected:
     virtual bool wantPacket(const meshtastic_MeshPacket *p) override;
@@ -52,6 +56,8 @@ class BroadcastAssistModule : public MeshModule
     uint32_t statSuppressedDegree = 0;
     uint32_t statSuppressedAirtime = 0;
     uint32_t lastRefloodMs = 0;
+    //fw+ count of upstream dedup drops signaled by router
+    uint32_t statUpstreamDupDropped = 0;
 
   public:
     void getStatsSnapshot(BaStatsSnapshot &out) const;

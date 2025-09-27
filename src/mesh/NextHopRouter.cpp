@@ -9,6 +9,10 @@
 #endif
 #include "NodeDB.h"
 
+//fw+ forward declare BroadcastAssist to avoid depending on module headers
+class BroadcastAssistModule;
+extern BroadcastAssistModule *broadcastAssistModule;
+
 NextHopRouter::NextHopRouter() {}
 //fw++
 void NextHopRouter::processPathAndLearn(const uint32_t *path, size_t maxHops,
@@ -265,6 +269,10 @@ bool NextHopRouter::shouldFilterReceived(const meshtastic_MeshPacket *p)
             rxDupe++;
             stopRetransmission(p->from, p->id);
         }
+
+        //fw+ notify BroadcastAssist about upstream duplicate drops without including module headers
+        extern void fwplus_ba_onUpstreamDupeDropped();
+        fwplus_ba_onUpstreamDupeDropped();
 
         // If it was a fallback to flooding, try to relay again
         if (wasFallback) {
