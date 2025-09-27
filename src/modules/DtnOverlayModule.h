@@ -81,6 +81,11 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     uint32_t configPerDestMinSpacingMs = 30000;
     uint32_t configMaxActiveDm = 2;
     bool configProbeFwplusNearDeadline = false;
+    //fw+ heuristics to reduce airtime while keeping custody
+    uint32_t configGraceAckMs = 0;                 // delay first overlay attempt to allow direct delivery
+    uint32_t configSuppressMsAfterForeign = 20000; // backoff when we see someone else carrying same id
+    bool configSuppressIfDestNeighbor = true;      // if dest is our direct neighbor, be extra conservative
+    bool configPreferBestRouteSlotting = true;     // earlier slotting if we have DV-ETX confidence
 
     //fw+ DTN counters for diagnostics
     uint32_t ctrForwardsAttempted = 0;
@@ -101,6 +106,18 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
         auto it = fwplusSeenMs.find(n);
         if (it == fwplusSeenMs.end()) return false;
         return (millis() - it->second) <= (24 * 60 * 60 * 1000UL);
+    }
+
+    //fw+ helper: check if node is currently a direct neighbor
+    bool isDirectNeighbor(NodeNum n) const
+    {
+        int totalNodes = nodeDB->getNumMeshNodes();
+        for (int i = 0; i < totalNodes; ++i) {
+            meshtastic_NodeInfoLite *ni = nodeDB->getMeshNodeByIndex(i);
+            if (!ni) continue;
+            if (ni->num == n && ni->hops_away == 0) return true;
+        }
+        return false;
     }
 
     //fw+ cap pending queue to avoid memory growth/fragmentation under load

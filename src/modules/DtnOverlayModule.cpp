@@ -74,6 +74,11 @@ DtnOverlayModule::DtnOverlayModule()
     configPerDestMinSpacingMs = 30000;
     configMaxActiveDm = 2;
     configProbeFwplusNearDeadline = false;
+    //fw+ conservative airtime heuristics
+    configGraceAckMs = 2500;                  // give direct a brief chance first
+    configSuppressMsAfterForeign = 20000;     // back off if someone else is already carrying
+    configSuppressIfDestNeighbor = true;      // if dest is our neighbor, be extra conservative
+    configPreferBestRouteSlotting = true;     // prefer earlier slot if we have DV-ETX
  
     if (moduleConfig.has_dtn_overlay) {
         // enabled flag directly from config; default stays OFF if absent
@@ -90,12 +95,14 @@ DtnOverlayModule::DtnOverlayModule()
         configProbeFwplusNearDeadline = moduleConfig.dtn_overlay.probe_fwplus_near_deadline;
     }
     //fw+ DTN: log config snapshot on init
-    LOG_INFO("fw+ DTN init: enabled=%d ttl_min=%u initDelayMs=%u backoffMs=%u maxTries=%u lateFallback=%d tail%%=%u milestones=%d perDestMinMs=%u maxActive=%u probeNearDeadline=%d",
+    LOG_INFO("fw+ DTN init: enabled=%d ttl_min=%u initDelayMs=%u backoffMs=%u maxTries=%u lateFallback=%d tail%%=%u milestones=%d perDestMinMs=%u maxActive=%u probeNearDeadline=%d graceAckMs=%u suppressForeignMs=%u neighborSuppress=%d preferBestRoute=%d",
              (int)configEnabled, (unsigned)configTtlMinutes, (unsigned)configInitialDelayBaseMs,
              (unsigned)configRetryBackoffMs, (unsigned)configMaxTries, (int)configLateFallback,
              (unsigned)configFallbackTailPercent, (int)configMilestonesEnabled,
              (unsigned)configPerDestMinSpacingMs, (unsigned)configMaxActiveDm,
-             (int)configProbeFwplusNearDeadline);
+             (int)configProbeFwplusNearDeadline,
+             (unsigned)configGraceAckMs, (unsigned)configSuppressMsAfterForeign,
+             (int)configSuppressIfDestNeighbor, (int)configPreferBestRouteSlotting);
 }
 
 int32_t DtnOverlayModule::runOnce()
@@ -188,10 +195,27 @@ bool DtnOverlayModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, m
                 enqueueFromCaptured(mp.id, getFrom(&mp), mp.to, mp.channel,
                                     deadline,
                                     true, mp.encrypted.bytes, mp.encrypted.size, true /*fw+ allow fallback*/);
+                // Apply grace and optional neighbor suppression immediately for captured ciphertext //fw+
+                auto it = pendingById.find(mp.id);
+                if (it != pendingById.end()) {
+                    if (configGraceAckMs && it->second.tries == 0) {
+                        uint32_t t = millis() + configGraceAckMs + (uint32_t)random(250);
+                        if (it->second.nextAttemptMs < t) it->second.nextAttemptMs = t;
+                    }
+                    if (configSuppressIfDestNeighbor && isDirectNeighbor(mp.to)) {
+                        uint32_t add = (configGraceAckMs ? configGraceAckMs : 1500);
+                        it->second.nextAttemptMs += add;
+                    }
+                }
             } else if (mp.decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP) {
                 enqueueFromCaptured(mp.id, getFrom(&mp), mp.to, mp.channel,
                                     deadline,
                                     false, mp.decoded.payload.bytes, mp.decoded.payload.size, true /*fw+ allow fallback*/);
+                auto it = pendingById.find(mp.id);
+                if (it != pendingById.end() && configGraceAckMs && it->second.tries == 0) {
+                    uint32_t t = millis() + configGraceAckMs + (uint32_t)random(250);
+                    if (it->second.nextAttemptMs < t) it->second.nextAttemptMs = t;
+                }
             }
         }
     }
@@ -246,9 +270,25 @@ void DtnOverlayModule::handleData(const meshtastic_MeshPacket &mp, const meshtas
         }
         return;
     }
-    // Otherwise schedule forwarding (do not cancel on first hear until we actually observe overlay forward)
-    // Schedule forwarding (or update timing) //fw+
-    scheduleOrUpdate(d.orig_id, d);
+    // Otherwise, coordinate with others: if we heard someone else carrying this id, suppress our attempt for a while //fw+
+    auto it = pendingById.find(d.orig_id);
+    if (it == pendingById.end()) {
+        // First time we see this id (from overlay or capture) → schedule normally
+        scheduleOrUpdate(d.orig_id, d);
+        // If the packet we saw is already overlay DATA from someone else, apply initial suppression window //fw+
+        if (configSuppressMsAfterForeign && !isFromUs(&mp)) {
+            auto &p = pendingById[d.orig_id];
+            uint32_t postpone = millis() + configSuppressMsAfterForeign + (uint32_t)random(500);
+            if (p.nextAttemptMs < postpone) p.nextAttemptMs = postpone;
+        }
+    } else {
+        // We already have an entry; seeing foreign DATA suggests someone carries it → backoff our schedule //fw+
+        if (configSuppressMsAfterForeign) {
+            uint32_t postpone = millis() + configSuppressMsAfterForeign + (uint32_t)random(500);
+            if (it->second.nextAttemptMs < postpone) it->second.nextAttemptMs = postpone;
+            LOG_DEBUG("DTN suppress id=0x%x after foreign carry, next in %u ms", d.orig_id, (unsigned)(it->second.nextAttemptMs - millis()));
+        }
+    }
 }
 
 void DtnOverlayModule::handleReceipt(const meshtastic_MeshPacket &mp, const meshtastic_FwplusDtnReceipt &r)
@@ -268,11 +308,25 @@ void DtnOverlayModule::scheduleOrUpdate(uint32_t id, const meshtastic_FwplusDtnD
     auto itLast = lastDestTxMs.find(d.orig_to);
     // Anti-storm election window: deterministic slot based on id^me //fw+
     uint32_t base = configInitialDelayBaseMs ? configInitialDelayBaseMs : 8000;
+    // Apply grace window before first attempt to give direct delivery/ACK a chance //fw+
+    if (p.tries == 0 && configGraceAckMs) {
+        if (base < configGraceAckMs) base = configGraceAckMs;
+    }
+    // If destination is our direct neighbor and suppression is enabled, be extra conservative //fw+
+    if (configSuppressIfDestNeighbor && isDirectNeighbor(d.orig_to)) {
+        base += configGraceAckMs ? configGraceAckMs : 1500;
+    }
     uint32_t slots = 8; // small contention window
     uint32_t slotLen = 400; // ms per slot
     uint32_t rank = fnv1a32(id ^ nodeDB->getNodeNum());
     uint32_t slot = rank % slots;
+    // Prefer earlier start if we are confident about route quality //fw+
+    uint32_t earlyBonus = 0;
+    if (configPreferBestRouteSlotting && hasSufficientRouteConfidence(d.orig_to)) {
+        earlyBonus = 1000; // pull in by ~1s
+    }
     uint32_t target = millis() + base + slot * slotLen + (uint32_t)random(slotLen);
+    if (target > millis() + earlyBonus) target -= earlyBonus;
     if (itLast != lastDestTxMs.end()) {
         uint32_t spacing = configPerDestMinSpacingMs ? configPerDestMinSpacingMs : 30000;
         if (target < itLast->second + spacing) target = itLast->second + spacing + (uint32_t)random(500);
