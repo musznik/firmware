@@ -86,6 +86,14 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     uint32_t configSuppressMsAfterForeign = 20000; // backoff when we see someone else carrying same id
     bool configSuppressIfDestNeighbor = true;      // if dest is our direct neighbor, be extra conservative
     bool configPreferBestRouteSlotting = true;     // earlier slotting if we have DV-ETX confidence
+    uint8_t configMilestoneChUtilMaxPercent = 60;  // suppress milestones when channel utilization above this
+    uint32_t configTombstoneMs = 30000;            // ignore re-captures for this id for a short period
+    //fw+ topology-aware throttles
+    uint8_t configMaxRingsToAct = 1;               // only act if dest is within N hops from us (0=only neighbor)
+    uint8_t configMilestoneMaxRing = 1;            // allow milestone only if min(hops to src/dst) <= N
+    uint8_t configTailEscalateMaxRing = 1;         // allow DEFAULT priority in TTL tail only if within N hops
+    uint32_t configFarMinTtlFracPercent = 50;      // if dest beyond rings, wait until this % of TTL has passed
+    uint32_t configOriginProgressMinIntervalMs = 15000; // per-source min interval between milestones
 
     //fw+ DTN counters for diagnostics
     uint32_t ctrForwardsAttempted = 0;
@@ -107,6 +115,10 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
         if (it == fwplusSeenMs.end()) return false;
         return (millis() - it->second) <= (24 * 60 * 60 * 1000UL);
     }
+    //fw+ short-term tombstones per message id to avoid re-enqueue storms
+    std::unordered_map<uint32_t, uint32_t> tombstoneUntilMs; // orig_id -> untilMs
+    //fw+ per-source milestone rate limit
+    std::unordered_map<NodeNum, uint32_t> lastProgressEmitMsBySource;
 
     //fw+ helper: check if node is currently a direct neighbor
     bool isDirectNeighbor(NodeNum n) const
@@ -118,6 +130,40 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
             if (ni->num == n && ni->hops_away == 0) return true;
         }
         return false;
+    }
+
+    uint8_t countDirectNeighbors() const
+    {
+        uint8_t cnt = 0;
+        int totalNodes = nodeDB->getNumMeshNodes();
+        for (int i = 0; i < totalNodes; ++i) {
+            meshtastic_NodeInfoLite *ni = nodeDB->getMeshNodeByIndex(i);
+            if (!ni) continue;
+            if (ni->hops_away == 0 && ni->num != nodeDB->getNodeNum()) cnt++;
+        }
+        return cnt;
+    }
+
+    uint8_t getHopsAway(NodeNum n) const
+    {
+        int totalNodes = nodeDB->getNumMeshNodes();
+        for (int i = 0; i < totalNodes; ++i) {
+            meshtastic_NodeInfoLite *ni = nodeDB->getMeshNodeByIndex(i);
+            if (!ni) continue;
+            if (ni->num == n) return ni->hops_away;
+        }
+        return 255; // unknown
+    }
+
+    uint32_t computeAdaptiveGraceMs(int8_t rxSnr, NodeNum dest) const
+    {
+        uint32_t base = configGraceAckMs;
+        if (!base) return 0;
+        if (configSuppressIfDestNeighbor && isDirectNeighbor(dest) && rxSnr >= 8) {
+            uint32_t extra = base / 2 + 500;
+            return base + extra;
+        }
+        return base;
     }
 
     //fw+ cap pending queue to avoid memory growth/fragmentation under load
