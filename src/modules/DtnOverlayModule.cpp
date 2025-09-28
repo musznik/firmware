@@ -42,12 +42,11 @@ Airtime protections
 #include "Default.h"
 #include "airtime.h"
 #include "configuration.h"
-//fw+ include for routingModule extern
 #include "modules/RoutingModule.h"
 #include <pb_encode.h>
 #include <cstring>
 
-DtnOverlayModule *dtnOverlayModule; //fw+
+DtnOverlayModule *dtnOverlayModule; 
 
 void DtnOverlayModule::deliverLocal(const meshtastic_FwplusDtnData &d)
 {
@@ -92,11 +91,11 @@ DtnOverlayModule::DtnOverlayModule()
     : concurrency::OSThread("DtnOverlay"),
       ProtobufModule("FwplusDtn", meshtastic_PortNum_FWPLUS_DTN_APP, &meshtastic_FwplusDtn_msg)
 {
-    //fw+ enable promiscuous sniffing and acceptance of encrypted packets for overlay capture
+    //enable promiscuous sniffing and acceptance of encrypted packets for overlay capture
     isPromiscuous = true;
     encryptedOk = true;
 
-    //fw+ read config with sensible defaults (moduleConfig.dtn_overlay may not exist yet; use defaults)
+    //read config with sensible defaults (moduleConfig.dtn_overlay may not exist yet; use defaults)
     configEnabled = false; // default OFF; user can enable in ModuleConfig
     configTtlMinutes = 5;
     configInitialDelayBaseMs = 8000;
@@ -104,11 +103,11 @@ DtnOverlayModule::DtnOverlayModule()
     configMaxTries = 3;
     configLateFallback = false;
     configFallbackTailPercent = 20;
-    configMilestonesEnabled = true; //fw+ default ON; user config may override
+    configMilestonesEnabled = true; //default ON; user config may override
     configPerDestMinSpacingMs = 30000;
     configMaxActiveDm = 2;
     configProbeFwplusNearDeadline = false;
-    //fw+ conservative airtime heuristics
+    //conservative airtime heuristics
     configGraceAckMs = 2500;                  // give direct a brief chance first
     configSuppressMsAfterForeign = 20000;     // back off if someone else is already carrying
     configSuppressIfDestNeighbor = true;      // if dest is our neighbor, be extra conservative
@@ -128,23 +127,22 @@ DtnOverlayModule::DtnOverlayModule()
         if (moduleConfig.dtn_overlay.max_active_dm) configMaxActiveDm = moduleConfig.dtn_overlay.max_active_dm;
         configProbeFwplusNearDeadline = moduleConfig.dtn_overlay.probe_fwplus_near_deadline;
     }
-    //fw+ DTN: log config snapshot on init
-    LOG_INFO("fw+ DTN init: enabled=%d ttl_min=%u initDelayMs=%u backoffMs=%u maxTries=%u lateFallback=%d tail%%=%u milestones=%d perDestMinMs=%u maxActive=%u probeNearDeadline=%d graceAckMs=%u suppressForeignMs=%u neighborSuppress=%d preferBestRoute=%d maxRings=%u milestoneMaxRing=%u tailEscMaxRing=%u farMinTtl%%=%u",
-             (int)configEnabled, (unsigned)configTtlMinutes, (unsigned)configInitialDelayBaseMs,
-             (unsigned)configRetryBackoffMs, (unsigned)configMaxTries, (int)configLateFallback,
-             (unsigned)configFallbackTailPercent, (int)configMilestonesEnabled,
-             (unsigned)configPerDestMinSpacingMs, (unsigned)configMaxActiveDm,
-             (int)configProbeFwplusNearDeadline,
-             (unsigned)configGraceAckMs, (unsigned)configSuppressMsAfterForeign,
-             (int)configSuppressIfDestNeighbor, (int)configPreferBestRouteSlotting,
-             (unsigned)configMaxRingsToAct, (unsigned)configMilestoneMaxRing, (unsigned)configTailEscalateMaxRing,
-             (unsigned)configFarMinTtlFracPercent);
+    // LOG_INFO("DTN init: enabled=%d ttl_min=%u initDelayMs=%u backoffMs=%u maxTries=%u lateFallback=%d tail%%=%u milestones=%d perDestMinMs=%u maxActive=%u probeNearDeadline=%d graceAckMs=%u suppressForeignMs=%u neighborSuppress=%d preferBestRoute=%d maxRings=%u milestoneMaxRing=%u tailEscMaxRing=%u farMinTtl%%=%u",
+    //          (int)configEnabled, (unsigned)configTtlMinutes, (unsigned)configInitialDelayBaseMs,
+    //          (unsigned)configRetryBackoffMs, (unsigned)configMaxTries, (int)configLateFallback,
+    //          (unsigned)configFallbackTailPercent, (int)configMilestonesEnabled,
+    //          (unsigned)configPerDestMinSpacingMs, (unsigned)configMaxActiveDm,
+    //          (int)configProbeFwplusNearDeadline,
+    //          (unsigned)configGraceAckMs, (unsigned)configSuppressMsAfterForeign,
+    //          (int)configSuppressIfDestNeighbor, (int)configPreferBestRouteSlotting,
+    //          (unsigned)configMaxRingsToAct, (unsigned)configMilestoneMaxRing, (unsigned)configTailEscalateMaxRing,
+    //          (unsigned)configFarMinTtlFracPercent);
 }
 
 int32_t DtnOverlayModule::runOnce()
 {
     if (!configEnabled) return 1000; //fw+ disabled: idle
-    //fw+ simple scheduler: attempt forwards whose time arrived
+    //simple scheduler: attempt forwards whose time arrived
     uint32_t now = millis();
     uint32_t nowEpoch = getValidTime(RTCQualityFromNet) * 1000UL;
     uint32_t dmIssuedThisPass = 0; // reset per scheduler pass
@@ -166,15 +164,15 @@ int32_t DtnOverlayModule::runOnce()
             // emit EXPIRED receipt to source and drop
             LOG_WARN("DTN expire id=0x%x dl=%u now=%u", it->first, (unsigned)p.data.deadline_ms, (unsigned)nowEpoch);
             emitReceipt(p.data.orig_from, it->first, meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_EXPIRED, 0);
-            ctrExpired++; //fw+
-            //fw+ create tombstone to avoid immediate milestone after expiry if others still carry it
+            ctrExpired++; 
+            //create tombstone to avoid immediate milestone after expiry if others still carry it
             if (configTombstoneMs) tombstoneUntilMs[it->first] = millis() + configTombstoneMs;
             it = pendingById.erase(it);
         } else {
             ++it;
         }
     }
-    //fw+ bounded maintenance of per-destination cache to avoid growth
+    //bounded maintenance of per-destination cache to avoid growth
     if (millis() - lastPruneMs > 30000) {
         lastPruneMs = millis();
         if (lastDestTxMs.size() > kMaxPerDestCacheEntries) {
@@ -197,18 +195,18 @@ bool DtnOverlayModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, m
     if (msg && msg->which_variant == meshtastic_FwplusDtn_data_tag) {
         // capability: mark sender as FW+
         markFwplusSeen(getFrom(&mp));
-        // Milestone: if enabled and we first see this id from another node – send a rare progress to the source //fw+
+        // Milestone: if enabled and we first see this id from another node – send a rare progress to the source 
     if (configMilestonesEnabled) {
-            // Politeness: suppress milestones when channel is busy //fw+
+            // Politeness: suppress milestones when channel is busy 
             if (airTime && airTime->channelUtilizationPercent() > configMilestoneChUtilMaxPercent) {
                 // skip milestone due to high utilization
             } else {
-                // Avoid milestone spam if we just handled this id (tombstone) //fw+
+                // Avoid milestone spam if we just handled this id (tombstone) 
                 auto itTs = tombstoneUntilMs.find(msg->variant.data.orig_id);
                 if (itTs != tombstoneUntilMs.end() && millis() < itTs->second) {
                     // within tombstone window
                 } else {
-                // Ring gating: only emit if near source or destination //fw+
+                // Ring gating: only emit if near source or destination 
                 uint8_t ringToSrc = getHopsAway(msg->variant.data.orig_from);
                 uint8_t ringToDst = getHopsAway(msg->variant.data.orig_to);
                 uint8_t minRing = 255;
@@ -219,13 +217,13 @@ bool DtnOverlayModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, m
                 } else {
                 auto it = pendingById.find(msg->variant.data.orig_id);
                 if (it == pendingById.end()) {
-                // No local pending, but we see someone else's carry – single progress //fw+
-                //fw+ include via=our node in reason low byte for milestone telemetry
+                // No local pending, but we see someone else's carry – single progress 
+                //include via=our node in reason low byte for milestone telemetry
                 uint32_t via = nodeDB->getNodeNum() & 0xFFu;
                 emitReceipt(msg->variant.data.orig_from, msg->variant.data.orig_id,
                             meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_PROGRESSED, via);
-                ctrMilestonesSent++; //fw+
-                    //fw+ immediately tombstone this id locally to avoid re-emitting milestone on repeated hears
+                ctrMilestonesSent++; 
+                    //immediately tombstone this id locally to avoid re-emitting milestone on repeated hears
                     if (configTombstoneMs) tombstoneUntilMs[msg->variant.data.orig_id] = millis() + configTombstoneMs;
             }
                 }
@@ -245,20 +243,20 @@ bool DtnOverlayModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, m
         return true;
     }
     // Non-DTN packet (decoded==NULL): optionally capture DM into overlay
-    // Capture only direct messages we overhear, not from us and not addressed to us //fw+
-    if (!isFromUs(&mp) && mp.to != nodeDB->getNodeNum()) { //fw+
+    // Capture only direct messages we overhear, not from us and not addressed to us 
+    if (!isFromUs(&mp) && mp.to != nodeDB->getNodeNum()) { 
         bool isDM = (mp.to != NODENUM_BROADCAST && mp.to != NODENUM_BROADCAST_NO_LORA);
         if (isDM) {
-            //fw+ capture-time gating: ignore far/unknown unicasts to avoid ballooning pending
+            //capture-time gating: ignore far/unknown unicasts to avoid ballooning pending
             uint8_t hopsToDest = getHopsAway(mp.to);
             uint8_t hopsToSrc = getHopsAway(getFrom(&mp));
             bool farFromDest = (configMaxRingsToAct > 0 && hopsToDest != 255 && hopsToDest > configMaxRingsToAct);
             bool nearEitherEnd = isDirectNeighbor(getFrom(&mp)) || isDirectNeighbor(mp.to);
-            // If both endpoints are our neighbors, prefer direct-only (skip overlay capture) //fw+
+            // If both endpoints are our neighbors, prefer direct-only (skip overlay capture) 
             if (isDirectNeighbor(getFrom(&mp)) && isDirectNeighbor(mp.to)) {
                 return false;
             }
-            // If we are closer to source than to destination, skip capture (let nodes closer to dest act) //fw+
+            // If we are closer to source than to destination, skip capture (let nodes closer to dest act) 
             if (hopsToSrc != 255 && hopsToDest != 255 && hopsToDest > hopsToSrc) {
                 return false;
             }
@@ -267,7 +265,7 @@ bool DtnOverlayModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, m
                 // Too far and no confidence: skip capture
                 return false;
             }
-            //fw+ Use configured TTL instead of fixed 5 minutes
+            //Use configured TTL instead of fixed 5 minutes
             uint32_t ttlMinutes = (configTtlMinutes ? configTtlMinutes : 5);
             uint32_t deadline = (getValidTime(RTCQualityFromNet) * 1000UL) + ttlMinutes * 60UL * 1000UL;
             if (mp.which_payload_variant == meshtastic_MeshPacket_encrypted_tag) {
@@ -276,8 +274,8 @@ bool DtnOverlayModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, m
                 if (itTs != tombstoneUntilMs.end() && millis() < itTs->second) return false;
                 enqueueFromCaptured(mp.id, getFrom(&mp), mp.to, mp.channel,
                                     deadline,
-                                    true, mp.encrypted.bytes, mp.encrypted.size, true /*fw+ allow fallback*/);
-                // Apply grace and optional neighbor suppression immediately for captured ciphertext //fw+
+                                    true, mp.encrypted.bytes, mp.encrypted.size, true /*allow fallback*/);
+                // Apply grace and optional neighbor suppression immediately for captured ciphertext 
                 auto it = pendingById.find(mp.id);
                 if (it != pendingById.end()) {
                     if (configGraceAckMs && it->second.tries == 0) {
@@ -294,7 +292,7 @@ bool DtnOverlayModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, m
                 if (itTs != tombstoneUntilMs.end() && millis() < itTs->second) return false;
                 enqueueFromCaptured(mp.id, getFrom(&mp), mp.to, mp.channel,
                                     deadline,
-                                    false, mp.decoded.payload.bytes, mp.decoded.payload.size, true /*fw+ allow fallback*/);
+                                    false, mp.decoded.payload.bytes, mp.decoded.payload.size, true /*allow fallback*/);
                 auto it = pendingById.find(mp.id);
                 if (it != pendingById.end() && configGraceAckMs && it->second.tries == 0) {
                     uint32_t t = millis() + configGraceAckMs + (uint32_t)random(250);
@@ -307,7 +305,7 @@ bool DtnOverlayModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, m
             }
         }
     }
-    return false; //fw+ do not consume non-DTN packets; allow normal processing
+    return false; //do not consume non-DTN packets; allow normal processing
 }
 
 void DtnOverlayModule::enqueueFromCaptured(uint32_t origId, uint32_t origFrom, uint32_t origTo, uint8_t channel,
@@ -347,30 +345,30 @@ void DtnOverlayModule::handleData(const meshtastic_MeshPacket &mp, const meshtas
     // If we are the destination, deliver locally
     if (d.orig_to == nodeDB->getNodeNum()) {
         deliverLocal(d);
-        // Send DELIVERED receipt back to source (include via=proxy in reason low byte) //fw+
+        // Send DELIVERED receipt back to source (include via=proxy in reason low byte)
         uint32_t via = nodeDB->getNodeNum() & 0xFFu; // 1-byte hint
         LOG_INFO("DTN delivered id=0x%x to=0x%x src=0x%x via=0x%x", d.orig_id, (unsigned)nodeDB->getNodeNum(), (unsigned)d.orig_from, (unsigned)via);
         emitReceipt(d.orig_from, d.orig_id, meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_DELIVERED, via);
-        // If source is stock (not FW+), optionally send native ACK to improve UX //fw+
+        // If source is stock (not FW+), optionally send native ACK to improve UX 
         if (!isFwplus(d.orig_from)) {
-            //fw+ use public RoutingModule API instead of protected Router::sendAckNak
+            //use public RoutingModule API instead of protected Router::sendAckNak
             routingModule->sendAckNak(meshtastic_Routing_Error_NONE, d.orig_from, d.orig_id, d.channel, 0);
         }
         return;
     }
-    // Otherwise, coordinate with others: if we heard someone else carrying this id, suppress our attempt for a while //fw+
+    // Otherwise, coordinate with others: if we heard someone else carrying this id, suppress our attempt for a while 
     auto it = pendingById.find(d.orig_id);
     if (it == pendingById.end()) {
         // First time we see this id (from overlay or capture) → schedule normally
         scheduleOrUpdate(d.orig_id, d);
-        // If the packet we saw is already overlay DATA from someone else, apply initial suppression window //fw+
+        // If the packet we saw is already overlay DATA from someone else, apply initial suppression window 
         if (configSuppressMsAfterForeign && !isFromUs(&mp)) {
             auto &p = pendingById[d.orig_id];
             uint32_t postpone = millis() + configSuppressMsAfterForeign + (uint32_t)random(500);
             if (p.nextAttemptMs < postpone) p.nextAttemptMs = postpone;
         }
     } else {
-        // We already have an entry; seeing foreign DATA suggests someone carries it → backoff our schedule //fw+
+        // We already have an entry; seeing foreign DATA suggests someone carries it → backoff our schedule 
         if (configSuppressMsAfterForeign) {
             uint32_t postpone = millis() + configSuppressMsAfterForeign + (uint32_t)random(500);
             if (it->second.nextAttemptMs < postpone) it->second.nextAttemptMs = postpone;
@@ -384,7 +382,7 @@ void DtnOverlayModule::handleReceipt(const meshtastic_MeshPacket &mp, const mesh
     // Simplest: stop any pending entry
     (void)mp;
     pendingById.erase(r.orig_id);
-    // Create a short tombstone to prevent immediate re-capture storms of same id //fw+
+    // Create a short tombstone to prevent immediate re-capture storms of same id 
     if (configTombstoneMs) tombstoneUntilMs[r.orig_id] = millis() + configTombstoneMs;
     ctrReceiptsReceived++; //fw+
 }
@@ -394,19 +392,19 @@ void DtnOverlayModule::scheduleOrUpdate(uint32_t id, const meshtastic_FwplusDtnD
     auto &p = pendingById[id];
     p.data = d;
     p.lastCarrier = nodeDB->getNodeNum();
-    // Per-destination spacing: if we tried to the same destination too recently, postpone //fw+
+    // Per-destination spacing: if we tried to the same destination too recently, postpone 
     auto itLast = lastDestTxMs.find(d.orig_to);
-    // Anti-storm election window: deterministic slot based on id^me //fw+
+    // Anti-storm election window: deterministic slot based on id^me
     uint32_t base = configInitialDelayBaseMs ? configInitialDelayBaseMs : 8000;
-    // Apply grace window before first attempt to give direct delivery/ACK a chance //fw+
+    // Apply grace window before first attempt to give direct delivery/ACK a chance 
     if (p.tries == 0 && configGraceAckMs) {
         if (base < configGraceAckMs) base = configGraceAckMs;
     }
-    // If destination is our direct neighbor and suppression is enabled, be extra conservative //fw+
+    // If destination is our direct neighbor and suppression is enabled, be extra conservative
     if (configSuppressIfDestNeighbor && isDirectNeighbor(d.orig_to)) {
         base += configGraceAckMs ? configGraceAckMs : 1500;
     }
-    // Topology-aware throttle: if we are far from destination, delay until a fraction of TTL elapses //fw+
+    // Topology-aware throttle: if we are far from destination, delay until a fraction of TTL elapses
     if (configMaxRingsToAct > 0) {
         uint8_t hopsToDest = getHopsAway(d.orig_to);
         if (hopsToDest != 255 && hopsToDest > configMaxRingsToAct) {
@@ -430,7 +428,7 @@ void DtnOverlayModule::scheduleOrUpdate(uint32_t id, const meshtastic_FwplusDtnD
     uint32_t slotLen = 400; // ms per slot
     uint32_t rank = fnv1a32(id ^ nodeDB->getNodeNum());
     uint32_t slot = rank % slots;
-    // Prefer earlier start if we are confident about route quality //fw+
+    // Prefer earlier start if we are confident about route quality
     uint32_t earlyBonus = 0;
     if (configPreferBestRouteSlotting && hasSufficientRouteConfidence(d.orig_to)) {
         earlyBonus = 1000; // pull in by ~1s
@@ -449,7 +447,7 @@ void DtnOverlayModule::tryForward(uint32_t id, Pending &p)
 {
     // Check channel utilization gate (be polite for overlay)
     bool txAllowed = (!airTime) || airTime->isTxAllowedChannelUtil(true);
-    if (!txAllowed) { p.nextAttemptMs = millis() + 2500 + (uint32_t)random(500); LOG_DEBUG("fw+ DTN busy: defer id=0x%x", id); return; }
+    if (!txAllowed) { p.nextAttemptMs = millis() + 2500 + (uint32_t)random(500); LOG_DEBUG("DTN busy: defer id=0x%x", id); return; }
 
     // DV-ETX route confidence gating
     if (!hasSufficientRouteConfidence(p.data.orig_to)) {
@@ -469,26 +467,26 @@ void DtnOverlayModule::tryForward(uint32_t id, Pending &p)
     }
     bool inTail = (p.data.deadline_ms && nowEpoch >= ttlTailStart);
     if (inTail) {
-        // Optional FW+ probe just before deciding on fallback //fw+
+        // Optional FW+ probe just before deciding on fallback
         if (configProbeFwplusNearDeadline && !isFwplus(p.data.orig_to)) {
             maybeProbeFwplus(p.data.orig_to);
         }
     }
     //fw+ respect allow_proxy_fallback and limit tries
     if (configMaxTries && p.tries >= configMaxTries) {
-        emitReceipt(p.data.orig_from, id, meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_EXPIRED, 0); //fw+
+        emitReceipt(p.data.orig_from, id, meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_EXPIRED, 0); 
         LOG_WARN("DTN give up id=0x%x tries=%u", id, (unsigned)p.tries);
         pendingById.erase(id);
-        ctrGiveUps++; //fw+
+        ctrGiveUps++;
         return;
     }
 
     if (inTail && !isFwplus(p.data.orig_to) && p.data.allow_proxy_fallback) {
-        // Send native DM (ciphertext or plaintext) towards destination //fw+
+        // Send native DM (ciphertext or plaintext) towards destination
         meshtastic_MeshPacket *dm = allocDataPacket();
         if (!dm) { p.nextAttemptMs = millis() + 3000; return; }
         dm->to = p.data.orig_to;
-        // Preserve original sender for UI after decryption at the destination //fw+
+        // Preserve original sender for UI after decryption at the destination 
         dm->from = p.data.orig_from;
         dm->channel = p.data.channel;
         if (p.data.is_encrypted) {
@@ -504,15 +502,15 @@ void DtnOverlayModule::tryForward(uint32_t id, Pending &p)
             memcpy(dm->decoded.payload.bytes, p.data.payload.bytes, dm->decoded.payload.size);
         }
         //fw+ preserve original DM id so that ROUTING_APP ACK maps to sender's pending entry
-        dm->id = p.data.orig_id; //fw+
-        dm->want_ack = true; // try to get radio ACK //fw+
+        dm->id = p.data.orig_id;
+        dm->want_ack = true; // try to get radio ACK 
         dm->decoded.want_response = false;
         dm->priority = meshtastic_MeshPacket_Priority_DEFAULT;
         service->sendToMesh(dm, RX_SRC_LOCAL, false);
         p.tries++;
         p.nextAttemptMs = millis() + configRetryBackoffMs;
         LOG_INFO("DTN fallback DM id=0x%x dst=0x%x try=%u", id, (unsigned)p.data.orig_to, (unsigned)p.tries);
-        ctrFallbacksAttempted++; //fw+
+        ctrFallbacksAttempted++; 
         return;
     }
 
@@ -530,7 +528,7 @@ void DtnOverlayModule::tryForward(uint32_t id, Pending &p)
     mp->decoded.portnum = meshtastic_PortNum_FWPLUS_DTN_APP;
     mp->want_ack = false;
     mp->decoded.want_response = false;
-    // Use BACKGROUND priority normally; escalate to DEFAULT only in TTL tail when we consider fallback //fw+
+    // Use BACKGROUND priority normally; escalate to DEFAULT only in TTL tail when we consider fallback 
     if (p.data.deadline_ms) {
         uint32_t nowEpoch = getValidTime(RTCQualityFromNet) * 1000UL;
         uint32_t ttl = (p.data.deadline_ms > p.data.orig_rx_time * 1000UL) ? (p.data.deadline_ms - (p.data.orig_rx_time * 1000UL)) : 0;
@@ -553,8 +551,8 @@ void DtnOverlayModule::tryForward(uint32_t id, Pending &p)
     }
     service->sendToMesh(mp, RX_SRC_LOCAL, false);
     p.tries++;
-    ctrForwardsAttempted++; //fw+
-    lastForwardMs = millis(); //fw+
+    ctrForwardsAttempted++; 
+    lastForwardMs = millis(); 
     // update per-destination last tx (bounded map)
     lastDestTxMs[p.data.orig_to] = millis();
     // schedule next attempt with backoff
@@ -579,8 +577,8 @@ void DtnOverlayModule::maybeProbeFwplus(NodeNum dest)
     p->decoded.want_response = false;
     p->priority = meshtastic_MeshPacket_Priority_BACKGROUND;
     service->sendToMesh(p, RX_SRC_LOCAL, false);
-    LOG_DEBUG("fw+ DTN probe FW+ dest=0x%x", (unsigned)dest);
-    ctrProbesSent++; //fw+
+    LOG_DEBUG("DTN probe FW+ dest=0x%x", (unsigned)dest);
+    ctrProbesSent++;
 }
 
 void DtnOverlayModule::emitReceipt(uint32_t to, uint32_t origId, meshtastic_FwplusDtnStatus status, uint32_t reason)
@@ -601,8 +599,8 @@ void DtnOverlayModule::emitReceipt(uint32_t to, uint32_t origId, meshtastic_Fwpl
     p->decoded.want_response = false;
     p->priority = meshtastic_MeshPacket_Priority_BACKGROUND;
     service->sendToMesh(p, RX_SRC_LOCAL, false);
-    LOG_DEBUG("fw+ DTN tx RECEIPT id=0x%x status=%u to=0x%x", (unsigned)origId, (unsigned)status, (unsigned)to);
-    ctrReceiptsEmitted++; //fw+
+    LOG_DEBUG("DTN tx RECEIPT id=0x%x status=%u to=0x%x", (unsigned)origId, (unsigned)status, (unsigned)to);
+    ctrReceiptsEmitted++; 
 }
 #endif
 
