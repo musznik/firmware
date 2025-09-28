@@ -1,8 +1,8 @@
 #ifdef MESHTASTIC_INCLUDE_INKHUD
 
 #include "./UpdateMediator.h"
-
-#include "./WindowManager.h"
+//fw+ use InkHUD singleton instead of WindowManager
+#include "./InkHUD.h"
 
 using namespace NicheGraphics;
 
@@ -115,9 +115,9 @@ int32_t InkHUD::UpdateMediator::runOnce()
     if (debt > 0.0) {
         LOG_DEBUG("debt=%f: performing maintenance", debt);
 
-        // Ask WindowManager to redraw everything, purely for the refresh
-        // Todo: optimize? Could update without re-rendering
-        WindowManager::getInstance()->forceUpdate(EInk::UpdateTypes::FULL);
+        // Ask InkHUD to redraw everything, purely for the refresh
+        //fw+ use InkHUD singleton; could optimize to update without re-rendering
+        NicheGraphics::InkHUD::InkHUD::getInstance()->forceUpdate(Drivers::EInk::UpdateTypes::FULL);
 
         // Record that we have paid back (some of) the FULL refresh debt
         debt = max(debt - 1.0, 0.0);
