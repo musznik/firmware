@@ -79,7 +79,7 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     uint32_t configFallbackTailPercent = 20;
     bool configMilestonesEnabled = false;
     uint32_t configPerDestMinSpacingMs = 30000;
-    uint32_t configMaxActiveDm = 2;
+    uint32_t configMaxActiveDm = 1; //fw+ default: single active DM
     bool configProbeFwplusNearDeadline = false;
     //fw+ heuristics to reduce airtime while keeping custody
     uint32_t configGraceAckMs = 0;                 // delay first overlay attempt to allow direct delivery

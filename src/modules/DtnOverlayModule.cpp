@@ -106,7 +106,7 @@ DtnOverlayModule::DtnOverlayModule()
     configFallbackTailPercent = 20;
     configMilestonesEnabled = false; //fw+ default OFF; user config may override
     configPerDestMinSpacingMs = 30000;
-    configMaxActiveDm = 2;
+    configMaxActiveDm = 1; //fw+ default: single active DM
     configProbeFwplusNearDeadline = false;
     //conservative airtime heuristics
     configGraceAckMs = 2500;                  // give direct a brief chance first
