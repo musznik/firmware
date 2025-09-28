@@ -104,7 +104,7 @@ DtnOverlayModule::DtnOverlayModule()
     configMaxTries = 3;
     configLateFallback = false;
     configFallbackTailPercent = 20;
-    configMilestonesEnabled = true; //default ON; user config may override
+    configMilestonesEnabled = false; //fw+ default OFF; user config may override
     configPerDestMinSpacingMs = 30000;
     configMaxActiveDm = 2;
     configProbeFwplusNearDeadline = false;
