@@ -86,6 +86,9 @@ class GPSStatus : public Status
 
     uint32_t getNumSatellites() const { return p.sats_in_view; }
 
+    // fw+ expose ground speed (centimeters/second) for mobility estimation
+    uint32_t getSpeedCentimetersPerSecond() const { return p.ground_speed; }
+
     /// Return millis() when the last GPS fix occurred (0 = never)
     uint32_t getLastFixMillis() const { return lastFixMillis; }
 

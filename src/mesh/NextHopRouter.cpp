@@ -8,6 +8,7 @@
 #include "modules/TraceRouteModule.h"
 #endif
 #include "NodeDB.h"
+#include "MobilityOracle.h" //fw+
 
 //fw+ forward declare BroadcastAssist to avoid depending on module headers
 class BroadcastAssistModule;
@@ -95,9 +96,17 @@ bool NextHopRouter::lookupRoute(uint32_t dest, RouteEntry &out)
     auto it = routes.find(dest);
     if (it == routes.end()) return false;
     const RouteEntry &r = it->second;
-    // TTL (adaptive) and minimal confidence gate
-    if (millis() - r.lastUpdatedMs > computeRouteTtlMs(r.confidence)) return false;
-    if (r.confidence < getMinConfidenceToUse()) return false;
+    // TTL (adaptive) and minimal confidence gate //fw+
+    uint32_t now = millis();
+    uint32_t ttlMs = computeRouteTtlMs(r.confidence);
+    // fw+ shrink effective TTL when mobile (factor 0..1 => cut up to 80%)
+    float mobility = fwplus_getMobilityFactor01();
+    uint32_t ttlAdj = (uint32_t)((float)ttlMs * (1.0f - 0.8f * mobility));
+    if (now - r.lastUpdatedMs > ttlAdj) return false;
+    // fw+ lower confidence gate slightly for mobile
+    uint8_t minConf = getMinConfidenceToUse();
+    if (mobility > 0.5f && minConf > 0) minConf -= 1;
+    if (r.confidence < minConf) return false;
     out = r;
     return (out.next_hop != NO_NEXT_HOP_PREFERENCE);
 }
@@ -109,8 +118,10 @@ void NextHopRouter::learnRoute(uint32_t dest, uint8_t viaHop, float observedCost
     if (r.confidence == 0) {
         r.aggregated_cost = observedCost;
     } else {
-        // Smooth update
-        r.aggregated_cost = 0.7f * r.aggregated_cost + 0.3f * observedCost;
+        // Smooth update with mobility-aware alpha //fw+
+        float mobility = fwplus_getMobilityFactor01();
+        float alphaNew = 0.3f + mobility * (0.7f - 0.3f); // 0.3..0.7
+        r.aggregated_cost = (1.0f - alphaNew) * r.aggregated_cost + alphaNew * observedCost;
     }
     // Update backup if the new candidate is different and better than current
     if (r.next_hop != viaHop) {

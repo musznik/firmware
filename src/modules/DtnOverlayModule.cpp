@@ -42,6 +42,7 @@ Airtime protections
 #include "Default.h"
 #include "airtime.h"
 #include "configuration.h"
+#include "MobilityOracle.h" //fw+
 #include "modules/RoutingModule.h"
 #include <pb_encode.h>
 #include <cstring>
@@ -424,8 +425,14 @@ void DtnOverlayModule::scheduleOrUpdate(uint32_t id, const meshtastic_FwplusDtnD
             }
         }
     }
-    uint32_t slots = 8; // small contention window
-    uint32_t slotLen = 400; // ms per slot
+    // fw+ mobility-aware election window: fewer/shorter slots for mobile nodes
+    float mobility = fwplus_getMobilityFactor01();
+    uint32_t slots = 8;
+    uint32_t slotLen = 400;
+    if (mobility > 0.5f) {
+        slots = 6;
+        slotLen = 300;
+    }
     uint32_t rank = fnv1a32(id ^ nodeDB->getNodeNum());
     uint32_t slot = rank % slots;
     // Prefer earlier start if we are confident about route quality
@@ -437,6 +444,8 @@ void DtnOverlayModule::scheduleOrUpdate(uint32_t id, const meshtastic_FwplusDtnD
     if (target > millis() + earlyBonus) target -= earlyBonus;
     if (itLast != lastDestTxMs.end()) {
         uint32_t spacing = configPerDestMinSpacingMs ? configPerDestMinSpacingMs : 30000;
+        // fw+ reduce spacing when mobile (down to ~60%) to react faster
+        spacing = (uint32_t)((float)spacing * (1.0f - 0.4f * mobility));
         if (target < itLast->second + spacing) target = itLast->second + spacing + (uint32_t)random(500);
     }
     p.nextAttemptMs = target;
@@ -449,10 +458,13 @@ void DtnOverlayModule::tryForward(uint32_t id, Pending &p)
     bool txAllowed = (!airTime) || airTime->isTxAllowedChannelUtil(true);
     if (!txAllowed) { p.nextAttemptMs = millis() + 2500 + (uint32_t)random(500); LOG_DEBUG("DTN busy: defer id=0x%x", id); return; }
 
-    // DV-ETX route confidence gating
+    // DV-ETX route confidence gating (more permissive when mobile)
     if (!hasSufficientRouteConfidence(p.data.orig_to)) {
         // Backoff softly
-        p.nextAttemptMs = millis() + configRetryBackoffMs + (uint32_t)random(2000);
+        float mobility = fwplus_getMobilityFactor01();
+        uint32_t backoff = configRetryBackoffMs + (uint32_t)random(2000);
+        if (mobility > 0.5f) backoff = backoff / 2; // try sooner if we are moving
+        p.nextAttemptMs = millis() + backoff;
         LOG_DEBUG("DTN low confidence: defer id=0x%x", id);
         return;
     }
