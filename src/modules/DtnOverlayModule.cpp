@@ -577,7 +577,7 @@ void DtnOverlayModule::maybeProbeFwplus(NodeNum dest)
     p->decoded.want_response = false;
     p->priority = meshtastic_MeshPacket_Priority_BACKGROUND;
     service->sendToMesh(p, RX_SRC_LOCAL, false);
-    LOG_DEBUG("DTN probe FW+ dest=0x%x", (unsigned)dest);
+    LOG_DEBUG("DTN probe dest=0x%x", (unsigned)dest);
     ctrProbesSent++;
 }
 
