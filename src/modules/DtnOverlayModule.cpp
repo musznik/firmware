@@ -197,7 +197,7 @@ bool DtnOverlayModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, m
         // capability: mark sender as FW+
         markFwplusSeen(getFrom(&mp));
         // Milestone: if enabled and we first see this id from another node – send a rare progress to the source 
-    if (configMilestonesEnabled) {
+    if (configMilestonesEnabled && shouldEmitMilestone(msg->variant.data.orig_from, msg->variant.data.orig_to)) { //fw+
             // Politeness: suppress milestones when channel is busy 
             if (airTime && airTime->channelUtilizationPercent() > configMilestoneChUtilMaxPercent) {
                 // skip milestone due to high utilization
@@ -221,11 +221,21 @@ bool DtnOverlayModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, m
                 // No local pending, but we see someone else's carry – single progress 
                 //include via=our node in reason low byte for milestone telemetry
                 uint32_t via = nodeDB->getNodeNum() & 0xFFu;
+                //fw+ per-source min interval guard
+                bool rateOk = true;
+                auto itLast = lastProgressEmitMsBySource.find(msg->variant.data.orig_from);
+                if (itLast != lastProgressEmitMsBySource.end()) {
+                    uint32_t last = itLast->second;
+                    if (millis() - last < configOriginProgressMinIntervalMs) rateOk = false;
+                }
+                if (rateOk) {
                 emitReceipt(msg->variant.data.orig_from, msg->variant.data.orig_id,
                             meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_PROGRESSED, via);
                 ctrMilestonesSent++; 
+                    lastProgressEmitMsBySource[msg->variant.data.orig_from] = millis();
                     //immediately tombstone this id locally to avoid re-emitting milestone on repeated hears
                     if (configTombstoneMs) tombstoneUntilMs[msg->variant.data.orig_id] = millis() + configTombstoneMs;
+                }
             }
                 }
                 }
@@ -616,4 +626,31 @@ void DtnOverlayModule::emitReceipt(uint32_t to, uint32_t origId, meshtastic_Fwpl
 }
 #endif
 
+//fw+ adaptive milestone limiter implementation
+bool DtnOverlayModule::shouldEmitMilestone(NodeNum src, NodeNum dst)
+{
+    (void)src; (void)dst; // current heuristic does not need identities
+    if (!configMilestonesEnabled) return false;
+    if (!configMilestoneAutoLimiterEnabled) return true;
 
+    uint8_t chUtil = airTime ? airTime->channelUtilizationPercent() : 0;
+    uint8_t neighbors = countDirectNeighbors();
+    size_t pend = pendingById.size();
+
+    // Enter suppression when any high threshold exceeded
+    if (!runtimeMilestonesSuppressed) {
+        if (chUtil >= configMilestoneAutoSuppressHighChUtil ||
+            neighbors >= configMilestoneAutoNeighborHigh ||
+            pend >= configMilestoneAutoPendingHigh) {
+            runtimeMilestonesSuppressed = true;
+        }
+    } else {
+        // Leave suppression only when all metrics are comfortably low (hysteresis)
+        if (chUtil <= configMilestoneAutoReleaseLowChUtil &&
+            neighbors < configMilestoneAutoNeighborHigh &&
+            pend < configMilestoneAutoPendingHigh) {
+            runtimeMilestonesSuppressed = false;
+        }
+    }
+    return !runtimeMilestonesSuppressed;
+}

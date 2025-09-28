@@ -53,6 +53,10 @@ class BroadcastAssistModule : public MeshModule
     bool airtimeOk() const;
     float computeRefloodProbability(uint8_t neighborCount) const;
     bool isBackboneRole() const; //fw+
+    //fw+ detect if there exists a far, active backbone node in the DB
+    bool existsActiveFarBackbone(uint32_t minDistanceMeters = 50000, uint32_t freshSecs = 2 * 60 * 60) const;
+    //fw+ decide if we should amplify (permit reflood) targeting far backbone case
+    bool shouldAmplifyForFarBackbone(const SeenRec &rec) const;
 
     // stats
     uint32_t statRefloodAttempts = 0;

@@ -94,6 +94,12 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     uint8_t configTailEscalateMaxRing = 1;         // allow DEFAULT priority in TTL tail only if within N hops
     uint32_t configFarMinTtlFracPercent = 50;      // if dest beyond rings, wait until this % of TTL has passed
     uint32_t configOriginProgressMinIntervalMs = 15000; // per-source min interval between milestones
+    //fw+ automatic milestone limiter (adaptive to load/topology)
+    bool configMilestoneAutoLimiterEnabled = true;       // enable adaptive suppression
+    uint8_t configMilestoneAutoSuppressHighChUtil = 55;  // suppress when >= this
+    uint8_t configMilestoneAutoReleaseLowChUtil = 30;    // re-enable when <= this
+    uint8_t configMilestoneAutoNeighborHigh = 3;         // suppress if we have >= this many neighbors
+    uint8_t configMilestoneAutoPendingHigh = 8;          // suppress if pending queue is high
 
     //fw+ DTN counters for diagnostics
     uint32_t ctrForwardsAttempted = 0;
@@ -105,6 +111,8 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     uint32_t ctrMilestonesSent = 0;
     uint32_t ctrProbesSent = 0;
     uint32_t lastForwardMs = 0;
+    //fw+ runtime state for auto milestone limiter
+    bool runtimeMilestonesSuppressed = false;
 
     // Capability cache of FW+ peers
     std::unordered_map<NodeNum, uint32_t> fwplusSeenMs;
@@ -188,6 +196,9 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
         }
         return h;
     }
+
+    //fw+ helper: adaptive decision for milestone emission
+    bool shouldEmitMilestone(NodeNum src, NodeNum dst);
 };
 
 extern DtnOverlayModule *dtnOverlayModule; //fw+
