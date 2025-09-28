@@ -4,41 +4,52 @@
 
 SignalReplyModule *signalReplyModule;
 
-// Custom implementation of strcasestr by "liquidraver"
-const char* strcasestr_custom(const char* haystack, const char* needle) {
-    if (!haystack || !needle) return nullptr;
-    size_t needle_len = strlen(needle);
-    if (!needle_len) return haystack;
-    for (; *haystack; ++haystack) {
-        if (strncasecmp(haystack, needle, needle_len) == 0) {
-            return haystack;
-        }
+//fw+ Small helpers to avoid std::string allocation and heavy libc where possible
+static inline char asciiLower(char c)
+{
+    return (c >= 'A' && c <= 'Z') ? static_cast<char>(c + ('a' - 'A')) : c;
+}
+
+//fw+ Compare a bytes buffer to a literal, case-insensitive; avoids transient std::string
+static bool equalsLiteralCaseInsensitive(const uint8_t *data, size_t len, const char *literal)
+{
+    if (!data || !literal)
+        return false;
+    size_t litlen = strlen(literal);
+    if (len != litlen)
+        return false;
+    for (size_t i = 0; i < len; ++i)
+    {
+        if (asciiLower(static_cast<char>(data[i])) != asciiLower(literal[i]))
+            return false;
     }
-    return nullptr;
+    return true;
 }
 
 ProcessMessage SignalReplyModule::handleReceived(const meshtastic_MeshPacket &currentRequest)
 {
     auto &p = currentRequest.decoded;
-    std::string receivedMessage(reinterpret_cast<const char*>(p.payload.bytes), p.payload.size);
+    //fw+ Avoid dynamic allocations when checking for the "pinger" trigger
+    bool isPinger = equalsLiteralCaseInsensitive(p.payload.bytes, p.payload.size, "pinger");
 
     //This condition is meant to reply to message containing request "pinger"
-
-    if ( ( receivedMessage  == "pinger" || receivedMessage  == "Pinger" ) && currentRequest.from != 0x0 && currentRequest.from != nodeDB->getNodeNum())
+    if ( isPinger && currentRequest.from != 0x0 && currentRequest.from != nodeDB->getNodeNum())
     {
         int hopLimit = currentRequest.hop_limit;
         int hopStart = currentRequest.hop_start;
 
-        char idSender[10];
-        char idReceipient[10];
+        //fw+ Ensure enough space for 32-bit unsigned decimal + NUL
+        char idSender[11];
+        char idReceipient[11];
         snprintf(idSender, sizeof(idSender), "%d", currentRequest.from);
         snprintf(idReceipient, sizeof(idReceipient), "%d", nodeDB->getNodeNum());
 
         char messageReply[200];
+        //fw+ Null checks to avoid potential dereference crashes
         meshtastic_NodeInfoLite *nodeSender = nodeDB->getMeshNode(currentRequest.from);
-        const char *username = nodeSender->has_user ? nodeSender->user.short_name : idSender;
+        const char *username = (nodeSender && nodeSender->has_user) ? nodeSender->user.short_name : idSender;
         meshtastic_NodeInfoLite *nodeReceiver = nodeDB->getMeshNode(nodeDB->getNodeNum());
-        const char *usernameja = nodeReceiver->has_user ? nodeReceiver->user.short_name : idReceipient;
+        const char *usernameja = (nodeReceiver && nodeReceiver->has_user) ? nodeReceiver->user.short_name : idReceipient;
 
         //LOG_ERROR("SignalReplyModule::handleReceived(): '%s' from %s.", messageRequest, username);
 
@@ -49,12 +60,23 @@ ProcessMessage SignalReplyModule::handleReceived(const meshtastic_MeshPacket &cu
         }
         else
         {
-            snprintf(messageReply, sizeof(messageReply), "'%s'->'%s' : RSSI %d dBm, SNR %.1f dB (@%s).", username, usernameja, currentRequest.rx_rssi, currentRequest.rx_snr, usernameja);
+            //fw+ Avoid printf float formatting to save flash; render SNR with integers
+            int snrTenths = static_cast<int>((currentRequest.rx_snr * 10.0f) + (currentRequest.rx_snr >= 0 ? 0.5f : -0.5f));
+            int snrWhole = snrTenths / 10;
+            int snrFrac = snrTenths % 10;
+            if (snrFrac < 0)
+                snrFrac = -snrFrac;
+            snprintf(messageReply, sizeof(messageReply), "'%s'->'%s' : RSSI %d dBm, SNR %d.%d dB (@%s).", username, usernameja, currentRequest.rx_rssi, snrWhole, snrFrac, usernameja);
         }
 
         auto reply = allocDataPacket();
         reply->decoded.portnum = meshtastic_PortNum_TEXT_MESSAGE_APP;
-        reply->decoded.payload.size = strlen(messageReply);
+        //fw+ Bound the payload size to the destination buffer capacity
+        size_t msgLen = strnlen(messageReply, sizeof(messageReply));
+        size_t capacity = sizeof(reply->decoded.payload.bytes);
+        if (msgLen > capacity)
+            msgLen = capacity;
+        reply->decoded.payload.size = msgLen;
         reply->from = getFrom(&currentRequest);
         reply->to = currentRequest.from;
         reply->channel = currentRequest.channel;
