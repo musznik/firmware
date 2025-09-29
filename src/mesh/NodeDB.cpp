@@ -946,6 +946,10 @@ void NodeDB::installDefaultModuleConfig()
     //fw+ DTN overlay defaults (ensure APK sees post-install defaults)
     moduleConfig.has_dtn_overlay = true;
     moduleConfig.dtn_overlay.enabled = false; //fw+ default OFF for safe testing
+#if ARCH_PORTDUINO
+    //fw+ For native/Portduino simulator builds, force-enable DTN overlay by default for testing
+    moduleConfig.dtn_overlay.enabled = true;
+#endif
     moduleConfig.dtn_overlay.ttl_minutes = 5;
     moduleConfig.dtn_overlay.initial_delay_base_ms = 8000;
     moduleConfig.dtn_overlay.retry_backoff_ms = 60000;

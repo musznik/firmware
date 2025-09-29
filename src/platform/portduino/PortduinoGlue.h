@@ -169,7 +169,8 @@ extern struct portduino_config_struct {
     std::string mac_address_source = "";
     std::string config_directory = "";
     std::string available_directory = "/etc/meshtasticd/available.d/";
-    int maxtophone = 100;
+    // fw+: increase default queue towards phone/API to reduce backpressure under load
+    int maxtophone = 400;
     int MaxNodes = 200;
 
     pinMapping *all_pins[20] = {&lora_cs_pin,
