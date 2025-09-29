@@ -44,6 +44,7 @@ Airtime protections
 #include "configuration.h"
 #include "MobilityOracle.h" //fw+
 #include "modules/RoutingModule.h"
+#include "mesh/NextHopRouter.h" //fw+
 #include <pb_encode.h>
 #include <cstring>
 
@@ -152,16 +153,16 @@ DtnOverlayModule::DtnOverlayModule()
         if (moduleConfig.dtn_overlay.max_active_dm) configMaxActiveDm = moduleConfig.dtn_overlay.max_active_dm;
         configProbeFwplusNearDeadline = moduleConfig.dtn_overlay.probe_fwplus_near_deadline;
     }
-    // LOG_INFO("DTN init: enabled=%d ttl_min=%u initDelayMs=%u backoffMs=%u maxTries=%u lateFallback=%d tail%%=%u milestones=%d perDestMinMs=%u maxActive=%u probeNearDeadline=%d graceAckMs=%u suppressForeignMs=%u neighborSuppress=%d preferBestRoute=%d maxRings=%u milestoneMaxRing=%u tailEscMaxRing=%u farMinTtl%%=%u",
-    //          (int)configEnabled, (unsigned)configTtlMinutes, (unsigned)configInitialDelayBaseMs,
-    //          (unsigned)configRetryBackoffMs, (unsigned)configMaxTries, (int)configLateFallback,
-    //          (unsigned)configFallbackTailPercent, (int)configMilestonesEnabled,
-    //          (unsigned)configPerDestMinSpacingMs, (unsigned)configMaxActiveDm,
-    //          (int)configProbeFwplusNearDeadline,
-    //          (unsigned)configGraceAckMs, (unsigned)configSuppressMsAfterForeign,
-    //          (int)configSuppressIfDestNeighbor, (int)configPreferBestRouteSlotting,
-    //          (unsigned)configMaxRingsToAct, (unsigned)configMilestoneMaxRing, (unsigned)configTailEscalateMaxRing,
-    //          (unsigned)configFarMinTtlFracPercent);
+    LOG_INFO("DTN init: enabled=%d ttl_min=%u initDelayMs=%u backoffMs=%u maxTries=%u lateFallback=%d tail%%=%u milestones=%d perDestMinMs=%u maxActive=%u probeNearDeadline=%d graceAckMs=%u suppressForeignMs=%u neighborSuppress=%d preferBestRoute=%d maxRings=%u milestoneMaxRing=%u tailEscMaxRing=%u farMinTtl%%=%u",
+             (int)configEnabled, (unsigned)configTtlMinutes, (unsigned)configInitialDelayBaseMs,
+             (unsigned)configRetryBackoffMs, (unsigned)configMaxTries, (int)configLateFallback,
+             (unsigned)configFallbackTailPercent, (int)configMilestonesEnabled,
+             (unsigned)configPerDestMinSpacingMs, (unsigned)configMaxActiveDm,
+             (int)configProbeFwplusNearDeadline,
+             (unsigned)configGraceAckMs, (unsigned)configSuppressMsAfterForeign,
+             (int)configSuppressIfDestNeighbor, (int)configPreferBestRouteSlotting,
+             (unsigned)configMaxRingsToAct, (unsigned)configMilestoneMaxRing, (unsigned)configTailEscalateMaxRing,
+             (unsigned)configFarMinTtlFracPercent);
 }
 
 int32_t DtnOverlayModule::runOnce()
@@ -173,6 +174,8 @@ int32_t DtnOverlayModule::runOnce()
     uint32_t now = millis();
     uint32_t nowEpoch = getValidTime(RTCQualityFromNet) * 1000UL;
     uint32_t dmIssuedThisPass = 0; // reset per scheduler pass
+    //fw+ dynamic wake: compute nearest nextAttempt across pendings
+    uint32_t nextWakeMs = 2000;
     for (auto it = pendingById.begin(); it != pendingById.end();) {
         Pending &p = it->second;
         // Global concurrency cap: throttle attempts
@@ -184,7 +187,12 @@ int32_t DtnOverlayModule::runOnce()
                 // push a bit forward
                 p.nextAttemptMs = now + 1000 + (uint32_t)random(500);
                 LOG_DEBUG("DTN defer(id=0x%x): glob cap reached, next in %u ms", it->first, (unsigned)(p.nextAttemptMs - now));
+                uint32_t wait = p.nextAttemptMs - now;
+                if (wait < nextWakeMs) nextWakeMs = wait;
             }
+        } else {
+            uint32_t wait = p.nextAttemptMs - now;
+            if (wait < nextWakeMs) nextWakeMs = wait;
         }
         // Remove if past deadline
         if (p.data.deadline_ms && nowEpoch > p.data.deadline_ms) {
@@ -214,7 +222,10 @@ int32_t DtnOverlayModule::runOnce()
             }
         }
     }
-    return 500;
+    //fw+ clamp next wake between 100..2000 ms to avoid tight/long sleeps
+    if (nextWakeMs < 100) nextWakeMs = 100;
+    if (nextWakeMs > 2000) nextWakeMs = 2000;
+    return (int32_t)nextWakeMs;
 }
 
 bool DtnOverlayModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, meshtastic_FwplusDtn *msg)
@@ -626,7 +637,9 @@ void DtnOverlayModule::tryForward(uint32_t id, Pending &p)
     lastDestTxMs[p.data.orig_to] = millis();
     //fw+ remember preferred handoff per dest when we target FW+ (not the final dest)
     if (target != p.data.orig_to) {
-        preferredHandoffByDest[p.data.orig_to] = { target, millis() };
+        auto &ph = preferredHandoffByDest[p.data.orig_to];
+        ph.node = target;
+        ph.lastUsedMs = millis();
     }
     // schedule next attempt with backoff
     p.nextAttemptMs = millis() + (configRetryBackoffMs ? configRetryBackoffMs : 60000);
@@ -713,19 +726,30 @@ void DtnOverlayModule::recordFwplusVersion(NodeNum n, uint16_t version)
 
 void DtnOverlayModule::maybeAdvertiseFwplusVersion()
 {
-    // Send a tiny FW+ receipt with magic reason to broadcast our FW+ version
     if (!configEnabled) return;
     uint32_t now = millis();
     uint32_t interval = configAdvertiseIntervalMs;
     if (lastAdvertiseMs == 0) lastAdvertiseMs = now - (uint32_t)random(interval);
     if (now - lastAdvertiseMs < interval + (uint32_t)random(configAdvertiseJitterMs)) return;
 
-    // Only advertise if milestones are enabled or channel is not overloaded
+    // Only advertise if channel is not overloaded //fw+
     if (airTime && !airTime->isTxAllowedChannelUtil(true)) return;
+
+    // Only advertise if we have at least one direct FW+ neighbor without a known version //fw+
+    bool need = false;
+    int totalNodes = nodeDB->getNumMeshNodes();
+    for (int i = 0; i < totalNodes; ++i) {
+        meshtastic_NodeInfoLite *ni = nodeDB->getMeshNodeByIndex(i);
+        if (!ni) continue;
+        if (ni->num == nodeDB->getNodeNum()) continue;
+        if (ni->hops_away != 0) continue;
+        if (!isFwplus(ni->num)) continue;
+        if (fwplusVersionByNode.find(ni->num) == fwplusVersionByNode.end()) { need = true; break; }
+    }
+    if (!need) return;
 
     // Compose reason: 0xF1VVVV00 (VVVV = FW+ version)
     uint32_t reason = 0xF1000000u;
-    // try to read FW+ version from OnDemand compile-time macro if available
 #ifdef FW_PLUS_VERSION
     uint16_t ver = (uint16_t)FW_PLUS_VERSION;
 #else
@@ -733,7 +757,6 @@ void DtnOverlayModule::maybeAdvertiseFwplusVersion()
 #endif
     reason |= ((uint32_t)ver << 8);
 
-    // Broadcast by sending to broadcast nodenum; stock nodes will ignore port
     meshtastic_FwplusDtn msg = meshtastic_FwplusDtn_init_zero;
     msg.which_variant = meshtastic_FwplusDtn_receipt_tag;
     msg.variant.receipt.orig_id = 0;
@@ -791,49 +814,48 @@ NodeNum DtnOverlayModule::chooseHandoffTarget(NodeNum dest, uint32_t origId, Pen
         }
     }
 
-    // 3) Otherwise build/refresh shortlist
-    // Fill shortlist lazily if empty
-    if (p.handoffCandidates.empty()) {
-        std::vector<std::tuple<NodeNum, uint8_t, uint8_t>> fwplusNodes; // (node, hopsFromUs, hopsToDest)
+    // 3) Otherwise build/refresh shortlist (stream-min without dynamic alloc/sort)
+    if (p.handoffCount == 0) {
+        NodeNum best1 = 0, best2 = 0, best3 = 0;
+        uint8_t best1_au = 255, best2_au = 255, best3_au = 255; // hopsFromUs
+        uint8_t best1_ad = 255, best2_ad = 255, best3_ad = 255; // hopsToDest
         int totalNodes = nodeDB->getNumMeshNodes();
         for (int i = 0; i < totalNodes; ++i) {
             meshtastic_NodeInfoLite *ni = nodeDB->getMeshNodeByIndex(i);
             if (!ni) continue;
             if (ni->num == nodeDB->getNodeNum()) continue;
-            if (!isFwplus(ni->num)) continue;  // seen FW+ recently
-            uint8_t hopsFromUs = ni->hops_away; // known from NodeDB
-            uint8_t hopsToDest = getHopsAway(dest); // our perspective to dest
-            fwplusNodes.emplace_back(ni->num, hopsFromUs, hopsToDest);
-        }
-        // sort: prefer closer to us (fewer stock hops before next DTN), then better hopsToDest, then nodenum
-        std::sort(fwplusNodes.begin(), fwplusNodes.end(), [](const auto &a, const auto &b) {
-            uint8_t au, ad, bu, bd; NodeNum an, bn;
-            an = std::get<0>(a); au = std::get<1>(a); ad = std::get<2>(a);
-            bn = std::get<0>(b); bu = std::get<1>(b); bd = std::get<2>(b);
-            if (au != bu) return au < bu;
-            if (ad != bd) return ad < bd;
-            return an < bn;
-        });
-        // take up to max candidates but avoid lastCarrier to prevent ping-pong
-        for (const auto &e : fwplusNodes) {
-            NodeNum n = std::get<0>(e);
-            if (n == p.lastCarrier) continue;
-            //fw+ gate by advertised FW+ version if known
-            auto itVer = fwplusVersionByNode.find(n);
-            if (itVer != fwplusVersionByNode.end()) {
-                if (itVer->second < configMinFwplusVersionForHandoff) continue;
-            } else {
-                // if unknown version, skip for now (conservative)
-                continue;
+            if (!isFwplus(ni->num)) continue;
+            if (ni->num == p.lastCarrier) continue;
+            auto itVer = fwplusVersionByNode.find(ni->num);
+            if (itVer == fwplusVersionByNode.end() || itVer->second < configMinFwplusVersionForHandoff) continue;
+            uint8_t au = ni->hops_away;
+            uint8_t ad = getHopsAway(dest);
+            auto better = [](uint8_t au1, uint8_t ad1, uint8_t au2, uint8_t ad2, NodeNum n1, NodeNum n2) {
+                if (au1 != au2) return au1 < au2;
+                if (ad1 != ad2) return ad1 < ad2;
+                return n1 < n2;
+            };
+            // insert into best1..best3
+            if (best1 == 0 || better(au, ad, best1_au, best1_ad, ni->num, best1)) {
+                best3 = best2; best3_au = best2_au; best3_ad = best2_ad;
+                best2 = best1; best2_au = best1_au; best2_ad = best1_ad;
+                best1 = ni->num; best1_au = au; best1_ad = ad;
+            } else if (best2 == 0 || better(au, ad, best2_au, best2_ad, ni->num, best2)) {
+                best3 = best2; best3_au = best2_au; best3_ad = best2_ad;
+                best2 = ni->num; best2_au = au; best2_ad = ad;
+            } else if (best3 == 0 || better(au, ad, best3_au, best3_ad, ni->num, best3)) {
+                best3 = ni->num; best3_au = au; best3_ad = ad;
             }
-            p.handoffCandidates.push_back(n);
-            if (p.handoffCandidates.size() >= configHandoffMaxCandidates) break;
         }
+        p.handoffCount = 0;
+        if (best1) p.handoffCandidates[p.handoffCount++] = best1;
+        if (best2) p.handoffCandidates[p.handoffCount++] = best2;
+        if (best3) p.handoffCandidates[p.handoffCount++] = best3;
         p.handoffIndex = 0;
     }
-    if (p.handoffCandidates.empty()) return 0;
+    if (p.handoffCount == 0) return 0;
     // Rotate through candidates between retries
-    NodeNum pick = p.handoffCandidates[p.handoffIndex % p.handoffCandidates.size()];
+    NodeNum pick = p.handoffCandidates[p.handoffIndex % p.handoffCount];
     p.handoffIndex = (p.handoffIndex + 1) % 8; // bounded increment
     // avoid accidental cycles
     if (pick == dest || pick == nodeDB->getNodeNum()) return 0;

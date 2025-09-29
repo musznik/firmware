@@ -8,8 +8,6 @@
 #include "mesh/generated/meshtastic/fwplus_dtn.pb.h"
 #include "mesh/generated/meshtastic/portnums.pb.h"
 #include <unordered_map>
-//fw+
-#include <vector>
 
 class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<meshtastic_FwplusDtn>
 {
@@ -60,8 +58,9 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
         uint32_t nextAttemptMs = 0;
         uint8_t tries = 0;
       uint32_t lastCarrier = 0; // node num of last hop we heard from
-      //fw+ shortlist of FW+ neighbors as potential handoff targets (filled lazily)
-      std::vector<NodeNum> handoffCandidates;
+      //fw+ shortlist of FW+ handoff targets (fixed small array)
+      NodeNum handoffCandidates[3] = {0, 0, 0};
+      uint8_t handoffCount = 0;
       uint8_t handoffIndex = 0;
     };
     std::unordered_map<uint32_t, Pending> pendingById; // key: orig_id

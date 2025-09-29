@@ -17,6 +17,9 @@
 #include "modules/NodeInfoModule.h"
 #include "modules/PositionModule.h"
 #include "modules/RoutingModule.h"
+#if __has_include("modules/DtnOverlayModule.h")
+#include "modules/DtnOverlayModule.h" //fw+
+#endif
 #include "power.h"
 #include <assert.h>
 #include <string>
@@ -253,7 +256,32 @@ void MeshService::handleToRadio(meshtastic_MeshPacket &p)
     p.rx_time = getValidTime(RTCQualityFromNet); // Record the time the packet arrived from the phone
                                                  // (so we update our nodedb for the local node)
 
-    // Send the packet into the mesh
+    //fw+ DTN wrap at source when enabled: for unicast TEXT, enqueue overlay instead of sending native DM
+#if __has_include("modules/DtnOverlayModule.h")
+    if (moduleConfig.has_dtn_overlay && moduleConfig.dtn_overlay.enabled) {
+        bool isUnicast = (p.to != NODENUM_BROADCAST && p.to != NODENUM_BROADCAST_NO_LORA);
+        bool isText = (p.which_payload_variant == meshtastic_MeshPacket_decoded_tag &&
+                       p.decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP);
+        if (dtnOverlayModule && isUnicast && isText) {
+            uint32_t ttlMinutes = moduleConfig.dtn_overlay.ttl_minutes ? moduleConfig.dtn_overlay.ttl_minutes : 4; //fw+
+            uint32_t deadline = (getValidTime(RTCQualityFromNet) * 1000UL) + ttlMinutes * 60UL * 1000UL;
+            // enqueue overlay carrying plaintext DM; allow proxy fallback later
+            dtnOverlayModule->enqueueFromCaptured(p.id,
+                                                  nodeDB->getNodeNum(),
+                                                  p.to,
+                                                  p.channel,
+                                                  deadline,
+                                                  false,
+                                                  p.decoded.payload.bytes,
+                                                  p.decoded.payload.size,
+                                                  true);
+            LOG_INFO("DTN wrap local TEXT id=0x%x to=0x%x ch=%u ttlmin=%u", (unsigned)p.id, (unsigned)p.to, (unsigned)p.channel, (unsigned)ttlMinutes);
+            return; // do not send native DM
+        }
+    }
+#endif
+
+    // Send the packet into the mesh (native)
     DEBUG_HEAP_BEFORE;
     auto a = packetPool.allocCopy(p);
     DEBUG_HEAP_AFTER("MeshService::handleToRadio", a);
