@@ -54,6 +54,10 @@
 
 
 #include "modules/NodeMod.h"
+#if __has_include("mesh/generated/meshtastic/fwplus_dtn.pb.h")
+//fw+ DTN overlay
+#include "modules/DtnOverlayModule.h"
+#endif
 
 AdminModule *adminModule;
 bool hasOpenEditTransaction;
@@ -950,7 +954,9 @@ bool AdminModule::handleSetModuleConfig(const meshtastic_ModuleConfig &c)
         moduleConfig.dtn_overlay = c.payload_variant.dtn_overlay;
         do_reboot = false;
         //fw+ apply changes immediately if module is present
+        #if __has_include("mesh/generated/meshtastic/fwplus_dtn.pb.h")
         if (dtnOverlayModule) dtnOverlayModule->reloadFromModuleConfig();
+        #endif
         break;
     // fw+ Broadcast Assist config
     case meshtastic_ModuleConfig_broadcast_assist_tag:
