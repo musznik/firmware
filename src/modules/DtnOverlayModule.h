@@ -47,11 +47,8 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
         // Accept our private FW+ DTN port
         if (p->which_payload_variant == meshtastic_MeshPacket_decoded_tag &&
             p->decoded.portnum == meshtastic_PortNum_FWPLUS_DTN_APP) return true;
-        // Capture encrypted DMs (non-broadcast)
-        if (p->which_payload_variant == meshtastic_MeshPacket_encrypted_tag && !isBroadcast(p->to)) return true;
-        // Capture plaintext DMs on TEXT port (non-broadcast)
-        if (p->which_payload_variant == meshtastic_MeshPacket_decoded_tag &&
-            p->decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP && !isBroadcast(p->to)) return true;
+        //fw+ hard-disable capture of foreign unicasts to prevent DTN-on-DTN recursion and reduce airtime
+        // (even if config flags are toggled elsewhere)
         return false;
     }
 
@@ -91,11 +88,14 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     uint8_t configMilestoneChUtilMaxPercent = 60;  // suppress milestones when channel utilization above this
     uint32_t configTombstoneMs = 30000;            // ignore re-captures for this id for a short period
     //fw+ topology-aware throttles
-    uint8_t configMaxRingsToAct = 1;               // only act if dest is within N hops from us (0=only neighbor)
+    uint8_t configMaxRingsToAct = 2;               //fw+ slightly wider action radius for better delivery
     uint8_t configMilestoneMaxRing = 1;            // allow milestone only if min(hops to src/dst) <= N
-    uint8_t configTailEscalateMaxRing = 1;         // allow DEFAULT priority in TTL tail only if within N hops
+    uint8_t configTailEscalateMaxRing = 2;         //fw+ permit tail escalation when within two hops
     uint32_t configFarMinTtlFracPercent = 60;      //fw+ far nodes wait longer before acting
     uint32_t configOriginProgressMinIntervalMs = 15000; // per-source min interval between milestones
+    //fw+ capture policy: by default do NOT capture foreign unicasts to avoid DTN-on-DTN in mixed meshes
+    bool configCaptureForeignEncrypted = false;     // capture of foreign ENCRYPTED DMs
+    bool configCaptureForeignText = false;          // capture of foreign TEXT DMs
     //fw+ automatic milestone limiter (adaptive to load/topology)
     bool configMilestoneAutoLimiterEnabled = true;       // enable adaptive suppression
     uint8_t configMilestoneAutoSuppressHighChUtil = 55;  // suppress when >= this

@@ -277,8 +277,8 @@ bool DtnOverlayModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, m
         handleReceipt(mp, msg->variant.receipt);
         return true;
     }
-    // Non-DTN packet (decoded==NULL): optionally capture DM into overlay
-    // Capture only direct messages we overhear, not from us and not addressed to us 
+    // Non-DTN packet (decoded==NULL): optionally capture foreign DM into overlay
+    // Policy: by default do NOT capture foreign unicasts to avoid recursive wrapping in mixed meshes
     if (!isFromUs(&mp) && mp.to != nodeDB->getNodeNum()) { 
         bool isDM = (mp.to != NODENUM_BROADCAST && mp.to != NODENUM_BROADCAST_NO_LORA);
         if (isDM) {
@@ -304,6 +304,8 @@ bool DtnOverlayModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, m
             uint32_t ttlMinutes = (configTtlMinutes ? configTtlMinutes : 5);
             uint32_t deadline = (getValidTime(RTCQualityFromNet) * 1000UL) + ttlMinutes * 60UL * 1000UL;
             if (mp.which_payload_variant == meshtastic_MeshPacket_encrypted_tag) {
+                //fw+ policy: by default do NOT capture foreign encrypted unicasts to avoid DTN-on-DTN in mixed meshes
+                if (!configCaptureForeignEncrypted) return false;
                 // Tombstone check: avoid rapid re-enqueue of same orig_id
                 auto itTs = tombstoneUntilMs.find(mp.id);
                 if (itTs != tombstoneUntilMs.end() && millis() < itTs->second) return false;
@@ -323,6 +325,7 @@ bool DtnOverlayModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, m
                     }
                 }
             } else if (mp.decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP) {
+                if (!configCaptureForeignText) return false; //fw+
                 auto itTs = tombstoneUntilMs.find(mp.id);
                 if (itTs != tombstoneUntilMs.end() && millis() < itTs->second) return false;
                 enqueueFromCaptured(mp.id, getFrom(&mp), mp.to, mp.channel,
