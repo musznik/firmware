@@ -1,37 +1,50 @@
 
 /*
-//fw+ DTN Overlay Module — Overview
+//fw+ DTN Overlay Module — Overview (DTN-first custody, FW+ handoff)
 
 Purpose
-- Opportunistic store–carry–forward for Direct Messages without requiring stock nodes to change. FW+ nodes wrap overheard
-  unicasts in an FWPLUS_DTN envelope and may forward them later; the destination unwraps and injects the original DM.
+- Opportunistic store–carry–forward for private Direct Messages. With DTN enabled, private TEXT unicasts are intercepted
+  at the sender and wrapped as FWPLUS_DTN DATA (DTN-first). Native DM is used only as a late fallback near TTL expiry.
+  Stock nodes require no changes; FW+ nodes unwrap at the destination and inject the original DM locally.
 
-Receive path
-- Runs promiscuously; accepts encrypted frames to capture DM ciphertext. If we are the destination of FWPLUS_DTN DATA we
-  always unwrap and deliver, even when forwarding is disabled.
-- For non-DTN frames we capture encrypted unicasts and plaintext TEXT_MESSAGE_APP unicasts only.
+Ingress sources
+- Local send interception (DTN-first): Router diverts private TEXT to DTN queue with a TTL; no immediate native transmit.
+- FWPLUS_DTN DATA heard over the mesh: always accepted and scheduled; if we are the destination we unwrap and deliver.
+- Optional capture of foreign (non-DTN) unicasts is conservative and disabled by default to avoid DTN-on-DTN recursion.
 
-Scheduling (no immediate TX)
-- On capture we enqueue immediately but schedule the first attempt later using: initial base delay, deterministic anti-storm
-  slotting, per-destination spacing, DV‑ETX confidence gating, and grace/neighbor-aware delay. Optional earlier slot when
-  we already have a confident route. Topology-aware throttles further delay or skip action when we are far from the source/dest
-  (ring/hops based): only nodes within a few hops act early; distant nodes wait until a fraction of TTL has elapsed.
+Scheduling
+- First attempt is delayed using: initial base delay, deterministic anti-storm slotting (mobility-aware), per-destination
+  minimum spacing, DV‑ETX confidence gating, neighbor/grace delay, and topology-aware throttles (ring/hops based). Nodes
+  far from source/destination act later; confident routes may start earlier.
 
-Forwarding
-- Send FWPLUS_DTN DATA toward the destination. Priority BACKGROUND by default; escalate to DEFAULT only in TTL tail, and
-  only if we are near the destination (within configured hop ring).
-- Retries use backoff and stop at max tries.
+Forwarding and Handoff
+- Primary action is to send FWPLUS_DTN DATA towards the destination.
+- If the destination is far, prefer FW+ custody handoff to a better FW+ neighbor:
+  • Use `NextHopRouter` route snapshot: if `next_hop` exists, map it to a direct neighbor and hand off there.
+  • Otherwise select up to three FW+ neighbors (version‑gated) that are closer (lower hops from us and to dest) and rotate
+    between them across retries. A per‑destination cache remembers the preferred handoff.
+- Priority is BACKGROUND by default; escalate to DEFAULT only in the TTL tail and only when near the destination (ring‑gated).
+- Global active cap and per‑destination spacing limit concurrent attempts.
 
-Receipts & milestones
-- Any receipt clears local pending and sets a short tombstone to avoid immediate re-capture storms. Milestone PROGRESSED is
-  sent only once per id, rate-limited and ring-gated (emit only when close to source/destination) and suppressed when
-  channel utilization is high.
+Receipts & Milestones
+- Any receipt (DELIVERED/PROGRESSED/EXPIRED) clears local pending and sets a tombstone to avoid re‑enqueue storms.
+- Milestone PROGRESSED is emitted sparingly: once per id, ring‑gated near source/destination, auto‑limited under load
+  (channel utilization, neighbor count, pending size) with hysteresis.
 
-Fallback & probing
-- In TTL tail we may probe FW+ or, if allowed and dest is not FW+, send native DM as proxy fallback, preserving ids.
+Probing, Traceroute & Fallback
+- Near TTL tail we may probe FW+ peers (light overlay receipt) and, if allowed and the destination is not FW+, send a
+  native DM as a proxy fallback. Fallback is encrypted by the radio layer (PKI/PSK), without spoofing the original sender.
+- If DV‑ETX confidence to the destination is low and no FW+ handoff candidate is available, automatically trigger a
+  traceroute (rate‑limited) to build routing confidence before attempting overlay forwarding. We do not probe when handing
+  custody to a FW+ neighbor.
+
+Version Advertisement
+- One‑shot public broadcast of FW+ version ~15 s after start (channel‑utilization‑gated), then periodic passive discovery
+  beacons when there are direct FW+ neighbors without a known version.
 
 Airtime protections
-- Channel utilization gate, per-destination spacing, global active cap, suppression after foreign DATA, grace/neighbor heuristics.
+- Channel utilization gate; deterministic election and mobility‑aware slotting; per‑destination spacing; global active cap;
+  suppression after hearing foreign overlay DATA; neighbor/grace heuristics; tombstones and bounded caches with pruning.
 */
 #include "DtnOverlayModule.h"
 #if __has_include("mesh/generated/meshtastic/fwplus_dtn.pb.h")
@@ -163,6 +176,7 @@ DtnOverlayModule::DtnOverlayModule()
              (int)configSuppressIfDestNeighbor, (int)configPreferBestRouteSlotting,
              (unsigned)configMaxRingsToAct, (unsigned)configMilestoneMaxRing, (unsigned)configTailEscalateMaxRing,
              (unsigned)configFarMinTtlFracPercent);
+    moduleStartMs = millis(); //fw+
 }
 
 int32_t DtnOverlayModule::runOnce()
@@ -516,14 +530,22 @@ void DtnOverlayModule::tryForward(uint32_t id, Pending &p)
     if (!txAllowed) { p.nextAttemptMs = millis() + 2500 + (uint32_t)random(500); LOG_DEBUG("DTN busy: defer id=0x%x", id); return; }
 
     // DV-ETX route confidence gating (more permissive when mobile)
-    if (!hasSufficientRouteConfidence(p.data.orig_to)) {
-        // Backoff softly
-        float mobility = fwplus_getMobilityFactor01();
-        uint32_t backoff = configRetryBackoffMs + (uint32_t)random(2000);
-        if (mobility > 0.5f) backoff = backoff / 2; // try sooner if we are moving
-        p.nextAttemptMs = millis() + backoff;
-        LOG_DEBUG("DTN low confidence: defer id=0x%x", id);
-        return;
+    //fw+ allow immediate attempts to direct neighbors even if DV-ETX says low confidence
+    bool lowConf = !hasSufficientRouteConfidence(p.data.orig_to);
+    if (lowConf) {
+        if (isDirectNeighbor(p.data.orig_to)) {
+            // proceed despite low confidence because destination is our neighbor //fw+
+        } else {
+            // Backoff softly
+            float mobility = fwplus_getMobilityFactor01();
+            uint32_t backoff = configRetryBackoffMs + (uint32_t)random(2000);
+            if (mobility > 0.5f) backoff = backoff / 2; // try sooner if we are moving
+            p.nextAttemptMs = millis() + backoff;
+            LOG_DEBUG("DTN low confidence: defer id=0x%x", id);
+            // Note: we may trigger traceroute below only if no FW+ handoff candidate
+            // Return after we decide whether to probe routing
+            // (fall through until target selection to possibly trigger traceroute)
+        }
     }
 
     // Optional late proxy fallback to native DM near deadline
@@ -555,8 +577,8 @@ void DtnOverlayModule::tryForward(uint32_t id, Pending &p)
         meshtastic_MeshPacket *dm = allocDataPacket();
         if (!dm) { p.nextAttemptMs = millis() + 3000; return; }
         dm->to = p.data.orig_to;
-        // Preserve original sender for UI after decryption at the destination 
-        dm->from = p.data.orig_from;
+        //fw+ ensure PKI/link encryption remains valid: do NOT spoof original sender here.
+        // Leave 'from' as our node so the Router can sign/encrypt as us when using PKI.
         dm->channel = p.data.channel;
         if (p.data.is_encrypted) {
             dm->which_payload_variant = meshtastic_MeshPacket_encrypted_tag;
@@ -604,6 +626,11 @@ void DtnOverlayModule::tryForward(uint32_t id, Pending &p)
             }
         }
     }
+    //fw+ Only trigger traceroute if we are targeting final destination (no FW+ handoff) and confidence is low
+    if (lowConf && target == p.data.orig_to && !isDirectNeighbor(p.data.orig_to)) {
+        maybeTriggerTraceroute(p.data.orig_to);
+        return; // give time for route discovery before attempting
+    }
     mp->to = target;
     mp->decoded.portnum = meshtastic_PortNum_FWPLUS_DTN_APP;
     mp->want_ack = false;
@@ -629,6 +656,8 @@ void DtnOverlayModule::tryForward(uint32_t id, Pending &p)
         p.nextAttemptMs = millis() + configRetryBackoffMs + 5000 + (uint32_t)random(2000);
         return;
     }
+    // Ensure we never leak plaintext overlay: overlay always carries original payload as-is; the radio layer will encrypt link-level
+    // if keys are present. We do not generate a separate plaintext native DM unless in fallback tail (handled above).
     service->sendToMesh(mp, RX_SRC_LOCAL, false);
     p.tries++;
     ctrForwardsAttempted++; 
@@ -665,6 +694,18 @@ void DtnOverlayModule::maybeProbeFwplus(NodeNum dest)
     service->sendToMesh(p, RX_SRC_LOCAL, false);
     LOG_DEBUG("DTN probe dest=0x%x", (unsigned)dest);
     ctrProbesSent++;
+}
+
+//fw+ trigger traceroute to dest with cooldown to build DV-ETX confidence
+void DtnOverlayModule::maybeTriggerTraceroute(NodeNum dest)
+{
+    uint32_t now = millis();
+    auto it = lastRouteProbeMs.find(dest);
+    if (it != lastRouteProbeMs.end() && (now - it->second) < configRouteProbeCooldownMs) return;
+    lastRouteProbeMs[dest] = now;
+    if (!router) return;
+    auto nh = static_cast<NextHopRouter *>(router);
+    nh->sendTracerouteTo(dest);
 }
 
 void DtnOverlayModule::emitReceipt(uint32_t to, uint32_t origId, meshtastic_FwplusDtnStatus status, uint32_t reason)
@@ -730,6 +771,38 @@ void DtnOverlayModule::maybeAdvertiseFwplusVersion()
     uint32_t now = millis();
     uint32_t interval = configAdvertiseIntervalMs;
     if (lastAdvertiseMs == 0) lastAdvertiseMs = now - (uint32_t)random(interval);
+    // One-shot early advertise shortly after module start to speed up discovery (unconditional broadcast)
+    if (!firstAdvertiseDone && now - moduleStartMs >= configFirstAdvertiseDelayMs) {
+        // Compose reason and send a broadcast immediately, bypassing interval/neighbor gates //fw+
+        // Only advertise if channel is not overloaded //fw+
+        if (!(airTime && !airTime->isTxAllowedChannelUtil(true))) {
+            uint32_t reason = 0xF1000000u;
+#ifdef FW_PLUS_VERSION
+            uint16_t ver = (uint16_t)FW_PLUS_VERSION;
+#else
+            uint16_t ver = 0;
+#endif
+            reason |= ((uint32_t)ver << 8);
+
+            meshtastic_FwplusDtn msg = meshtastic_FwplusDtn_init_zero;
+            msg.which_variant = meshtastic_FwplusDtn_receipt_tag;
+            msg.variant.receipt.orig_id = 0;
+            msg.variant.receipt.status = meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_PROGRESSED;
+            msg.variant.receipt.reason = reason;
+            meshtastic_MeshPacket *p = allocDataProtobuf(msg);
+            if (p) {
+                p->to = NODENUM_BROADCAST; // public broadcast //fw+
+                p->decoded.portnum = meshtastic_PortNum_FWPLUS_DTN_APP;
+                p->want_ack = false;
+                p->decoded.want_response = false;
+                p->priority = meshtastic_MeshPacket_Priority_BACKGROUND;
+                service->sendToMesh(p, RX_SRC_LOCAL, false);
+                lastAdvertiseMs = now;
+            }
+        }
+        firstAdvertiseDone = true;
+        return;
+    }
     if (now - lastAdvertiseMs < interval + (uint32_t)random(configAdvertiseJitterMs)) return;
 
     // Only advertise if channel is not overloaded //fw+

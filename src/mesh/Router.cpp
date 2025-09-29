@@ -13,6 +13,9 @@
 #include "meshUtils.h"
 #include "MeshService.h"
 #include "modules/RoutingModule.h"
+#if __has_include("modules/DtnOverlayModule.h")
+#include "modules/DtnOverlayModule.h" //fw+
+#endif
 #if !MESHTASTIC_EXCLUDE_MQTT
 #include "mqtt/MQTT.h"
 #endif
@@ -369,6 +372,20 @@ ErrorCode Router::send(meshtastic_MeshPacket *p)
     fixPriority(p); // Before encryption, fix the priority if it's unset
     // If the packet is not yet encrypted, do so now
     if (p->which_payload_variant == meshtastic_MeshPacket_decoded_tag) {
+        //fw+ DTN-first: intercept private TEXT unicasts when DTN overlay is enabled
+#if __has_include("mesh/generated/meshtastic/fwplus_dtn.pb.h")
+        if (dtnOverlayModule && dtnOverlayModule->isEnabled() &&
+            p->decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP && !isBroadcast(p->to)) {
+            uint32_t ttlMinutes = dtnOverlayModule->getTtlMinutes();
+            uint32_t deadline = (getValidTime(RTCQualityFromNet) * 1000UL) + ttlMinutes * 60UL * 1000UL;
+            //fw+ enqueue plaintext payload for DTN; allow proxy fallback later
+            dtnOverlayModule->enqueueFromCaptured(p->id, getFrom(p), p->to, p->channel, deadline,
+                                                  false, p->decoded.payload.bytes, p->decoded.payload.size, true);
+            // notify phone that it is queued (ACK UX handled by DTN receipts)
+            abortSendAndNak(meshtastic_Routing_Error_NONE, p); // release original packet
+            return meshtastic_Routing_Error_NONE;
+        }
+#endif
         ChannelIndex chIndex = p->channel; // keep as a local because we are about to change it
 
         DEBUG_HEAP_BEFORE;
@@ -389,15 +406,19 @@ ErrorCode Router::send(meshtastic_MeshPacket *p)
             if (!p_decoded) {
                 LOG_WARN("Skip MQTT onSend due to packetPool exhaustion");
             } else {
+                //fw+ treat private TEXT as non-public if DTN overlay is enabled and MQTT encryption is OFF
+                bool isPrivateText = (p_decoded->decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP &&
+                                      p_decoded->to != 0xffffffff);
+                bool blockPrivateDueToDTN = (isPrivateText && moduleConfig.has_dtn_overlay && moduleConfig.dtn_overlay.enabled &&
+                                             !moduleConfig.mqtt.encryption_enabled);
+                bool blockPrivateDueToPrefs = (isPrivateText && moduleConfig.nodemodadmin.do_not_send_prv_over_mqtt);
 
-            // Only publish to MQTT only public messages
-            if(!(p_decoded->decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP && 
-            p_decoded->to != 0xffffffff && moduleConfig.nodemodadmin.do_not_send_prv_over_mqtt))
-            {
-                mqtt->onSend(*p, *p_decoded, chIndex);
-            }else{
-                LOG_DEBUG("MQTT secured messages enabled, message was not forwarded to broker\n");
-            }
+                // Only publish to MQTT only public messages
+                if (!(blockPrivateDueToDTN || blockPrivateDueToPrefs)) {
+                    mqtt->onSend(*p, *p_decoded, chIndex);
+                } else {
+                    LOG_DEBUG("Skip MQTT uplink of private TEXT (DTN or prefs)\n");
+                }
             }
         }
 #endif
@@ -790,12 +811,21 @@ void Router::handleReceived(meshtastic_MeshPacket *p, RxSource src)
             }
         // After potentially altering it, publish received message to MQTT if we're not the original transmitter of the packet
         if (moduleConfig.mqtt.enabled && !isFromUs(p) && mqtt) {
-            //fw+ only publish if we have a valid copy buffer
-            if (decodedState == DecodeState::DECODE_SUCCESS || (p_encrypted && p_encrypted->pki_encrypted)) {
-                if (p_encrypted) {
-                    mqtt->onSend(*p_encrypted, *p, p->channel);
-                } else {
-                    LOG_WARN("Skip MQTT publish of received packet due to packetPool exhaustion");
+            //fw+ suppression: avoid uplinking locally injected or UDP-bridged decoded TEXT not-originated-by-us (DTN deliverLocal)
+            bool isPrivateText = (p->which_payload_variant == meshtastic_MeshPacket_decoded_tag &&
+                                  p->decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP &&
+                                  !isBroadcast(p->to));
+            bool fromLocalOrUdp = (src == RX_SRC_LOCAL) ||
+                                  (p->transport_mechanism == meshtastic_MeshPacket_TransportMechanism_TRANSPORT_MULTICAST_UDP);
+            bool suppressLocalDecodedText = (!isFromUs(p) && isPrivateText && fromLocalOrUdp);
+            if (!suppressLocalDecodedText) {
+                //fw+ only publish if we have a valid copy buffer
+                if (decodedState == DecodeState::DECODE_SUCCESS || (p_encrypted && p_encrypted->pki_encrypted)) {
+                    if (p_encrypted) {
+                        mqtt->onSend(*p_encrypted, *p, p->channel);
+                    } else {
+                        LOG_WARN("Skip MQTT publish of received packet due to packetPool exhaustion");
+                    }
                 }
             }
         }

@@ -15,6 +15,9 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     DtnOverlayModule();
     //fw+ apply latest moduleConfig.dtn_overlay at runtime (hot-reload)
     void reloadFromModuleConfig();
+    //fw+ query helpers for other subsystems
+    bool isEnabled() const { return configEnabled; } //fw+
+    uint32_t getTtlMinutes() const { return configTtlMinutes; } //fw+
     //fw+ enqueue overlay data created from a captured DM (plaintext or encrypted)
     void enqueueFromCaptured(uint32_t origId, uint32_t origFrom, uint32_t origTo, uint8_t channel,
                              uint32_t deadlineMs, bool isEncrypted, const uint8_t *bytes, pb_size_t size,
@@ -71,6 +74,8 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     void emitReceipt(uint32_t to, uint32_t origId, meshtastic_FwplusDtnStatus status, uint32_t reason = 0);
     void maybeProbeFwplus(NodeNum dest);
     void deliverLocal(const meshtastic_FwplusDtnData &d);
+    //fw+ optionally trigger a traceroute to build route confidence
+    void maybeTriggerTraceroute(NodeNum dest);
     //fw+ select next hop FW+ neighbor for custody handoff (or return dest if none)
     NodeNum chooseHandoffTarget(NodeNum dest, uint32_t origId, Pending &p);
     //fw+ record observed FW+ version for a node
@@ -109,8 +114,12 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     //fw+ periodic FW+ version advertisement
     uint32_t configAdvertiseIntervalMs = 6UL * 60UL * 60UL * 1000UL;  //fw+ 6h
     uint32_t configAdvertiseJitterMs = 5UL * 60UL * 1000UL;           // ±5 min
+    //fw+ one-shot early advertise after enable/start
+    uint32_t configFirstAdvertiseDelayMs = 15000;                      // 15s
     uint32_t configFarMinTtlFracPercent = 60;      //fw+ far nodes wait longer before acting
     uint32_t configOriginProgressMinIntervalMs = 15000; // per-source min interval between milestones
+    //fw+ proactive route discovery throttle
+    uint32_t configRouteProbeCooldownMs = 5UL * 60UL * 1000UL; // 5 minutes
     //fw+ capture policy: by default do NOT capture foreign unicasts to avoid DTN-on-DTN in mixed meshes
     bool configCaptureForeignEncrypted = false;     // capture of foreign ENCRYPTED DMs
     bool configCaptureForeignText = false;          // capture of foreign TEXT DMs
@@ -134,11 +143,14 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     //fw+ runtime state for auto milestone limiter
     bool runtimeMilestonesSuppressed = false;
     uint32_t lastAdvertiseMs = 0; //fw+
+    uint32_t moduleStartMs = 0;   //fw+
+    bool firstAdvertiseDone = false; //fw+
 
     // Capability cache of FW+ peers
     std::unordered_map<NodeNum, uint32_t> fwplusSeenMs;
     std::unordered_map<NodeNum, uint16_t> fwplusVersionByNode; //fw+
     std::unordered_map<NodeNum, uint32_t> lastDestTxMs; // per-destination last tx time ms (bounded)
+    std::unordered_map<NodeNum, uint32_t> lastRouteProbeMs; //fw+ last proactive traceroute per dest
     void markFwplusSeen(NodeNum n) { fwplusSeenMs[n] = millis(); }
     bool isFwplus(NodeNum n) const {
         auto it = fwplusSeenMs.find(n);

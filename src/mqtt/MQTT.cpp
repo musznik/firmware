@@ -682,6 +682,13 @@ void MQTT::publishQueuedMessages()
     const DecodedServiceEnvelope env(entry->envBytes.data(), entry->envBytes.size());
     if (!env.validDecode || env.packet == NULL || env.channel_id == NULL)
         return;
+    //fw+ Do not JSON-publish PKI-encrypted or private TEXT messages to avoid plaintext leakage
+    if (env.packet->pki_encrypted ||
+        (env.packet->which_payload_variant == meshtastic_MeshPacket_decoded_tag &&
+         env.packet->decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP &&
+         env.packet->to != 0xffffffff)) {
+        return;
+    }
 
     auto jsonString = MeshPacketSerializer::JsonSerialize(env.packet);
     if (jsonString.length() == 0)
@@ -713,6 +720,12 @@ void MQTT::onSend(const meshtastic_MeshPacket &mp_encrypted, const meshtastic_Me
 
     // mp_decoded will not be decoded when it's PKI encrypted and not directed to us
     if (mp_decoded.which_payload_variant == meshtastic_MeshPacket_decoded_tag) {
+        //fw+ Do not uplink private TEXT messages from others (prevents public unicasts leakage)
+        if (!isFromUs(&mp_decoded) && mp_decoded.decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP &&
+            mp_decoded.to != 0xffffffff) {
+            LOG_DEBUG("MQTT onSend - Skip uplink of private TEXT not from us");
+            return;
+        }
         // For uplinking other's packets, check if it's not OK to MQTT or if it's an older packet without the bitfield
         bool dontUplink = !mp_decoded.decoded.has_bitfield ||
                           (mp_decoded.decoded.has_bitfield && !(mp_decoded.decoded.bitfield & BITFIELD_OK_TO_MQTT_MASK));
@@ -764,6 +777,13 @@ void MQTT::onSend(const meshtastic_MeshPacket &mp_encrypted, const meshtastic_Me
     defined(NRF52_USE_JSON) // JSON is not supported on nRF52, see issue #2804 ### Fixed by using ArduinoJson ###
         if (!moduleConfig.mqtt.json_enabled)
             return;
+        //fw+ Do not JSON-publish PKI-encrypted or private TEXT messages to avoid plaintext leakage
+        if (mp_encrypted.pki_encrypted ||
+            (mp_decoded.which_payload_variant == meshtastic_MeshPacket_decoded_tag &&
+             mp_decoded.decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP &&
+             mp_decoded.to != 0xffffffff)) {
+            return;
+        }
         // handle json topic
         auto jsonString = MeshPacketSerializer::JsonSerialize(&mp_decoded);
         if (jsonString.length() == 0)

@@ -276,6 +276,16 @@ void MeshService::handleToRadio(meshtastic_MeshPacket &p)
                                                   p.decoded.payload.size,
                                                   true);
             LOG_INFO("DTN wrap local TEXT id=0x%x to=0x%x ch=%u ttlmin=%u", (unsigned)p.id, (unsigned)p.to, (unsigned)p.channel, (unsigned)ttlMinutes);
+            // CC to phone so UI shows message immediately, like normal path
+            {
+                DEBUG_HEAP_BEFORE;
+                auto cc = packetPool.allocCopy(p);
+                DEBUG_HEAP_AFTER("MeshService::handleToRadio.DtnWrapCC", cc);
+                if (cc) sendToPhone(cc);
+            }
+            // Update queue status so phone does not stay in "waiting" state
+            meshtastic_QueueStatus qs = router->getQueueStatus();
+            (void)sendQueueStatusToPhone(qs, ERRNO_OK, p.id);
             return; // do not send native DM
         }
     }
