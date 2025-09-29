@@ -48,6 +48,30 @@ Airtime protections
 #include <cstring>
 
 DtnOverlayModule *dtnOverlayModule; 
+//fw+ runtime reload of DTN overlay settings from moduleConfig
+void DtnOverlayModule::reloadFromModuleConfig()
+{
+    if (!moduleConfig.has_dtn_overlay) return;
+    const auto &mc = moduleConfig.dtn_overlay;
+    bool wasEnabled = configEnabled;
+    // copy fields with guards (respect zeros meaning defaults where applicable)
+    configEnabled = mc.enabled;
+    if (mc.ttl_minutes) configTtlMinutes = mc.ttl_minutes; else configTtlMinutes = configTtlMinutes;
+    if (mc.initial_delay_base_ms) configInitialDelayBaseMs = mc.initial_delay_base_ms;
+    if (mc.retry_backoff_ms) configRetryBackoffMs = mc.retry_backoff_ms;
+    if (mc.max_tries) configMaxTries = mc.max_tries;
+    configLateFallback = mc.late_fallback_enabled;
+    if (mc.fallback_tail_percent) configFallbackTailPercent = mc.fallback_tail_percent;
+    configMilestonesEnabled = mc.milestones_enabled;
+    if (mc.per_dest_min_spacing_ms) configPerDestMinSpacingMs = mc.per_dest_min_spacing_ms;
+    if (mc.max_active_dm) configMaxActiveDm = mc.max_active_dm;
+    configProbeFwplusNearDeadline = mc.probe_fwplus_near_deadline;
+
+    // If just disabled, clear pending to stop activity immediately
+    if (wasEnabled && !configEnabled) {
+        pendingById.clear();
+    }
+}
 
 void DtnOverlayModule::deliverLocal(const meshtastic_FwplusDtnData &d)
 {

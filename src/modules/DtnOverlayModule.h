@@ -13,6 +13,8 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
 {
   public:
     DtnOverlayModule();
+    //fw+ apply latest moduleConfig.dtn_overlay at runtime (hot-reload)
+    void reloadFromModuleConfig();
     //fw+ enqueue overlay data created from a captured DM (plaintext or encrypted)
     void enqueueFromCaptured(uint32_t origId, uint32_t origFrom, uint32_t origTo, uint8_t channel,
                              uint32_t deadlineMs, bool isEncrypted, const uint8_t *bytes, pb_size_t size,

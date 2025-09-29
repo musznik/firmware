@@ -620,9 +620,10 @@ void AdminModule::handleSetConfig(const meshtastic_Config &c)
         }
         config.device = c.payload_variant.device;
         if (config.device.rebroadcast_mode == meshtastic_Config_DeviceConfig_RebroadcastMode_NONE &&
-            config.device.role == meshtastic_Config_DeviceConfig_Role_ROUTER) {
+            IS_ONE_OF(config.device.role, meshtastic_Config_DeviceConfig_Role_ROUTER,
+                      meshtastic_Config_DeviceConfig_Role_REPEATER)) {
             config.device.rebroadcast_mode = meshtastic_Config_DeviceConfig_RebroadcastMode_ALL;
-            const char *warning = "Rebroadcast mode can't be set to NONE for a router";
+            const char *warning = "Rebroadcast mode can't be set to NONE for a router or repeater";
             LOG_WARN(warning);
             sendWarning(warning);
         }
@@ -635,9 +636,8 @@ void AdminModule::handleSetConfig(const meshtastic_Config &c)
             LOG_DEBUG("Tried to set node_info_broadcast_secs too low, setting to %d", min_node_info_broadcast_secs);
             config.device.node_info_broadcast_secs = min_node_info_broadcast_secs;
         }
-        // Router Client and Repeater deprecated; Set it to client
-        if (IS_ONE_OF(c.payload_variant.device.role, meshtastic_Config_DeviceConfig_Role_ROUTER_CLIENT,
-                      meshtastic_Config_DeviceConfig_Role_REPEATER)) {
+        // Router Client is deprecated; Set it to client
+        if (c.payload_variant.device.role == meshtastic_Config_DeviceConfig_Role_ROUTER_CLIENT) {
             config.device.role = meshtastic_Config_DeviceConfig_Role_CLIENT;
             if (moduleConfig.store_forward.enabled && !moduleConfig.store_forward.is_server) {
                 moduleConfig.store_forward.is_server = true;
@@ -646,9 +646,10 @@ void AdminModule::handleSetConfig(const meshtastic_Config &c)
             }
         }
 #if USERPREFS_EVENT_MODE
-        // If we're in event mode, nobody is a Router or Router Late
+        // If we're in event mode, nobody is a Router or Repeater
         if (config.device.role == meshtastic_Config_DeviceConfig_Role_ROUTER ||
-            config.device.role == meshtastic_Config_DeviceConfig_Role_ROUTER_LATE) {
+            config.device.role == meshtastic_Config_DeviceConfig_Role_ROUTER_LATE ||
+            config.device.role == meshtastic_Config_DeviceConfig_Role_REPEATER) {
             config.device.role = meshtastic_Config_DeviceConfig_Role_CLIENT;
         }
 #endif
@@ -715,40 +716,20 @@ void AdminModule::handleSetConfig(const meshtastic_Config &c)
 #endif
         config.display = c.payload_variant.display;
         break;
-
-    case meshtastic_Config_lora_tag: {
-        // Wrap the entire case in a block to scope variables and avoid crossing initialization
-        auto oldLoraConfig = config.lora;
-        auto validatedLora = c.payload_variant.lora;
-
+    case meshtastic_Config_lora_tag:
         LOG_INFO("Set config: LoRa");
         config.has_lora = true;
-
-        if (validatedLora.coding_rate < 4 || validatedLora.coding_rate > 8) {
-            LOG_WARN("Invalid coding_rate %d, setting to 5", validatedLora.coding_rate);
-            validatedLora.coding_rate = 5;
-        }
-
-        if (validatedLora.spread_factor < 7 || validatedLora.spread_factor > 12) {
-            LOG_WARN("Invalid spread_factor %d, setting to 11", validatedLora.spread_factor);
-            validatedLora.spread_factor = 11;
-        }
-
-        if (validatedLora.bandwidth == 0) {
-            int originalBandwidth = validatedLora.bandwidth;
-            validatedLora.bandwidth = myRegion->wideLora ? 800 : 250;
-            LOG_WARN("Invalid bandwidth %d, setting to default", originalBandwidth);
-        }
-
         // If no lora radio parameters change, don't need to reboot
-        if (oldLoraConfig.use_preset == validatedLora.use_preset && oldLoraConfig.region == validatedLora.region &&
-            oldLoraConfig.modem_preset == validatedLora.modem_preset && oldLoraConfig.bandwidth == validatedLora.bandwidth &&
-            oldLoraConfig.spread_factor == validatedLora.spread_factor &&
-            oldLoraConfig.coding_rate == validatedLora.coding_rate && oldLoraConfig.tx_power == validatedLora.tx_power &&
-            oldLoraConfig.frequency_offset == validatedLora.frequency_offset &&
-            oldLoraConfig.override_frequency == validatedLora.override_frequency &&
-            oldLoraConfig.channel_num == validatedLora.channel_num &&
-            oldLoraConfig.sx126x_rx_boosted_gain == validatedLora.sx126x_rx_boosted_gain) {
+        if (config.lora.use_preset == c.payload_variant.lora.use_preset && config.lora.region == c.payload_variant.lora.region &&
+            config.lora.modem_preset == c.payload_variant.lora.modem_preset &&
+            config.lora.bandwidth == c.payload_variant.lora.bandwidth &&
+            config.lora.spread_factor == c.payload_variant.lora.spread_factor &&
+            config.lora.coding_rate == c.payload_variant.lora.coding_rate &&
+            config.lora.tx_power == c.payload_variant.lora.tx_power &&
+            config.lora.frequency_offset == c.payload_variant.lora.frequency_offset &&
+            config.lora.override_frequency == c.payload_variant.lora.override_frequency &&
+            config.lora.channel_num == c.payload_variant.lora.channel_num &&
+            config.lora.sx126x_rx_boosted_gain == c.payload_variant.lora.sx126x_rx_boosted_gain) {
             requiresReboot = false;
         }
 
@@ -767,7 +748,7 @@ void AdminModule::handleSetConfig(const meshtastic_Config &c)
             digitalWrite(RF95_FAN_EN, HIGH ^ 0);
         }
 #endif
-        config.lora = validatedLora;
+        config.lora = c.payload_variant.lora;
         // If we're setting region for the first time, init the region and regenerate the keys
         if (isRegionUnset && config.lora.region > meshtastic_Config_LoRaConfig_RegionCode_UNSET) {
             if (!owner.is_licensed) {
@@ -799,7 +780,6 @@ void AdminModule::handleSetConfig(const meshtastic_Config &c)
             }
         }
         break;
-    }
     case meshtastic_Config_bluetooth_tag:
         LOG_INFO("Set config: Bluetooth");
         config.has_bluetooth = true;
@@ -969,6 +949,8 @@ bool AdminModule::handleSetModuleConfig(const meshtastic_ModuleConfig &c)
         moduleConfig.has_dtn_overlay = true;
         moduleConfig.dtn_overlay = c.payload_variant.dtn_overlay;
         do_reboot = false;
+        //fw+ apply changes immediately if module is present
+        if (dtnOverlayModule) dtnOverlayModule->reloadFromModuleConfig();
         break;
     // fw+ Broadcast Assist config
     case meshtastic_ModuleConfig_broadcast_assist_tag:
