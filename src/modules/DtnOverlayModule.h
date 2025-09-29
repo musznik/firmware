@@ -40,6 +40,10 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     };
     // Fill snapshot with current counters
     void getStatsSnapshot(DtnStatsSnapshot &out) const;
+    // Record observed FW+ version for a node (from receipt.reason)
+    void recordFwplusVersion(NodeNum n, uint16_t version);
+    // Periodically advertise FW+ version (one-shot early and periodic thereafter)
+    void maybeAdvertiseFwplusVersion();
 
   protected:
     // Scheduler tick

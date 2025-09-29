@@ -737,8 +737,9 @@ void DtnOverlayModule::maybeTriggerTraceroute(NodeNum dest)
     if (it != lastRouteProbeMs.end() && (now - it->second) < configRouteProbeCooldownMs) return;
     lastRouteProbeMs[dest] = now;
     if (!router) return;
-    auto nh = static_cast<NextHopRouter *>(router);
-    nh->sendTracerouteTo(dest);
+    // Fall back to emitting a lightweight FW+ probe; actual traceroute scheduling is internal to NextHopRouter
+    // and not accessible here due to access controls.
+    maybeProbeFwplus(dest);
 }
 
 // Purpose: send a compact DTN receipt (status/milestone/expire) back to the source or peer.
