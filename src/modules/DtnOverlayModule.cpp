@@ -62,7 +62,8 @@ Airtime protections
 #include <cstring>
 
 DtnOverlayModule *dtnOverlayModule; 
-//fw+ runtime reload of DTN overlay settings from moduleConfig
+// Purpose: hot-reload DTN overlay settings from ModuleConfig at runtime.
+// Notes: respects zero-as-default semantics; clears pending queue if module gets disabled.
 void DtnOverlayModule::reloadFromModuleConfig()
 {
     if (!moduleConfig.has_dtn_overlay) return;
@@ -87,6 +88,8 @@ void DtnOverlayModule::reloadFromModuleConfig()
     }
 }
 
+// Purpose: unwrap received DTN payload for local delivery (destination == us).
+// Behavior: injects original DM to local Router as encrypted or decoded variant, preserving original sender id.
 void DtnOverlayModule::deliverLocal(const meshtastic_FwplusDtnData &d)
 {
     if (d.is_encrypted) {
@@ -110,6 +113,7 @@ void DtnOverlayModule::deliverLocal(const meshtastic_FwplusDtnData &d)
     }
 }
 
+// Purpose: export a consistent read-only snapshot of DTN runtime counters and flags.
 void DtnOverlayModule::getStatsSnapshot(DtnStatsSnapshot &out) const
 {
     out.pendingCount = pendingById.size();
@@ -126,6 +130,7 @@ void DtnOverlayModule::getStatsSnapshot(DtnStatsSnapshot &out) const
     out.lastForwardAgeSecs = (lastForwardMs == 0 || now < lastForwardMs) ? 0 : (now - lastForwardMs) / 1000;
 }
 
+// Purpose: initialize DTN overlay module with conservative defaults and read ModuleConfig.
 DtnOverlayModule::DtnOverlayModule()
     : concurrency::OSThread("DtnOverlay"),
       ProtobufModule("FwplusDtn", meshtastic_PortNum_FWPLUS_DTN_APP, &meshtastic_FwplusDtn_msg)
@@ -179,6 +184,8 @@ DtnOverlayModule::DtnOverlayModule()
     moduleStartMs = millis(); //fw+
 }
 
+// Purpose: single scheduler tick; triggers forwards whose time arrived and performs periodic maintenance.
+// Returns: milliseconds until next desired wake (clamped 100..2000 ms when enabled).
 int32_t DtnOverlayModule::runOnce()
 {
     if (!configEnabled) return 1000; //fw+ disabled: idle
@@ -224,24 +231,32 @@ int32_t DtnOverlayModule::runOnce()
     //bounded maintenance of per-destination cache to avoid growth
     if (millis() - lastPruneMs > 30000) {
         lastPruneMs = millis();
-        if (lastDestTxMs.size() > kMaxPerDestCacheEntries) {
-            // simple aging prune: drop oldest ~25% entries
-            size_t target = kMaxPerDestCacheEntries * 3 / 4;
-            while (lastDestTxMs.size() > target) {
-                auto oldest = lastDestTxMs.begin();
-                for (auto it = lastDestTxMs.begin(); it != lastDestTxMs.end(); ++it) {
-                    if (it->second < oldest->second) oldest = it;
-                }
-                lastDestTxMs.erase(oldest);
-            }
-        }
+        prunePerDestCache();
     }
     //fw+ clamp next wake between 100..2000 ms to avoid tight/long sleeps
     if (nextWakeMs < 100) nextWakeMs = 100;
     if (nextWakeMs > 2000) nextWakeMs = 2000;
     return (int32_t)nextWakeMs;
 }
+// Purpose: bound memory use of per-destination last-tx cache by removing oldest entries.
+// Policy: prune down to 75% of configured cap using simple aging.
+void DtnOverlayModule::prunePerDestCache()
+{
+    if (lastDestTxMs.size() <= kMaxPerDestCacheEntries) return;
+    // simple aging prune: drop oldest ~25% entries
+    size_t target = kMaxPerDestCacheEntries * 3 / 4;
+    while (lastDestTxMs.size() > target) {
+        auto oldest = lastDestTxMs.begin();
+        for (auto it = lastDestTxMs.begin(); it != lastDestTxMs.end(); ++it) {
+            if (it->second < oldest->second) oldest = it;
+        }
+        lastDestTxMs.erase(oldest);
+    }
+}
 
+
+// Purpose: handle incoming FW+ DTN protobuf packets (DATA/RECEIPT) and conservative foreign capture.
+// Returns: true if the packet was consumed by DTN; false to let normal processing continue.
 bool DtnOverlayModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, meshtastic_FwplusDtn *msg)
 {
     if (msg && msg->which_variant == meshtastic_FwplusDtn_data_tag) {
@@ -373,6 +388,7 @@ bool DtnOverlayModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, m
     return false; //do not consume non-DTN packets; allow normal processing
 }
 
+// Purpose: create DTN envelope from a captured DM (plaintext or ciphertext) and schedule forwarding.
 void DtnOverlayModule::enqueueFromCaptured(uint32_t origId, uint32_t origFrom, uint32_t origTo, uint8_t channel,
                                            uint32_t deadlineMs, bool isEncrypted, const uint8_t *bytes, pb_size_t size,
                                            bool allowProxyFallback)
@@ -405,6 +421,7 @@ void DtnOverlayModule::enqueueFromCaptured(uint32_t origId, uint32_t origFrom, u
     scheduleOrUpdate(origId, d);
 }
 
+// Purpose: process received FWPLUS_DTN DATA; deliver locally if destined to us, else coordinate suppression/schedule.
 void DtnOverlayModule::handleData(const meshtastic_MeshPacket &mp, const meshtastic_FwplusDtnData &d)
 {
     // If we are the destination, deliver locally
@@ -442,6 +459,7 @@ void DtnOverlayModule::handleData(const meshtastic_MeshPacket &mp, const meshtas
     }
 }
 
+// Purpose: process received FWPLUS_DTN RECEIPT; clear pending, tombstone and decode special reason codes (e.g., version).
 void DtnOverlayModule::handleReceipt(const meshtastic_MeshPacket &mp, const meshtastic_FwplusDtnReceipt &r)
 {
     // Simplest: stop any pending entry
@@ -459,6 +477,9 @@ void DtnOverlayModule::handleReceipt(const meshtastic_MeshPacket &mp, const mesh
     }
 }
 
+// Purpose: create or refresh a pending DTN entry and compute the next attempt time.
+// Inputs: original message id and payload envelope; uses topology, mobility and per-destination spacing.
+// Effect: updates election timing, applies far-node throttle, and stores per-dest last TX timestamp.
 void DtnOverlayModule::scheduleOrUpdate(uint32_t id, const meshtastic_FwplusDtnData &d)
 {
     auto &p = pendingById[id];
@@ -523,6 +544,9 @@ void DtnOverlayModule::scheduleOrUpdate(uint32_t id, const meshtastic_FwplusDtnD
     LOG_DEBUG("DTN schedule id=0x%x next=%u ms (base=%u slot=%u)", id, (unsigned)(p.nextAttemptMs - millis()), (unsigned)base, (unsigned)slot);
 }
 
+// Purpose: perform one forwarding decision for a pending DTN item.
+// Steps: channel-util gate → route confidence/handoff → tail probe/fallback → overlay send and backoff scheduling.
+// Guarantees: never emits plaintext via overlay; fallback uses native encrypted DM without spoofing sender.
 void DtnOverlayModule::tryForward(uint32_t id, Pending &p)
 {
     // Check channel utilization gate (be polite for overlay)
@@ -573,36 +597,7 @@ void DtnOverlayModule::tryForward(uint32_t id, Pending &p)
     }
 
     if (inTail && !isFwplus(p.data.orig_to) && p.data.allow_proxy_fallback) {
-        // Send native DM (ciphertext or plaintext) towards destination
-        meshtastic_MeshPacket *dm = allocDataPacket();
-        if (!dm) { p.nextAttemptMs = millis() + 3000; return; }
-        dm->to = p.data.orig_to;
-        //fw+ ensure PKI/link encryption remains valid: do NOT spoof original sender here.
-        // Leave 'from' as our node so the Router can sign/encrypt as us when using PKI.
-        dm->channel = p.data.channel;
-        if (p.data.is_encrypted) {
-            dm->which_payload_variant = meshtastic_MeshPacket_encrypted_tag;
-            memcpy(dm->encrypted.bytes, p.data.payload.bytes, p.data.payload.size);
-            dm->encrypted.size = p.data.payload.size;
-        } else {
-            dm->decoded.portnum = meshtastic_PortNum_TEXT_MESSAGE_APP;
-            if (p.data.payload.size > sizeof(dm->decoded.payload.bytes))
-                dm->decoded.payload.size = sizeof(dm->decoded.payload.bytes);
-            else
-                dm->decoded.payload.size = p.data.payload.size;
-            memcpy(dm->decoded.payload.bytes, p.data.payload.bytes, dm->decoded.payload.size);
-        }
-        //fw+ preserve original DM id so that ROUTING_APP ACK maps to sender's pending entry
-        dm->id = p.data.orig_id;
-        dm->want_ack = true; // try to get radio ACK 
-        dm->decoded.want_response = false;
-        dm->priority = meshtastic_MeshPacket_Priority_DEFAULT;
-        service->sendToMesh(dm, RX_SRC_LOCAL, false);
-        p.tries++;
-        p.nextAttemptMs = millis() + configRetryBackoffMs;
-        LOG_INFO("DTN fallback DM id=0x%x dst=0x%x try=%u", id, (unsigned)p.data.orig_to, (unsigned)p.tries);
-        ctrFallbacksAttempted++; 
-        return;
+        if (sendProxyFallback(id, p)) return;
     }
 
     // Basic forward attempt using overlay again (ring-aware leader election)
@@ -676,6 +671,44 @@ void DtnOverlayModule::tryForward(uint32_t id, Pending &p)
              (unsigned)(p.nextAttemptMs - millis()));
 }
 
+// Purpose: perform late native DM fallback for a DTN item (encrypted), preserving original id for ACK mapping.
+// Returns: true if a send was attempted or queued; schedules next retry on success or alloc failure.
+bool DtnOverlayModule::sendProxyFallback(uint32_t id, Pending &p)
+{
+    // Send native DM (ciphertext or plaintext) towards destination
+    meshtastic_MeshPacket *dm = allocDataPacket();
+    if (!dm) { p.nextAttemptMs = millis() + 3000; return true; }
+    dm->to = p.data.orig_to;
+    //fw+ ensure PKI/link encryption remains valid: do NOT spoof original sender here.
+    // Leave 'from' as our node so the Router can sign/encrypt as us when using PKI.
+    dm->channel = p.data.channel;
+    if (p.data.is_encrypted) {
+        dm->which_payload_variant = meshtastic_MeshPacket_encrypted_tag;
+        memcpy(dm->encrypted.bytes, p.data.payload.bytes, p.data.payload.size);
+        dm->encrypted.size = p.data.payload.size;
+    } else {
+        dm->decoded.portnum = meshtastic_PortNum_TEXT_MESSAGE_APP;
+        if (p.data.payload.size > sizeof(dm->decoded.payload.bytes))
+            dm->decoded.payload.size = sizeof(dm->decoded.payload.bytes);
+        else
+            dm->decoded.payload.size = p.data.payload.size;
+        memcpy(dm->decoded.payload.bytes, p.data.payload.bytes, dm->decoded.payload.size);
+        dm->decoded.want_response = false;
+    }
+    //fw+ preserve original DM id so that ROUTING_APP ACK maps to sender's pending entry
+    dm->id = p.data.orig_id;
+    dm->want_ack = true; // try to get radio ACK 
+    dm->priority = meshtastic_MeshPacket_Priority_DEFAULT;
+    service->sendToMesh(dm, RX_SRC_LOCAL, false);
+    p.tries++;
+    p.nextAttemptMs = millis() + configRetryBackoffMs;
+    LOG_INFO("DTN fallback DM id=0x%x dst=0x%x try=%u", id, (unsigned)p.data.orig_to, (unsigned)p.tries);
+    ctrFallbacksAttempted++; 
+    return true;
+}
+
+// Purpose: lightweight FW+ presence probe to a specific node using a receipt with PROGRESSED status.
+// Usage: optional near TTL tail to detect FW+ capability without heavy traffic.
 void DtnOverlayModule::maybeProbeFwplus(NodeNum dest)
 {
     // Minimal probe: send a short overlay receipt with PROGRESSED to DEST as an FW+ ping (stock ignores) //fw+
@@ -708,6 +741,8 @@ void DtnOverlayModule::maybeTriggerTraceroute(NodeNum dest)
     nh->sendTracerouteTo(dest);
 }
 
+// Purpose: send a compact DTN receipt (status/milestone/expire) back to the source or peer.
+// Notes: uses BACKGROUND priority and avoids ACKs; reason carries optional telemetry (e.g., FW+ version advertise).
 void DtnOverlayModule::emitReceipt(uint32_t to, uint32_t origId, meshtastic_FwplusDtnStatus status, uint32_t reason)
 {
     meshtastic_FwplusDtn msg = meshtastic_FwplusDtn_init_zero;
