@@ -98,19 +98,19 @@ DtnOverlayModule::DtnOverlayModule()
 
     //read config with sensible defaults (moduleConfig.dtn_overlay may not exist yet; use defaults)
     configEnabled = false; // default OFF; user can enable in ModuleConfig
-    configTtlMinutes = 5;
+    configTtlMinutes = 4; //fw+ default shorter TTL to limit carry window
     configInitialDelayBaseMs = 8000;
     configRetryBackoffMs = 60000;
-    configMaxTries = 3;
+    configMaxTries = 2; //fw+ fewer attempts by default
     configLateFallback = false;
     configFallbackTailPercent = 20;
     configMilestonesEnabled = false; //fw+ default OFF; user config may override
-    configPerDestMinSpacingMs = 30000;
+    configPerDestMinSpacingMs = 60000; //fw+ widen per-dest spacing
     configMaxActiveDm = 1; //fw+ default: single active DM
     configProbeFwplusNearDeadline = false;
     //conservative airtime heuristics
     configGraceAckMs = 2500;                  // give direct a brief chance first
-    configSuppressMsAfterForeign = 20000;     // back off if someone else is already carrying
+    configSuppressMsAfterForeign = 35000;     //fw+ stronger backoff if someone else carries
     configSuppressIfDestNeighbor = true;      // if dest is our neighbor, be extra conservative
     configPreferBestRouteSlotting = true;     // prefer earlier slot if we have DV-ETX
  

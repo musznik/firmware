@@ -71,14 +71,14 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
 
     // Config snapshot
     bool configEnabled = true;
-    uint32_t configTtlMinutes = 5;
+    uint32_t configTtlMinutes = 4; //fw+ dampen overlay window
     uint32_t configInitialDelayBaseMs = 8000;
     uint32_t configRetryBackoffMs = 60000;
-    uint32_t configMaxTries = 3;
+    uint32_t configMaxTries = 2; //fw+ fewer tries by default
     bool configLateFallback = false;
     uint32_t configFallbackTailPercent = 20;
     bool configMilestonesEnabled = false;
-    uint32_t configPerDestMinSpacingMs = 30000;
+    uint32_t configPerDestMinSpacingMs = 60000; //fw+ wider spacing
     uint32_t configMaxActiveDm = 1; //fw+ default: single active DM
     bool configProbeFwplusNearDeadline = false;
     //fw+ heuristics to reduce airtime while keeping custody
@@ -92,7 +92,7 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     uint8_t configMaxRingsToAct = 1;               // only act if dest is within N hops from us (0=only neighbor)
     uint8_t configMilestoneMaxRing = 1;            // allow milestone only if min(hops to src/dst) <= N
     uint8_t configTailEscalateMaxRing = 1;         // allow DEFAULT priority in TTL tail only if within N hops
-    uint32_t configFarMinTtlFracPercent = 50;      // if dest beyond rings, wait until this % of TTL has passed
+    uint32_t configFarMinTtlFracPercent = 60;      //fw+ far nodes wait longer before acting
     uint32_t configOriginProgressMinIntervalMs = 15000; // per-source min interval between milestones
     //fw+ automatic milestone limiter (adaptive to load/topology)
     bool configMilestoneAutoLimiterEnabled = true;       // enable adaptive suppression
