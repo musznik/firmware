@@ -167,6 +167,8 @@ DtnOverlayModule::DtnOverlayModule()
 int32_t DtnOverlayModule::runOnce()
 {
     if (!configEnabled) return 1000; //fw+ disabled: idle
+    //fw+ periodically advertise our FW+ version for passive discovery
+    maybeAdvertiseFwplusVersion();
     //simple scheduler: attempt forwards whose time arrived
     uint32_t now = millis();
     uint32_t nowEpoch = getValidTime(RTCQualityFromNet) * 1000UL;
@@ -423,6 +425,13 @@ void DtnOverlayModule::handleReceipt(const meshtastic_MeshPacket &mp, const mesh
     // Create a short tombstone to prevent immediate re-capture storms of same id 
     if (configTombstoneMs) tombstoneUntilMs[r.orig_id] = millis() + configTombstoneMs;
     ctrReceiptsReceived++; //fw+
+
+    //fw+ interpret special FW+ version advertisements carried via receipt.reason
+    // Convention: high byte 0xF1 indicates version advertisement, low 2 bytes = version
+    if ((r.reason & 0xFF000000u) == 0xF1000000u) {
+        uint16_t ver = (uint16_t)((r.reason >> 8) & 0xFFFFu);
+        recordFwplusVersion(getFrom(&mp), ver);
+    }
 }
 
 void DtnOverlayModule::scheduleOrUpdate(uint32_t id, const meshtastic_FwplusDtnData &d)
@@ -573,7 +582,18 @@ void DtnOverlayModule::tryForward(uint32_t id, Pending &p)
         p.nextAttemptMs = millis() + 3000;
         return;
     }
-    mp->to = p.data.orig_to; // destination node
+    //fw+ custody handoff: optionally send to FW+ neighbor instead of final dest when far
+    NodeNum target = p.data.orig_to;
+    if (configEnableFwplusHandoff) {
+        uint8_t hopsToDest = getHopsAway(p.data.orig_to);
+        if (hopsToDest != 255 && hopsToDest >= configHandoffMinRing) {
+            NodeNum cand = chooseHandoffTarget(p.data.orig_to, id, p);
+            if (cand != 0 && cand != p.data.orig_to) {
+                target = cand;
+            }
+        }
+    }
+    mp->to = target;
     mp->decoded.portnum = meshtastic_PortNum_FWPLUS_DTN_APP;
     mp->want_ack = false;
     mp->decoded.want_response = false;
@@ -604,6 +624,10 @@ void DtnOverlayModule::tryForward(uint32_t id, Pending &p)
     lastForwardMs = millis(); 
     // update per-destination last tx (bounded map)
     lastDestTxMs[p.data.orig_to] = millis();
+    //fw+ remember preferred handoff per dest when we target FW+ (not the final dest)
+    if (target != p.data.orig_to) {
+        preferredHandoffByDest[p.data.orig_to] = { target, millis() };
+    }
     // schedule next attempt with backoff
     p.nextAttemptMs = millis() + (configRetryBackoffMs ? configRetryBackoffMs : 60000);
     LOG_INFO("DTN fwd overlay id=0x%x dst=0x%x try=%u next=%u ms", id, (unsigned)p.data.orig_to, (unsigned)p.tries,
@@ -680,4 +704,138 @@ bool DtnOverlayModule::shouldEmitMilestone(NodeNum src, NodeNum dst)
         }
     }
     return !runtimeMilestonesSuppressed;
+}
+void DtnOverlayModule::recordFwplusVersion(NodeNum n, uint16_t version)
+{
+    fwplusVersionByNode[n] = version;
+    markFwplusSeen(n);
+}
+
+void DtnOverlayModule::maybeAdvertiseFwplusVersion()
+{
+    // Send a tiny FW+ receipt with magic reason to broadcast our FW+ version
+    if (!configEnabled) return;
+    uint32_t now = millis();
+    uint32_t interval = configAdvertiseIntervalMs;
+    if (lastAdvertiseMs == 0) lastAdvertiseMs = now - (uint32_t)random(interval);
+    if (now - lastAdvertiseMs < interval + (uint32_t)random(configAdvertiseJitterMs)) return;
+
+    // Only advertise if milestones are enabled or channel is not overloaded
+    if (airTime && !airTime->isTxAllowedChannelUtil(true)) return;
+
+    // Compose reason: 0xF1VVVV00 (VVVV = FW+ version)
+    uint32_t reason = 0xF1000000u;
+    // try to read FW+ version from OnDemand compile-time macro if available
+#ifdef FW_PLUS_VERSION
+    uint16_t ver = (uint16_t)FW_PLUS_VERSION;
+#else
+    uint16_t ver = 0;
+#endif
+    reason |= ((uint32_t)ver << 8);
+
+    // Broadcast by sending to broadcast nodenum; stock nodes will ignore port
+    meshtastic_FwplusDtn msg = meshtastic_FwplusDtn_init_zero;
+    msg.which_variant = meshtastic_FwplusDtn_receipt_tag;
+    msg.variant.receipt.orig_id = 0;
+    msg.variant.receipt.status = meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_PROGRESSED;
+    msg.variant.receipt.reason = reason;
+    meshtastic_MeshPacket *p = allocDataProtobuf(msg);
+    if (!p) return;
+    p->to = NODENUM_BROADCAST;
+    p->decoded.portnum = meshtastic_PortNum_FWPLUS_DTN_APP;
+    p->want_ack = false;
+    p->decoded.want_response = false;
+    p->priority = meshtastic_MeshPacket_Priority_BACKGROUND;
+    service->sendToMesh(p, RX_SRC_LOCAL, false);
+    lastAdvertiseMs = now;
+}
+
+//fw+ FW+ custody handoff target selection
+NodeNum DtnOverlayModule::chooseHandoffTarget(NodeNum dest, uint32_t origId, Pending &p)
+{
+    (void)origId;
+    // 1) Prefer cached handoff for this destination if fresh
+    auto itPref = preferredHandoffByDest.find(dest);
+    if (itPref != preferredHandoffByDest.end()) {
+        const auto &ph = itPref->second;
+        if (ph.node != 0 && (millis() - ph.lastUsedMs) < preferredHandoffTtlMs) {
+            auto itVer = fwplusVersionByNode.find(ph.node);
+            if (itVer != fwplusVersionByNode.end() && itVer->second >= configMinFwplusVersionForHandoff) {
+                return ph.node;
+            }
+        }
+    }
+
+    // 2) If NextHopRouter has a next_hop that is FW+, pick that first
+    if (router) {
+        auto nh = static_cast<NextHopRouter *>(router);
+        auto snap = nh->getRouteSnapshot(false);
+        for (const auto &e : snap) {
+            if (e.dest != dest) continue;
+            if (e.next_hop == NO_NEXT_HOP_PREFERENCE) break;
+            // Map last byte back to NodeNum by scanning direct neighbors in NodeDB
+            int totalNodes = nodeDB->getNumMeshNodes();
+            for (int i = 0; i < totalNodes; ++i) {
+                meshtastic_NodeInfoLite *n = nodeDB->getMeshNodeByIndex(i);
+                if (!n) continue;
+                if ((uint8_t)(n->num & 0xFF) == e.next_hop) {
+                    if (isFwplus(n->num)) {
+                        auto itVer = fwplusVersionByNode.find(n->num);
+                        if (itVer != fwplusVersionByNode.end() && itVer->second >= configMinFwplusVersionForHandoff) {
+                            return n->num;
+                        }
+                    }
+                }
+            }
+            break;
+        }
+    }
+
+    // 3) Otherwise build/refresh shortlist
+    // Fill shortlist lazily if empty
+    if (p.handoffCandidates.empty()) {
+        std::vector<std::tuple<NodeNum, uint8_t, uint8_t>> fwplusNodes; // (node, hopsFromUs, hopsToDest)
+        int totalNodes = nodeDB->getNumMeshNodes();
+        for (int i = 0; i < totalNodes; ++i) {
+            meshtastic_NodeInfoLite *ni = nodeDB->getMeshNodeByIndex(i);
+            if (!ni) continue;
+            if (ni->num == nodeDB->getNodeNum()) continue;
+            if (!isFwplus(ni->num)) continue;  // seen FW+ recently
+            uint8_t hopsFromUs = ni->hops_away; // known from NodeDB
+            uint8_t hopsToDest = getHopsAway(dest); // our perspective to dest
+            fwplusNodes.emplace_back(ni->num, hopsFromUs, hopsToDest);
+        }
+        // sort: prefer closer to us (fewer stock hops before next DTN), then better hopsToDest, then nodenum
+        std::sort(fwplusNodes.begin(), fwplusNodes.end(), [](const auto &a, const auto &b) {
+            uint8_t au, ad, bu, bd; NodeNum an, bn;
+            an = std::get<0>(a); au = std::get<1>(a); ad = std::get<2>(a);
+            bn = std::get<0>(b); bu = std::get<1>(b); bd = std::get<2>(b);
+            if (au != bu) return au < bu;
+            if (ad != bd) return ad < bd;
+            return an < bn;
+        });
+        // take up to max candidates but avoid lastCarrier to prevent ping-pong
+        for (const auto &e : fwplusNodes) {
+            NodeNum n = std::get<0>(e);
+            if (n == p.lastCarrier) continue;
+            //fw+ gate by advertised FW+ version if known
+            auto itVer = fwplusVersionByNode.find(n);
+            if (itVer != fwplusVersionByNode.end()) {
+                if (itVer->second < configMinFwplusVersionForHandoff) continue;
+            } else {
+                // if unknown version, skip for now (conservative)
+                continue;
+            }
+            p.handoffCandidates.push_back(n);
+            if (p.handoffCandidates.size() >= configHandoffMaxCandidates) break;
+        }
+        p.handoffIndex = 0;
+    }
+    if (p.handoffCandidates.empty()) return 0;
+    // Rotate through candidates between retries
+    NodeNum pick = p.handoffCandidates[p.handoffIndex % p.handoffCandidates.size()];
+    p.handoffIndex = (p.handoffIndex + 1) % 8; // bounded increment
+    // avoid accidental cycles
+    if (pick == dest || pick == nodeDB->getNodeNum()) return 0;
+    return pick;
 }

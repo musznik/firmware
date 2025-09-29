@@ -8,6 +8,8 @@
 #include "mesh/generated/meshtastic/fwplus_dtn.pb.h"
 #include "mesh/generated/meshtastic/portnums.pb.h"
 #include <unordered_map>
+//fw+
+#include <vector>
 
 class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<meshtastic_FwplusDtn>
 {
@@ -58,6 +60,9 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
         uint32_t nextAttemptMs = 0;
         uint8_t tries = 0;
       uint32_t lastCarrier = 0; // node num of last hop we heard from
+      //fw+ shortlist of FW+ neighbors as potential handoff targets (filled lazily)
+      std::vector<NodeNum> handoffCandidates;
+      uint8_t handoffIndex = 0;
     };
     std::unordered_map<uint32_t, Pending> pendingById; // key: orig_id
     void handleData(const meshtastic_MeshPacket &mp, const meshtastic_FwplusDtnData &d);
@@ -67,6 +72,12 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     void emitReceipt(uint32_t to, uint32_t origId, meshtastic_FwplusDtnStatus status, uint32_t reason = 0);
     void maybeProbeFwplus(NodeNum dest);
     void deliverLocal(const meshtastic_FwplusDtnData &d);
+    //fw+ select next hop FW+ neighbor for custody handoff (or return dest if none)
+    NodeNum chooseHandoffTarget(NodeNum dest, uint32_t origId, Pending &p);
+    //fw+ record observed FW+ version for a node
+    void recordFwplusVersion(NodeNum n, uint16_t version);
+    //fw+ broadcast our FW+ version periodically
+    void maybeAdvertiseFwplusVersion();
 
     // Config snapshot
     bool configEnabled = true;
@@ -91,6 +102,14 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     uint8_t configMaxRingsToAct = 2;               //fw+ slightly wider action radius for better delivery
     uint8_t configMilestoneMaxRing = 1;            // allow milestone only if min(hops to src/dst) <= N
     uint8_t configTailEscalateMaxRing = 2;         //fw+ permit tail escalation when within two hops
+    //fw+ FW+ custody handoff to a direct neighbor when dest is far
+    bool configEnableFwplusHandoff = true;
+    uint8_t configHandoffMinRing = 2;               // require dest > this many hops to attempt handoff
+    uint8_t configHandoffMaxCandidates = 3;         // number of FW+ neighbors to consider per id
+    uint16_t configMinFwplusVersionForHandoff = 45; //fw+ require FW+ >= this version
+    //fw+ periodic FW+ version advertisement
+    uint32_t configAdvertiseIntervalMs = 6UL * 60UL * 60UL * 1000UL;  //fw+ 6h
+    uint32_t configAdvertiseJitterMs = 5UL * 60UL * 1000UL;           // ±5 min
     uint32_t configFarMinTtlFracPercent = 60;      //fw+ far nodes wait longer before acting
     uint32_t configOriginProgressMinIntervalMs = 15000; // per-source min interval between milestones
     //fw+ capture policy: by default do NOT capture foreign unicasts to avoid DTN-on-DTN in mixed meshes
@@ -115,9 +134,11 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     uint32_t lastForwardMs = 0;
     //fw+ runtime state for auto milestone limiter
     bool runtimeMilestonesSuppressed = false;
+    uint32_t lastAdvertiseMs = 0; //fw+
 
     // Capability cache of FW+ peers
     std::unordered_map<NodeNum, uint32_t> fwplusSeenMs;
+    std::unordered_map<NodeNum, uint16_t> fwplusVersionByNode; //fw+
     std::unordered_map<NodeNum, uint32_t> lastDestTxMs; // per-destination last tx time ms (bounded)
     void markFwplusSeen(NodeNum n) { fwplusSeenMs[n] = millis(); }
     bool isFwplus(NodeNum n) const {
@@ -180,6 +201,14 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     static constexpr size_t kMaxPendingEntries = 32;
     static constexpr size_t kMaxPerDestCacheEntries = 64;
     uint32_t lastPruneMs = 0;
+
+    //fw+ preferred handoff cache per destination
+    struct PreferredHandoffEntry {
+        NodeNum node = 0;
+        uint32_t lastUsedMs = 0;
+    };
+    std::unordered_map<NodeNum, PreferredHandoffEntry> preferredHandoffByDest;
+    uint32_t preferredHandoffTtlMs = 6UL * 60UL * 60UL * 1000UL; //fw+ 6h TTL
 
     // DV-ETX gating wrapper
     bool hasSufficientRouteConfidence(NodeNum dest) const {
