@@ -379,9 +379,10 @@ bool DtnOverlayModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, m
                     if (it->second.nextAttemptMs < t) it->second.nextAttemptMs = t;
                 }
             } else if (mp.decoded.portnum == meshtastic_PortNum_ROUTING_APP && mp.decoded.request_id) {
-                //fw+ native ACK/NAK detection: cancel our pending for this orig DM id
+                // Native ACK/NAK: cancel pending for this orig DM id and mark destination as stock for a while
                 pendingById.erase(mp.decoded.request_id);
                 if (configTombstoneMs) tombstoneUntilMs[mp.decoded.request_id] = millis() + configTombstoneMs;
+                stockKnownMs[mp.to] = millis();
             }
         }
     }
@@ -475,6 +476,10 @@ void DtnOverlayModule::handleReceipt(const meshtastic_MeshPacket &mp, const mesh
         uint16_t ver = (uint16_t)((r.reason >> 8) & 0xFFFFu);
         recordFwplusVersion(getFrom(&mp), ver);
     }
+    // If we get a native ROUTING_APP ACK/NAK echo for our original id, mark destination as stock for some time
+    if (r.status == meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_DELIVERED) {
+        // DELIVERED came from dest (FW+), do nothing
+    }
 }
 
 // Purpose: create or refresh a pending DTN entry and compute the next attempt time.
@@ -487,10 +492,16 @@ void DtnOverlayModule::scheduleOrUpdate(uint32_t id, const meshtastic_FwplusDtnD
     p.lastCarrier = nodeDB->getNodeNum();
     // Per-destination spacing: if we tried to the same destination too recently, postpone 
     auto itLast = lastDestTxMs.find(d.orig_to);
-    // Anti-storm election window: deterministic slot based on id^me
+    // Base delay before first attempt
     uint32_t base = configInitialDelayBaseMs ? configInitialDelayBaseMs : 8000;
-    // Apply grace window before first attempt to give direct delivery/ACK a chance 
-    if (p.tries == 0 && configGraceAckMs) {
+    // Immediate-from-source: tiny jitter instead of long base/slot
+    bool isFromSource = (d.orig_from == nodeDB->getNodeNum());
+    if (isFromSource && p.tries == 0) {
+        uint32_t jitter = 200 + (uint32_t)random(401); // 200..600 ms
+        base = jitter;
+    }
+    // Apply grace window only for non-self-origin (to allow direct delivery/ACK a chance)
+    if (!isFromSource && p.tries == 0 && configGraceAckMs) {
         if (base < configGraceAckMs) base = configGraceAckMs;
     }
     // If destination is our direct neighbor and suppression is enabled, be extra conservative
@@ -526,7 +537,7 @@ void DtnOverlayModule::scheduleOrUpdate(uint32_t id, const meshtastic_FwplusDtnD
         slotLen = 300;
     }
     uint32_t rank = fnv1a32(id ^ nodeDB->getNodeNum());
-    uint32_t slot = rank % slots;
+    uint32_t slot = (isFromSource && p.tries == 0) ? 0 : (rank % slots);
     // Prefer earlier start if we are confident about route quality
     uint32_t earlyBonus = 0;
     if (configPreferBestRouteSlotting && hasSufficientRouteConfidence(d.orig_to)) {
@@ -596,7 +607,17 @@ void DtnOverlayModule::tryForward(uint32_t id, Pending &p)
         return;
     }
 
-    if (inTail && !isFwplus(p.data.orig_to) && p.data.allow_proxy_fallback) {
+    // Near-destination fast path: for close targets (<=1 hop), prefer native DM directly instead of DTN overlay
+    {
+        uint8_t hops = getHopsAway(p.data.orig_to);
+        if (hops != 255 && hops <= 1 && !isFwplus(p.data.orig_to) && p.data.allow_proxy_fallback) {
+            if (sendProxyFallback(id, p)) return;
+        }
+    }
+
+    // Fast-path fallback for known-stock destinations or TTL tail
+    bool destKnownStock = isDestKnownStock(p.data.orig_to);
+    if ((destKnownStock || inTail) && !isFwplus(p.data.orig_to) && p.data.allow_proxy_fallback) {
         if (sendProxyFallback(id, p)) return;
     }
 

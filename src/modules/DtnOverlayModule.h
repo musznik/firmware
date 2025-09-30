@@ -125,6 +125,7 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     uint8_t configHandoffMinRing = 2;               // require dest > this many hops to attempt handoff
     uint8_t configHandoffMaxCandidates = 3;         // FW+ neighbors shortlist size
     uint16_t configMinFwplusVersionForHandoff = 45; // require FW+ >= this version
+    
     // Periodic FW+ version advertisement
     uint32_t configAdvertiseIntervalMs = 6UL * 60UL * 60UL * 1000UL;  // 6h
     uint32_t configAdvertiseJitterMs = 5UL * 60UL * 1000UL;           // ±5 min
@@ -165,6 +166,13 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     std::unordered_map<NodeNum, uint16_t> fwplusVersionByNode; //fw+
     std::unordered_map<NodeNum, uint32_t> lastDestTxMs; // per-destination last tx time ms (bounded)
     std::unordered_map<NodeNum, uint32_t> lastRouteProbeMs; // last proactive traceroute per dest
+    //fw+ cache of destinations confirmed as stock (via native ROUTING ACK/NAK), with age
+    std::unordered_map<NodeNum, uint32_t> stockKnownMs;
+    bool isDestKnownStock(NodeNum n) const {
+        auto it = stockKnownMs.find(n);
+        if (it == stockKnownMs.end()) return false;
+        return (millis() - it->second) <= (24UL * 60UL * 60UL * 1000UL);
+    }
     void markFwplusSeen(NodeNum n) { fwplusSeenMs[n] = millis(); }
     bool isFwplus(NodeNum n) const {
         auto it = fwplusSeenMs.find(n);
