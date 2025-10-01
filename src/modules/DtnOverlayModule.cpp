@@ -140,22 +140,25 @@ DtnOverlayModule::DtnOverlayModule()
     encryptedOk = true;
 
     //read config with sensible defaults (moduleConfig.dtn_overlay may not exist yet; use defaults)
-    configEnabled = false; // default OFF; user can enable in ModuleConfig
-    configTtlMinutes = 4; //fw+ default shorter TTL to limit carry window
-    configInitialDelayBaseMs = 8000;
-    configRetryBackoffMs = 60000;
-    configMaxTries = 2; //fw+ fewer attempts by default
-    configLateFallback = false;
-    configFallbackTailPercent = 20;
-    configMilestonesEnabled = false; //fw+ default OFF; user config may override
-    configPerDestMinSpacingMs = 60000; //fw+ widen per-dest spacing
-    configMaxActiveDm = 1; //fw+ default: single active DM
-    configProbeFwplusNearDeadline = false;
+    //fw+ clarify: documented purpose/units for defaults below
+    configEnabled = false; // module master switch (default OFF); enable via ModuleConfig
+    configTtlMinutes = 4; // DTN custody TTL [minutes] for overlay items; shorter window to limit carry
+    configInitialDelayBaseMs = 8000; // base delay before first attempt [ms] (pre-slot election baseline)
+    //fw+ soften: larger retry backoff to reduce overlay traffic rate
+    configRetryBackoffMs = 120000; // retry backoff between attempts [ms]
+    configMaxTries = 2; // max overlay forward attempts per item
+    configLateFallback = false; // enable late native-DM fallback near TTL tail
+    configFallbackTailPercent = 20; // start fallback in the last X% of TTL [%]
+    configMilestonesEnabled = false; // emit sparse PROGRESSED milestones (telemetry); default OFF
+    //fw+ soften: larger per-destination spacing to avoid bursts
+    configPerDestMinSpacingMs = 120000; // per-destination minimum spacing between attempts [ms]
+    configMaxActiveDm = 1; // global cap of active DTN attempts per scheduler pass
+    configProbeFwplusNearDeadline = false; // send lightweight FW+ probe near TTL tail before fallback
     //conservative airtime heuristics
-    configGraceAckMs = 2500;                  // give direct a brief chance first
-    configSuppressMsAfterForeign = 35000;     //fw+ stronger backoff if someone else carries
-    configSuppressIfDestNeighbor = true;      // if dest is our neighbor, be extra conservative
-    configPreferBestRouteSlotting = true;     // prefer earlier slot if we have DV-ETX
+    configGraceAckMs = 2500;                  // grace window to allow native direct/ACK before overlay [ms]
+    configSuppressMsAfterForeign = 35000;     // suppression after hearing foreign overlay DATA [ms] (be polite)
+    configSuppressIfDestNeighbor = true;      // add extra delay when destination is our direct neighbor
+    configPreferBestRouteSlotting = true;     // start earlier if DV-ETX route confidence is good
  
     if (moduleConfig.has_dtn_overlay) {
         // enabled flag directly from config; default stays OFF if absent

@@ -952,13 +952,16 @@ void NodeDB::installDefaultModuleConfig()
 #endif
     moduleConfig.dtn_overlay.ttl_minutes = 5;
     moduleConfig.dtn_overlay.initial_delay_base_ms = 8000;
-    moduleConfig.dtn_overlay.retry_backoff_ms = 60000;
-    moduleConfig.dtn_overlay.max_tries = 3;
+    //fw+ increase backoff to soften traffic
+    moduleConfig.dtn_overlay.retry_backoff_ms = 120000;
+    moduleConfig.dtn_overlay.max_tries = 2;
     moduleConfig.dtn_overlay.late_fallback_enabled = false;
     moduleConfig.dtn_overlay.fallback_tail_percent = 20;
-    moduleConfig.dtn_overlay.milestones_enabled = true;
-    moduleConfig.dtn_overlay.per_dest_min_spacing_ms = 30000;
-    moduleConfig.dtn_overlay.max_active_dm = 2;
+    //fw+ milestones default OFF; user can enable via ModuleConfig
+    moduleConfig.dtn_overlay.milestones_enabled = false;
+    //fw+ increase per-destination spacing to reduce burstiness
+    moduleConfig.dtn_overlay.per_dest_min_spacing_ms = 120000;
+    moduleConfig.dtn_overlay.max_active_dm = 1;
     moduleConfig.dtn_overlay.probe_fwplus_near_deadline = false;
 
     // fw+ Broadcast Assist defaults
