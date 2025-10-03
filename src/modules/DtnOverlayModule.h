@@ -129,6 +129,8 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     // Periodic FW+ version advertisement
     uint32_t configAdvertiseIntervalMs = 6UL * 60UL * 60UL * 1000UL;  // 6h
     uint32_t configAdvertiseJitterMs = 5UL * 60UL * 1000UL;           // ±5 min
+    // Cold-start: faster seeding cadence until we learn at least one FW+ peer
+    uint32_t configAdvertiseIntervalUnknownMs = 2UL * 60UL * 60UL * 1000UL; // 2h
     // One-shot early advertise after enable/start
     uint32_t configFirstAdvertiseDelayMs = 15000;                      // 15s
     uint32_t configFarMinTtlFracPercent = 60;      // far nodes wait longer before acting
@@ -160,12 +162,19 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     uint32_t lastAdvertiseMs = 0; //fw+
     uint32_t moduleStartMs = 0;   //fw+
     bool firstAdvertiseDone = false; //fw+
+    // Hello-back unicast reply throttling
+    bool configHelloBackEnabled = true;
+    uint32_t configHelloBackMinIntervalMs = 2UL * 60UL * 60UL * 1000UL; // per-origin min interval 2h
+    uint8_t configHelloBackMaxRing = 0; // reply only to direct neighbors by default
+    uint32_t configHelloBackJitterMs = 3000; // small jitter on replies
 
     // Capability cache of FW+ peers
     std::unordered_map<NodeNum, uint32_t> fwplusSeenMs;
     std::unordered_map<NodeNum, uint16_t> fwplusVersionByNode; //fw+
     std::unordered_map<NodeNum, uint32_t> lastDestTxMs; // per-destination last tx time ms (bounded)
     std::unordered_map<NodeNum, uint32_t> lastRouteProbeMs; // last proactive traceroute per dest
+    // Per-origin hello-back rate limit state
+    std::unordered_map<NodeNum, uint32_t> lastHelloBackToNodeMs;
     //fw+ cache of destinations confirmed as stock (via native ROUTING ACK/NAK), with age
     std::unordered_map<NodeNum, uint32_t> stockKnownMs;
     bool isDestKnownStock(NodeNum n) const {
@@ -249,6 +258,12 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
         // minimal confidence 1 like S&F
         return router->hasRouteConfidence(dest, 1);
     }
+
+    // Telemetry-triggered FW+ probe config/state
+    bool configTelemetryProbeEnabled = true;
+    uint8_t configTelemetryProbeMinRing = 2; // only probe if origin is >= 2 hops away
+    uint32_t configTelemetryProbeCooldownMs = 2UL * 60UL * 60UL * 1000UL; // per-origin cooldown 2h
+    std::unordered_map<NodeNum, uint32_t> lastTelemetryProbeToNodeMs;
 
     // Simple FNV-1a 32-bit
     static uint32_t fnv1a32(uint32_t x) {

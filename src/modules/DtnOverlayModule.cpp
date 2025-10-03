@@ -389,6 +389,29 @@ bool DtnOverlayModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, m
             }
         }
     }
+    // Additionally, observe decoded packets for telemetry or node info to opportunistically probe FW+
+    if (mp.which_payload_variant == meshtastic_MeshPacket_decoded_tag) {
+        // Only if enabled and we don't already know this origin as FW+
+        if (configTelemetryProbeEnabled && !isFwplus(getFrom(&mp))) {
+            bool isTelemetry = (mp.decoded.portnum == meshtastic_PortNum_TELEMETRY_APP);
+            bool isNodeInfo = (mp.decoded.portnum == meshtastic_PortNum_NODEINFO_APP);
+            if (isTelemetry || isNodeInfo) {
+                NodeNum origin = getFrom(&mp);
+                uint8_t hops = getHopsAway(origin);
+                if (hops != 255 && hops >= configTelemetryProbeMinRing) {
+                    uint32_t nowMs = millis();
+                    auto it = lastTelemetryProbeToNodeMs.find(origin);
+                    if (it == lastTelemetryProbeToNodeMs.end() || (nowMs - it->second) >= configTelemetryProbeCooldownMs) {
+                        if (!(airTime && !airTime->isTxAllowedChannelUtil(true))) {
+                            // Send minimal FW+ probe (receipt PROGRESSED, reason=0) to origin
+                            maybeProbeFwplus(origin);
+                            lastTelemetryProbeToNodeMs[origin] = nowMs;
+                        }
+                    }
+                }
+            }
+        }
+    }
     return false; //do not consume non-DTN packets; allow normal processing
 }
 
@@ -476,8 +499,34 @@ void DtnOverlayModule::handleReceipt(const meshtastic_MeshPacket &mp, const mesh
     //fw+ interpret special FW+ version advertisements carried via receipt.reason
     // Convention: high byte 0xF1 indicates version advertisement, low 2 bytes = version
     if ((r.reason & 0xFF000000u) == 0xF1000000u) {
+        NodeNum origin = getFrom(&mp);
+        bool hadVer = (fwplusVersionByNode.find(origin) != fwplusVersionByNode.end());
         uint16_t ver = (uint16_t)((r.reason >> 8) & 0xFFFFu);
-        recordFwplusVersion(getFrom(&mp), ver);
+        recordFwplusVersion(origin, ver);
+        // Optional hello-back: unicast our version to origin when we didn't know them yet
+        if (configHelloBackEnabled && !hadVer) {
+            // reply only to close ring (default: direct neighbor)
+            uint8_t hops = getHopsAway(origin);
+            if (hops != 255 && hops <= configHelloBackMaxRing) {
+                // per-origin rate limit
+                uint32_t nowMs = millis();
+                auto it = lastHelloBackToNodeMs.find(origin);
+                if (it == lastHelloBackToNodeMs.end() || (nowMs - it->second) >= configHelloBackMinIntervalMs) {
+                    // channel utilization gate
+                    if (!(airTime && !airTime->isTxAllowedChannelUtil(true))) {
+                        uint32_t reason = 0xF1000000u;
+#ifdef FW_PLUS_VERSION
+                        uint16_t ourVer = (uint16_t)FW_PLUS_VERSION;
+#else
+                        uint16_t ourVer = 0;
+#endif
+                        reason |= ((uint32_t)ourVer << 8);
+                        emitReceipt(origin, 0, meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_PROGRESSED, reason);
+                        lastHelloBackToNodeMs[origin] = nowMs;
+                    }
+                }
+            }
+        }
     }
     // If we get a native ROUTING_APP ACK/NAK echo for our original id, mark destination as stock for some time
     if (r.status == meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_DELIVERED) {
@@ -829,7 +878,10 @@ void DtnOverlayModule::maybeAdvertiseFwplusVersion()
 {
     if (!configEnabled) return;
     uint32_t now = millis();
-    uint32_t interval = configAdvertiseIntervalMs;
+    // Cold-start: if we don't yet know any FW+ peer, use a shorter interval
+    bool knowsAnyFwplus = false;
+    for (const auto &kv : fwplusVersionByNode) { (void)kv; knowsAnyFwplus = true; break; }
+    uint32_t interval = knowsAnyFwplus ? configAdvertiseIntervalMs : configAdvertiseIntervalUnknownMs;
     if (lastAdvertiseMs == 0) lastAdvertiseMs = now - (uint32_t)random(interval);
     // One-shot early advertise shortly after module start to speed up discovery (unconditional broadcast)
     if (!firstAdvertiseDone && now - moduleStartMs >= configFirstAdvertiseDelayMs) {
@@ -868,7 +920,7 @@ void DtnOverlayModule::maybeAdvertiseFwplusVersion()
     // Only advertise if channel is not overloaded //fw+
     if (airTime && !airTime->isTxAllowedChannelUtil(true)) return;
 
-    // Only advertise if we have at least one direct FW+ neighbor without a known version //fw+
+    // Only advertise if needed, except in cold-start where we allow periodic seeding broadcasts
     bool need = false;
     int totalNodes = nodeDB->getNumMeshNodes();
     for (int i = 0; i < totalNodes; ++i) {
@@ -879,7 +931,7 @@ void DtnOverlayModule::maybeAdvertiseFwplusVersion()
         if (!isFwplus(ni->num)) continue;
         if (fwplusVersionByNode.find(ni->num) == fwplusVersionByNode.end()) { need = true; break; }
     }
-    if (!need) return;
+    if (!need && knowsAnyFwplus) return;
 
     // Compose reason: 0xF1VVVV00 (VVVV = FW+ version)
     uint32_t reason = 0xF1000000u;
