@@ -166,10 +166,14 @@ void ReliableRouter::sniffReceived(const meshtastic_MeshPacket *p, const meshtas
                     /* A response may be set to want_ack for retransmissions, but we don't need to ACK a response if it received
                       an implicit ACK already. If we received it directly or via NextHopRouter, only ACK with a hop limit of 0 to
                       make sure the other side stops retransmitting. */
-                    if (!p->decoded.request_id && !p->decoded.reply_id) {
-                        //fw+ Suppress opportunistic ACKs for TEXT DMs unless the packet is addressed to us
+                    if (shouldSuccessAckWithWantAck(p)) {
+                        // Upstream behavior: ACK with want_ack for selected cases (e.g. DM text to us)
+                        sendAckNak(meshtastic_Routing_Error_NONE, getFrom(p), p->id, p->channel,
+                                   routingModule->getHopLimitForResponse(p->hop_start, p->hop_limit), true);
+                    } else if (!p->decoded.request_id && !p->decoded.reply_id) {
+                        // fw+: Opportunistic ACK: RSSI-based election with duplicate suppression
+                        // Suppress opportunistic ACKs for TEXT DMs unless not addressed to us (outer scope isToUs)
                         if (!(!isToUs(p) && p->decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP)) {
-                            //fw+ Opportunistic ACK: RSSI-based election with duplicate suppression
                             if (fwplus_ack::shouldSend(getFrom(p), p->id, p->rx_rssi)) {
                                 sendAckNak(meshtastic_Routing_Error_NONE, getFrom(p), p->id, p->channel,
                                            routingModule->getHopLimitForResponse(p->hop_start, p->hop_limit));
@@ -177,7 +181,7 @@ void ReliableRouter::sniffReceived(const meshtastic_MeshPacket *p, const meshtas
                             }
                         }
                     } else if ((p->hop_start > 0 && p->hop_start == p->hop_limit) || p->next_hop != NO_NEXT_HOP_PREFERENCE) {
-                        //fw+ Terminal response or NextHopRouter: collapse to local ACK with hop limit 0 if not seen
+                        // fw+: Terminal response or NextHopRouter: collapse to local ACK with hop limit 0 if not seen
                         if (!fwplus_ack::seen(getFrom(p), p->id, millis())) {
                             sendAckNak(meshtastic_Routing_Error_NONE, getFrom(p), p->id, p->channel, 0);
                             fwplus_ack::mark(getFrom(p), p->id, millis());
@@ -240,4 +244,36 @@ void ReliableRouter::sniffReceived(const meshtastic_MeshPacket *p, const meshtas
 
     // handle the packet as normal
     isBroadcast(p->to) ? FloodingRouter::sniffReceived(p, c) : NextHopRouter::sniffReceived(p, c);
+}
+
+/**
+ * If we ACK this packet, should we set want_ack=true on the ACK for reliable delivery of the ACK packet?
+ */
+bool ReliableRouter::shouldSuccessAckWithWantAck(const meshtastic_MeshPacket *p)
+{
+    // Don't ACK-with-want-ACK outgoing packets
+    if (isFromUs(p))
+        return false;
+
+    // Only ACK-with-want-ACK if the original packet asked for want_ack
+    if (!p->want_ack)
+        return false;
+
+    // Only ACK-with-want-ACK packets to us (not broadcast)
+    if (!isToUs(p))
+        return false;
+
+    // Special case for text message DMs:
+    bool isTextMessage =
+        (p->which_payload_variant == meshtastic_MeshPacket_decoded_tag) &&
+        IS_ONE_OF(p->decoded.portnum, meshtastic_PortNum_TEXT_MESSAGE_APP, meshtastic_PortNum_TEXT_MESSAGE_COMPRESSED_APP);
+
+    if (isTextMessage) {
+        // If it's a non-broadcast text message, and the original asked for want_ack,
+        // let's send an ACK that is itself want_ack to improve reliability of confirming delivery back to the sender.
+        // This should include all DMs regardless of whether or not reply_id is set.
+        return true;
+    }
+
+    return false;
 }

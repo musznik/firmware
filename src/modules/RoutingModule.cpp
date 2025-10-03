@@ -73,7 +73,8 @@ meshtastic_MeshPacket *RoutingModule::allocReply()
     return NULL;
 }
 
-void RoutingModule::sendAckNak(meshtastic_Routing_Error err, NodeNum to, PacketId idFrom, ChannelIndex chIndex, uint8_t hopLimit)
+void RoutingModule::sendAckNak(meshtastic_Routing_Error err, NodeNum to, PacketId idFrom, ChannelIndex chIndex, uint8_t hopLimit,
+                               bool ackWantsAck)
 {
     auto p = allocAckNak(err, to, idFrom, chIndex, hopLimit);
     router->packetErrorCounters[static_cast<uint32_t>(err)]++;
@@ -86,6 +87,9 @@ void RoutingModule::sendAckNak(meshtastic_Routing_Error err, NodeNum to, PacketI
             LOG_WARN("Skip sniffer copy in RoutingModule send: packetPool exhausted");
         }
     }
+
+    // Allow the caller to set want_ack on this ACK packet if it's important that the ACK be delivered reliably
+    p->want_ack = ackWantsAck;
 
     router->sendLocal(p); // we sometimes send directly to the local node
 }
