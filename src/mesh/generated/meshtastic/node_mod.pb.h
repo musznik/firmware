@@ -11,12 +11,12 @@
 
 /* Struct definitions */
 typedef struct _meshtastic_NodeMod {
-    /* user text status */
+    /* node text status */
     char text_status[220];
     /* node emoji */
     bool has_emoji;
     char emoji[4];
-    /* webmesh heartbeat, node supports webmesh server */
+    /* webmesh heartbeat, if node is connected to webmesh server */
     bool has_webmesh_heartbeat;
     bool webmesh_heartbeat;
 } meshtastic_NodeMod;
