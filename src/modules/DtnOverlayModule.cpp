@@ -58,6 +58,7 @@ Airtime protections
 #include "MobilityOracle.h" //fw+
 #include "modules/RoutingModule.h"
 #include "mesh/NextHopRouter.h" //fw+
+#include "FwPlusVersion.h" //fw+
 #include <pb_encode.h>
 #include <cstring>
 
@@ -184,6 +185,8 @@ DtnOverlayModule::DtnOverlayModule()
              (int)configSuppressIfDestNeighbor, (int)configPreferBestRouteSlotting,
              (unsigned)configMaxRingsToAct, (unsigned)configMilestoneMaxRing, (unsigned)configTailEscalateMaxRing,
              (unsigned)configFarMinTtlFracPercent);
+    LOG_INFO("DTN: Module created, first beacon in %u ms", (unsigned)configFirstAdvertiseDelayMs);
+    LOG_INFO("DTN: FW_PLUS_VERSION=%d", FW_PLUS_VERSION);
     moduleStartMs = millis(); //fw+
 }
 
@@ -262,6 +265,12 @@ void DtnOverlayModule::prunePerDestCache()
 // Returns: true if the packet was consumed by DTN; false to let normal processing continue.
 bool DtnOverlayModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, meshtastic_FwplusDtn *msg)
 {
+    // Handle LOCAL packets (our own beacons) - just log and return false to let them route
+    if (mp.from == RX_SRC_LOCAL) {
+        LOG_DEBUG("DTN: Ignoring LOCAL packet (our own beacon)");
+        return false; // Let it route normally
+    }
+    
     if (msg && msg->which_variant == meshtastic_FwplusDtn_data_tag) {
         // capability: mark sender as FW+
         markFwplusSeen(getFrom(&mp));
@@ -497,36 +506,53 @@ void DtnOverlayModule::handleReceipt(const meshtastic_MeshPacket &mp, const mesh
     ctrReceiptsReceived++; //fw+
 
     //fw+ interpret special FW+ version advertisements carried via receipt.reason
-    // Convention: high byte 0xF1 indicates version advertisement, low 2 bytes = version
-    if ((r.reason & 0xFF000000u) == 0xF1000000u) {
+    // Convention: reason field contains version number directly (8-bit, 0-255)
+    LOG_DEBUG("DTN: Processing receipt reason=0x%x status=%u", (unsigned)r.reason, (unsigned)r.status);
+    if (r.reason > 0 && r.reason <= 255) {
+        LOG_INFO("DTN: Version advertisement detected, reason=0x%x", (unsigned)r.reason);
         NodeNum origin = getFrom(&mp);
         bool hadVer = (fwplusVersionByNode.find(origin) != fwplusVersionByNode.end());
-        uint16_t ver = (uint16_t)((r.reason >> 8) & 0xFFFFu);
+        uint16_t ver = (uint16_t)r.reason;
         recordFwplusVersion(origin, ver);
-        // Optional hello-back: unicast our version to origin when we didn't know them yet
-        if (configHelloBackEnabled && !hadVer) {
-            // reply only to close ring (default: direct neighbor)
+        // Optional hello-back: unicast our version to origin (allow periodic responses for FW+DTN discovery)
+        LOG_DEBUG("DTN: Version advertisement from origin=0x%x ver=%u hadVer=%d", (unsigned)origin, (unsigned)ver, (int)hadVer);
+        if (configHelloBackEnabled) {
+            // reply to nodes up to 3 hops away (FW+DTN is alternative software)
             uint8_t hops = getHopsAway(origin);
+            LOG_DEBUG("DTN: Hello-back check: hops=%u maxRing=%u", (unsigned)hops, (unsigned)configHelloBackMaxRing);
             if (hops != 255 && hops <= configHelloBackMaxRing) {
-                // per-origin rate limit
+                // per-origin rate limit (more frequent for known FW+ nodes)
                 uint32_t nowMs = millis();
                 auto it = lastHelloBackToNodeMs.find(origin);
-                if (it == lastHelloBackToNodeMs.end() || (nowMs - it->second) >= configHelloBackMinIntervalMs) {
+                uint32_t requiredInterval = hadVer ? (configHelloBackMinIntervalMs / 2) : configHelloBackMinIntervalMs; // 30min for known, 1h for new
+                bool rateOk = (it == lastHelloBackToNodeMs.end() || (nowMs - it->second) >= requiredInterval);
+                LOG_DEBUG("DTN: Rate check: lastTx=%u required=%u rateOk=%d", 
+                         it == lastHelloBackToNodeMs.end() ? 0 : (unsigned)(nowMs - it->second), 
+                         (unsigned)requiredInterval, (int)rateOk);
+                if (rateOk) {
                     // channel utilization gate
-                    if (!(airTime && !airTime->isTxAllowedChannelUtil(true))) {
-                        uint32_t reason = 0xF1000000u;
-#ifdef FW_PLUS_VERSION
-                        uint16_t ourVer = (uint16_t)FW_PLUS_VERSION;
-#else
-                        uint16_t ourVer = 0;
-#endif
-                        reason |= ((uint32_t)ourVer << 8);
+                    bool channelOk = !(airTime && !airTime->isTxAllowedChannelUtil(true));
+                    LOG_DEBUG("DTN: Channel check: channelOk=%d", (int)channelOk);
+                    if (channelOk) {
+                        // reason is serialized as 8-bit, so use version directly
+                        uint32_t reason = (uint32_t)FW_PLUS_VERSION;
                         emitReceipt(origin, 0, meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_PROGRESSED, reason);
                         lastHelloBackToNodeMs[origin] = nowMs;
+                        LOG_INFO("DTN: Hello-back sent to origin=0x%x", (unsigned)origin);
+                    } else {
+                        LOG_DEBUG("DTN: Channel busy, hello-back blocked");
                     }
+                } else {
+                    LOG_DEBUG("DTN: Rate limited, hello-back blocked");
                 }
+            } else {
+                LOG_DEBUG("DTN: Origin too far (hops=%u > %u), hello-back blocked", (unsigned)hops, (unsigned)configHelloBackMaxRing);
             }
+        } else {
+            LOG_DEBUG("DTN: Hello-back disabled");
         }
+    } else {
+        LOG_DEBUG("DTN: Not a version advertisement (reason=0x%x, expected 0xF1...)", (unsigned)r.reason);
     }
     // If we get a native ROUTING_APP ACK/NAK echo for our original id, mark destination as stock for some time
     if (r.status == meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_DELIVERED) {
@@ -683,7 +709,7 @@ void DtnOverlayModule::tryForward(uint32_t id, Pending &p)
         p.nextAttemptMs = millis() + 3000;
         return;
     }
-    //fw+ custody handoff: optionally send to FW+ neighbor instead of final dest when far
+    //custody handoff: optionally send to FW+ neighbor instead of final dest when far
     NodeNum target = p.data.orig_to;
     if (configEnableFwplusHandoff) {
         uint8_t hopsToDest = getHopsAway(p.data.orig_to);
@@ -694,7 +720,7 @@ void DtnOverlayModule::tryForward(uint32_t id, Pending &p)
             }
         }
     }
-    //fw+ Only trigger traceroute if we are targeting final destination (no FW+ handoff) and confidence is low
+    //Only trigger traceroute if we are targeting final destination (no FW+ handoff) and confidence is low
     if (lowConf && target == p.data.orig_to && !isDirectNeighbor(p.data.orig_to)) {
         maybeTriggerTraceroute(p.data.orig_to);
         return; // give time for route discovery before attempting
@@ -717,7 +743,7 @@ void DtnOverlayModule::tryForward(uint32_t id, Pending &p)
     } else {
         mp->priority = meshtastic_MeshPacket_Priority_BACKGROUND;
     }
-    // Before sending, if we are further from the destination than the source, back off extra to favor closer relayers //fw+
+    // Before sending, if we are further from the destination than the source, back off extra to favor closer relayers
     uint8_t hopsToDest = getHopsAway(p.data.orig_to);
     uint8_t hopsToSrc = getHopsAway(p.data.orig_from);
     if (hopsToSrc != 255 && hopsToDest != 255 && hopsToDest > hopsToSrc) {
@@ -732,7 +758,7 @@ void DtnOverlayModule::tryForward(uint32_t id, Pending &p)
     lastForwardMs = millis(); 
     // update per-destination last tx (bounded map)
     lastDestTxMs[p.data.orig_to] = millis();
-    //fw+ remember preferred handoff per dest when we target FW+ (not the final dest)
+    //remember preferred handoff per dest when we target FW+ (not the final dest)
     if (target != p.data.orig_to) {
         auto &ph = preferredHandoffByDest[p.data.orig_to];
         ph.node = target;
@@ -885,16 +911,15 @@ void DtnOverlayModule::maybeAdvertiseFwplusVersion()
     if (lastAdvertiseMs == 0) lastAdvertiseMs = now - (uint32_t)random(interval);
     // One-shot early advertise shortly after module start to speed up discovery (unconditional broadcast)
     if (!firstAdvertiseDone && now - moduleStartMs >= configFirstAdvertiseDelayMs) {
+        LOG_INFO("DTN: Attempting first beacon after %u ms", (unsigned)(now - moduleStartMs));
         // Compose reason and send a broadcast immediately, bypassing interval/neighbor gates //fw+
         // Only advertise if channel is not overloaded //fw+
         if (!(airTime && !airTime->isTxAllowedChannelUtil(true))) {
-            uint32_t reason = 0xF1000000u;
-#ifdef FW_PLUS_VERSION
-            uint16_t ver = (uint16_t)FW_PLUS_VERSION;
-#else
-            uint16_t ver = 0;
-#endif
-            reason |= ((uint32_t)ver << 8);
+            LOG_INFO("DTN: Channel clear, sending beacon");
+            // reason is serialized as 8-bit, so we can only use lower 8 bits
+            // Use version as reason (0-255 range)
+            uint32_t reason = (uint32_t)FW_PLUS_VERSION;
+            LOG_INFO("DTN: Sending beacon with reason=0x%x ver=%u FW_PLUS_VERSION=%d", (unsigned)reason, (unsigned)FW_PLUS_VERSION, FW_PLUS_VERSION);
 
             meshtastic_FwplusDtn msg = meshtastic_FwplusDtn_init_zero;
             msg.which_variant = meshtastic_FwplusDtn_receipt_tag;
@@ -910,7 +935,12 @@ void DtnOverlayModule::maybeAdvertiseFwplusVersion()
                 p->priority = meshtastic_MeshPacket_Priority_BACKGROUND;
                 service->sendToMesh(p, RX_SRC_LOCAL, false);
                 lastAdvertiseMs = now;
+                LOG_INFO("DTN: Beacon sent successfully");
+            } else {
+                LOG_WARN("DTN: Channel busy, beacon blocked");
             }
+        } else {
+            LOG_WARN("DTN: First beacon not ready yet, %u ms < %u ms", (unsigned)(now - moduleStartMs), (unsigned)configFirstAdvertiseDelayMs);
         }
         firstAdvertiseDone = true;
         return;
@@ -920,27 +950,26 @@ void DtnOverlayModule::maybeAdvertiseFwplusVersion()
     // Only advertise if channel is not overloaded //fw+
     if (airTime && !airTime->isTxAllowedChannelUtil(true)) return;
 
-    // Only advertise if needed, except in cold-start where we allow periodic seeding broadcasts
-    bool need = false;
+    // Always advertise periodically for FW+DTN discovery (less restrictive)
+    // Only skip if we have many known FW+ neighbors to avoid spam
+    bool need = true;
     int totalNodes = nodeDB->getNumMeshNodes();
+    int knownFwplusNeighbors = 0;
     for (int i = 0; i < totalNodes; ++i) {
         meshtastic_NodeInfoLite *ni = nodeDB->getMeshNodeByIndex(i);
         if (!ni) continue;
         if (ni->num == nodeDB->getNodeNum()) continue;
-        if (ni->hops_away != 0) continue;
-        if (!isFwplus(ni->num)) continue;
-        if (fwplusVersionByNode.find(ni->num) == fwplusVersionByNode.end()) { need = true; break; }
+        if (ni->hops_away != 0) continue;  // still only direct neighbors for counting
+        if (isFwplus(ni->num) && fwplusVersionByNode.find(ni->num) != fwplusVersionByNode.end()) {
+            knownFwplusNeighbors++;
+        }
     }
+    // Skip only if we know many FW+ neighbors (reduce spam in dense networks)
+    if (knownFwplusNeighbors >= 3) need = false;
     if (!need && knowsAnyFwplus) return;
 
-    // Compose reason: 0xF1VVVV00 (VVVV = FW+ version)
-    uint32_t reason = 0xF1000000u;
-#ifdef FW_PLUS_VERSION
-    uint16_t ver = (uint16_t)FW_PLUS_VERSION;
-#else
-    uint16_t ver = 0;
-#endif
-    reason |= ((uint32_t)ver << 8);
+    // Compose reason: version number directly (8-bit, 0-255)
+    uint32_t reason = (uint32_t)FW_PLUS_VERSION;
 
     meshtastic_FwplusDtn msg = meshtastic_FwplusDtn_init_zero;
     msg.which_variant = meshtastic_FwplusDtn_receipt_tag;

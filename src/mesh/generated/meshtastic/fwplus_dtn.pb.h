@@ -45,7 +45,7 @@ typedef struct _meshtastic_FwplusDtnData {
 typedef struct _meshtastic_FwplusDtnReceipt {
     uint32_t orig_id;
     meshtastic_FwplusDtnStatus status;
-    uint8_t reason; /* optional routing error / failure reason */
+    uint16_t reason; /* optional routing error / failure reason */
 } meshtastic_FwplusDtnReceipt;
 
 /* Top-level container for FW+ DTN app messages */
@@ -137,7 +137,7 @@ extern const pb_msgdesc_t meshtastic_FwplusDtn_msg;
 /* Maximum encoded size of messages (where known) */
 #define MESHTASTIC_MESHTASTIC_FWPLUS_DTN_PB_H_MAX_SIZE meshtastic_FwplusDtn_size
 #define meshtastic_FwplusDtnData_size            280
-#define meshtastic_FwplusDtnReceipt_size         11
+#define meshtastic_FwplusDtnReceipt_size         12
 #define meshtastic_FwplusDtn_size                283
 
 #ifdef __cplusplus

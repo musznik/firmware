@@ -130,9 +130,9 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     uint32_t configAdvertiseIntervalMs = 6UL * 60UL * 60UL * 1000UL;  // 6h
     uint32_t configAdvertiseJitterMs = 5UL * 60UL * 1000UL;           // ±5 min
     // Cold-start: faster seeding cadence until we learn at least one FW+ peer
-    uint32_t configAdvertiseIntervalUnknownMs = 2UL * 60UL * 60UL * 1000UL; // 2h
+    uint32_t configAdvertiseIntervalUnknownMs = 60UL * 60UL * 1000UL; // 1h (balanced cold-start discovery)
     // One-shot early advertise after enable/start
-    uint32_t configFirstAdvertiseDelayMs = 15000;                      // 15s
+    uint32_t configFirstAdvertiseDelayMs = 60UL * 1000UL;              // 60s (allow modules to stabilize)
     uint32_t configFarMinTtlFracPercent = 60;      // far nodes wait longer before acting
     uint32_t configOriginProgressMinIntervalMs = 15000; // per-source min interval for milestone
     // Proactive route discovery throttle
@@ -164,8 +164,8 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     bool firstAdvertiseDone = false; //fw+
     // Hello-back unicast reply throttling
     bool configHelloBackEnabled = true;
-    uint32_t configHelloBackMinIntervalMs = 2UL * 60UL * 60UL * 1000UL; // per-origin min interval 2h
-    uint8_t configHelloBackMaxRing = 0; // reply only to direct neighbors by default
+    uint32_t configHelloBackMinIntervalMs = 60UL * 60UL * 1000UL; // per-origin min interval 1h (balanced for network efficiency)
+    uint8_t configHelloBackMaxRing = 3; // reply to nodes up to 3 hops away (FW+DTN is alternative software)
     uint32_t configHelloBackJitterMs = 3000; // small jitter on replies
 
     // Capability cache of FW+ peers

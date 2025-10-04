@@ -17,15 +17,14 @@
 #include "StoreForwardModule.h" //fw+
 #include "DtnOverlayModule.h" //fw+
 #include "BroadcastAssistModule.h" //fw+
- 
+#include "FwPlusVersion.h" //fw+
+
 
 OnDemandModule *onDemandModule;
 static const int MAX_NODES_PER_PACKET = 10;
 static const int MAX_PACKET_SIZE = 190;
 #define NUM_ONLINE_SECS (60 * 60 * 2) 
 #define MAGIC_USB_BATTERY_LEVEL 101
-
-#define FW_PLUS_VERSION 46
 
 int32_t OnDemandModule::runOnce()
 {
