@@ -14,10 +14,10 @@
 #include "ProtobufModule.h"
 #include "SPILock.h"
 #include "FSCommon.h"
-#include "StoreForwardModule.h" //fw+
-#include "DtnOverlayModule.h" //fw+
-#include "BroadcastAssistModule.h" //fw+
-#include "FwPlusVersion.h" //fw+
+#include "StoreForwardModule.h"
+#include "DtnOverlayModule.h"
+#include "BroadcastAssistModule.h"
+#include "FwPlusVersion.h"
 
 
 OnDemandModule *onDemandModule;
