@@ -378,12 +378,15 @@ ErrorCode Router::send(meshtastic_MeshPacket *p)
         if (dtnOverlayModule && dtnOverlayModule->shouldInterceptLocalDM() &&
             p->decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP && !isBroadcast(p->to)) {
             uint32_t ttlMinutes = dtnOverlayModule->getTtlMinutes();
-            uint32_t deadline = (getValidTime(RTCQualityFromNet) * 1000UL) + ttlMinutes * 60UL * 1000UL;
+            //fw+ Fix overflow: use 64-bit arithmetic for deadline calculation
+            uint64_t nowSec = getValidTime(RTCQualityFromNet);
+            uint64_t deadline = (nowSec * 1000ULL) + (ttlMinutes * 60ULL * 1000ULL);
             //fw+ enqueue plaintext payload for DTN; allow proxy fallback later
-            dtnOverlayModule->enqueueFromCaptured(p->id, getFrom(p), p->to, p->channel, deadline,
+            dtnOverlayModule->enqueueFromCaptured(p->id, getFrom(p), p->to, p->channel, (uint32_t)deadline,
                                                   false, p->decoded.payload.bytes, p->decoded.payload.size, true);
-            // notify phone that it is queued (ACK UX handled by DTN receipts)
-            abortSendAndNak(meshtastic_Routing_Error_NONE, p); // release original packet
+            //fw+ Don't send ACK here - let DTN module handle ACK after actual delivery
+            // This prevents "queued" status in Android app - DTN will send proper ACK after delivery
+            packetPool.release(p);
             return meshtastic_Routing_Error_NONE;
         }
 #endif
