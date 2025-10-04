@@ -55,9 +55,15 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     {
         if (!p) return false;
         if (!isEnabled()) return false; //fw+ allow full disable via ModuleConfig
+        
         // Accept our private FW+ DTN port
         if (p->which_payload_variant == meshtastic_MeshPacket_decoded_tag &&
             p->decoded.portnum == meshtastic_PortNum_FWPLUS_DTN_APP) return true;
+            
+        // fw+ Also accept OnDemand packets for DTN discovery
+        if (p->which_payload_variant == meshtastic_MeshPacket_decoded_tag &&
+            p->decoded.portnum == meshtastic_PortNum_ON_DEMAND_APP) return true;
+            
         // Hard-disable capture of foreign unicasts by default
         return false;
     }
@@ -283,6 +289,13 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     // Handoff candidate validation helpers (private - access to Pending struct)
     bool isValidHandoffCandidate(NodeNum candidate, NodeNum dest, const Pending &p) const;
     bool hasValidHandoffCandidates(NodeNum dest, const Pending &p) const;
+    
+    // Route invalidation for mobile nodes
+    void invalidateStaleRoutes();
+    bool isRouteStale(NodeNum dest) const;
+    
+    // OnDemand response observation for DTN discovery
+    void observeOnDemandResponse(const meshtastic_MeshPacket &mp);
 };
 
 extern DtnOverlayModule *dtnOverlayModule; //fw+

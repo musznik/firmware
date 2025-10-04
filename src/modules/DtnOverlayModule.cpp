@@ -11,6 +11,7 @@ Ingress sources
 - Local send interception (DTN-first): Router diverts private TEXT to DTN queue with a TTL; no immediate native transmit.
 - FWPLUS_DTN DATA heard over the mesh: always accepted and scheduled; if we are the destination we unwrap and deliver.
 - Optional capture of foreign (non-DTN) unicasts is conservative and disabled by default to avoid DTN-on-DTN recursion.
+- OnDemand response observation: actively discovers DTN-enabled nodes from OnDemand stats responses for proactive handoff.
 
 Scheduling
 - First attempt is delayed using: initial base delay, deterministic anti-storm slotting (mobility-aware), per-destination
@@ -23,6 +24,9 @@ Forwarding and Handoff
   • Use `NextHopRouter` route snapshot: if `next_hop` exists, map it to a direct neighbor and hand off there.
   • Otherwise select up to three FW+ neighbors (version‑gated) that are closer (lower hops from us and to dest) and rotate
     between them across retries. A per‑destination cache remembers the preferred handoff.
+  • Skip candidates with unknown routes to destination (ad != 255) to prevent invalid handoffs.
+  • Prevent routing loops by checking lastCarrier and avoiding self/destination in handoff selection.
+  • Fallback to broadcast when no valid handoff candidates are available.
 - Priority is BACKGROUND by default; escalate to DEFAULT only in the TTL tail and only when near the destination (ring‑gated).
 - Global active cap and per‑destination spacing limit concurrent attempts.
 
@@ -30,6 +34,7 @@ Receipts & Milestones
 - Any receipt (DELIVERED/PROGRESSED/EXPIRED) clears local pending and sets a tombstone to avoid re‑enqueue storms.
 - Milestone PROGRESSED is emitted sparingly: once per id, ring‑gated near source/destination, auto‑limited under load
   (channel utilization, neighbor count, pending size) with hysteresis.
+- Version advertisement: uses 16-bit reason field to carry FW+ version number directly (0-65535 range).
 
 Probing, Traceroute & Fallback
 - Near TTL tail we may probe FW+ peers (light overlay receipt) and, if allowed and the destination is not FW+, send a
@@ -38,9 +43,16 @@ Probing, Traceroute & Fallback
   traceroute (rate‑limited) to build routing confidence before attempting overlay forwarding. We do not probe when handing
   custody to a FW+ neighbor.
 
-Version Advertisement
-- One‑shot public broadcast of FW+ version ~15 s after start (channel‑utilization‑gated), then periodic passive discovery
+Version Advertisement & Discovery
+- One‑shot public broadcast of FW+ version ~60s after start (channel‑utilization‑gated), then periodic passive discovery
   beacons when there are direct FW+ neighbors without a known version.
+- Hello-back mechanism: responds to version advertisements with unicast version receipts (up to 3 hops away).
+- OnDemand discovery: observes OnDemand responses to discover DTN-enabled nodes and proactively probes them for FW+ version.
+
+Mobility Adaptation
+- Route invalidation: periodically invalidates stale routes for mobile nodes based on last_heard time and mobility factor.
+- Adaptive timeouts: shorter timeouts for mobile nodes (15-30min) vs stationary nodes (2h).
+- Mobility-aware scheduling: reduced spacing and earlier attempts for mobile nodes.
 
 Airtime protections
 - Channel utilization gate; deterministic election and mobility‑aware slotting; per‑destination spacing; global active cap;
@@ -59,6 +71,7 @@ Airtime protections
 #include "modules/RoutingModule.h"
 #include "mesh/NextHopRouter.h" //fw+
 #include "FwPlusVersion.h" //fw+
+#include "mesh/generated/meshtastic/ondemand.pb.h" //fw+
 #include <pb_encode.h>
 #include <cstring>
 
@@ -197,6 +210,8 @@ int32_t DtnOverlayModule::runOnce()
     if (!configEnabled) return 1000; //fw+ disabled: idle
     //fw+ periodically advertise our FW+ version for passive discovery
     maybeAdvertiseFwplusVersion();
+    //fw+ periodically invalidate stale routes for mobile nodes
+    invalidateStaleRoutes();
     //simple scheduler: attempt forwards whose time arrived
     uint32_t now = millis();
     uint32_t nowEpoch = getValidTime(RTCQualityFromNet) * 1000UL;
@@ -419,6 +434,11 @@ bool DtnOverlayModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, m
                     }
                 }
             }
+        }
+        
+        // fw+ Observe OnDemand responses to discover DTN-enabled nodes
+        if (mp.decoded.portnum == meshtastic_PortNum_ON_DEMAND_APP) {
+            observeOnDemandResponse(mp);
         }
     }
     return false; //do not consume non-DTN packets; allow normal processing
@@ -1127,4 +1147,119 @@ NodeNum DtnOverlayModule::chooseHandoffTarget(NodeNum dest, uint32_t origId, Pen
     
     LOG_DEBUG("DTN: Selected handoff candidate: 0x%x (index=%u)", (unsigned)pick, (unsigned)p.handoffIndex);
     return pick;
+}
+
+// Purpose: invalidate stale routes for mobile nodes to prevent using outdated handoff candidates
+// Effect: removes routes to nodes that are no longer reachable or have low confidence
+void DtnOverlayModule::invalidateStaleRoutes()
+{
+    float mobility = fwplus_getMobilityFactor01();
+    
+    // Only invalidate if we're mobile (mobility > 0.3) to avoid disrupting stable nodes
+    if (mobility < 0.3f) return;
+    
+    // Check all known FW+ nodes for stale routes
+    for (auto it = fwplusVersionByNode.begin(); it != fwplusVersionByNode.end();) {
+        NodeNum node = it->first;
+        
+        if (isRouteStale(node)) {
+            LOG_INFO("DTN: Invalidating stale route to mobile node 0x%x (mobility=%.2f)", (unsigned)node, mobility);
+            
+            // Remove from FW+ version tracking
+            it = fwplusVersionByNode.erase(it);
+            
+            // Also penalize route in NextHopRouter if available
+            if (router) {
+                auto nh = static_cast<NextHopRouter *>(router);
+                nh->penalizeRouteOnFailed(0, node, 0, meshtastic_Routing_Error_MAX_RETRANSMIT); // Strong penalty for stale route
+            }
+        } else {
+            ++it;
+        }
+    }
+}
+
+// Purpose: check if a route to a destination is stale based on mobility and time
+// Returns: true if route should be considered stale and invalidated
+bool DtnOverlayModule::isRouteStale(NodeNum dest) const
+{
+    uint32_t now = millis();
+    float mobility = fwplus_getMobilityFactor01();
+    
+    // Get node info to check last seen time
+    meshtastic_NodeInfoLite *node = nodeDB->getMeshNode(dest);
+    if (!node) return true; // No node info = stale
+    
+    // Calculate stale timeout based on mobility
+    // Mobile nodes: 30min, stationary: 2h
+    uint32_t staleTimeoutMs = 30UL * 60UL * 1000UL; // 30min base
+    if (mobility < 0.3f) {
+        staleTimeoutMs = 2UL * 60UL * 60UL * 1000UL; // 2h for stationary
+    } else if (mobility > 0.7f) {
+        staleTimeoutMs = 15UL * 60UL * 1000UL; // 15min for very mobile
+    }
+    
+    // Check if we haven't seen this node recently
+    uint32_t lastSeen = node->last_heard * 1000UL; // Convert to ms
+    if (now - lastSeen > staleTimeoutMs) {
+        LOG_DEBUG("DTN: Route to 0x%x is stale (last_heard=%u, timeout=%u, mobility=%.2f)", 
+                 (unsigned)dest, (unsigned)lastSeen, (unsigned)staleTimeoutMs, mobility);
+        return true;
+    }
+    
+    // Check if node is too far away (hops > 3 for mobile nodes)
+    if (mobility > 0.5f && node->hops_away > 3) {
+        LOG_DEBUG("DTN: Route to 0x%x is too far for mobile node (hops=%u, mobility=%.2f)", 
+                 (unsigned)dest, (unsigned)node->hops_away, mobility);
+        return true;
+    }
+    
+    return false;
+}
+
+// Purpose: observe OnDemand responses to discover DTN-enabled nodes
+// Effect: adds DTN-enabled nodes to fwplusVersionByNode for future handoff consideration
+void DtnOverlayModule::observeOnDemandResponse(const meshtastic_MeshPacket &mp)
+{
+    // Only process if we don't already know this node as FW+
+    NodeNum origin = getFrom(&mp);
+    if (isFwplus(origin)) return;
+    
+    // Decode OnDemand response
+    meshtastic_OnDemand ondemand = meshtastic_OnDemand_init_zero;
+    if (!pb_decode_from_bytes(mp.decoded.payload.bytes, mp.decoded.payload.size, &meshtastic_OnDemand_msg, &ondemand)) {
+        return;
+    }
+    
+    // Check if this is a DTN overlay stats response
+    if (ondemand.which_variant == meshtastic_OnDemand_response_tag &&
+        ondemand.variant.response.response_type == meshtastic_OnDemandType_RESPONSE_DTN_OVERLAY_STATS) {
+        
+        auto &dtnStats = ondemand.variant.response.response_data.dtn_overlay_stats;
+        if (dtnStats.has_enabled && dtnStats.enabled) {
+            // This node has DTN enabled! Add it to our FW+ tracking
+            LOG_INFO("DTN: Discovered DTN-enabled node 0x%x via OnDemand response", (unsigned)origin);
+            
+            // Add to FW+ version tracking (use current FW+ version as placeholder)
+            fwplusVersionByNode[origin] = FW_PLUS_VERSION;
+            
+            // Also update last seen time
+            meshtastic_NodeInfoLite *node = nodeDB->getMeshNode(origin);
+            if (node) {
+                node->last_heard = getTime();
+            }
+            
+            // fw+ Proactively probe this DTN-enabled node to get its actual FW+ version
+            // This helps us learn the real version instead of using placeholder
+            uint32_t nowMs = millis();
+            auto it = lastTelemetryProbeToNodeMs.find(origin);
+            if (it == lastTelemetryProbeToNodeMs.end() || (nowMs - it->second) >= configTelemetryProbeCooldownMs) {
+                if (!(airTime && !airTime->isTxAllowedChannelUtil(true))) {
+                    LOG_DEBUG("DTN: Proactively probing DTN-enabled node 0x%x for FW+ version", (unsigned)origin);
+                    maybeProbeFwplus(origin);
+                    lastTelemetryProbeToNodeMs[origin] = nowMs;
+                }
+            }
+        }
+    }
 }
