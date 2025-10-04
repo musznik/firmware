@@ -38,7 +38,8 @@ Receipts & Milestones
 
 Probing, Traceroute & Fallback
 - Near TTL tail we may probe FW+ peers (light overlay receipt) and, if allowed and the destination is not FW+, send a
-  native DM as a proxy fallback. Fallback is encrypted by the radio layer (PKI/PSK), without spoofing the original sender.
+  native DM as a proxy fallback. Fallback preserves original sender identity (spoofs orig_from) for proper decryption
+  by stock receivers, who need the original sender's key to decrypt encrypted payloads.
 - If DV‑ETX confidence to the destination is low and no FW+ handoff candidate is available, automatically trigger a
   traceroute (rate‑limited) to build routing confidence before attempting overlay forwarding. We do not probe when handing
   custody to a FW+ neighbor.
@@ -808,8 +809,9 @@ bool DtnOverlayModule::sendProxyFallback(uint32_t id, Pending &p)
     meshtastic_MeshPacket *dm = allocDataPacket();
     if (!dm) { p.nextAttemptMs = millis() + 3000; return true; }
     dm->to = p.data.orig_to;
-    //fw+ ensure PKI/link encryption remains valid: do NOT spoof original sender here.
-    // Leave 'from' as our node so the Router can sign/encrypt as us when using PKI.
+    //fw+ spoof original sender for proper decryption by stock receiver
+    // Stock nodes need the original sender's key to decrypt the payload
+    dm->from = p.data.orig_from;
     dm->channel = p.data.channel;
     if (p.data.is_encrypted) {
         dm->which_payload_variant = meshtastic_MeshPacket_encrypted_tag;
