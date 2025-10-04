@@ -130,7 +130,7 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     uint32_t configAdvertiseIntervalMs = 6UL * 60UL * 60UL * 1000UL;  // 6h
     uint32_t configAdvertiseJitterMs = 5UL * 60UL * 1000UL;           // ±5 min
     // Cold-start: faster seeding cadence until we learn at least one FW+ peer
-    uint32_t configAdvertiseIntervalUnknownMs = 60UL * 60UL * 1000UL; // 1h (balanced cold-start discovery)
+    uint32_t configAdvertiseIntervalUnknownMs = 120UL * 60UL * 1000UL; // 2h (balanced cold-start discovery)
     // One-shot early advertise after enable/start
     uint32_t configFirstAdvertiseDelayMs = 60UL * 1000UL;              // 60s (allow modules to stabilize)
     uint32_t configFarMinTtlFracPercent = 60;      // far nodes wait longer before acting
@@ -228,6 +228,7 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
         return 255; // unknown
     }
 
+
     uint32_t computeAdaptiveGraceMs(int8_t rxSnr, NodeNum dest) const
     {
         uint32_t base = configGraceAckMs;
@@ -278,6 +279,10 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
 
     // Adaptive milestone emission decision
     bool shouldEmitMilestone(NodeNum src, NodeNum dst);
+
+    // Handoff candidate validation helpers (private - access to Pending struct)
+    bool isValidHandoffCandidate(NodeNum candidate, NodeNum dest, const Pending &p) const;
+    bool hasValidHandoffCandidates(NodeNum dest, const Pending &p) const;
 };
 
 extern DtnOverlayModule *dtnOverlayModule; //fw+

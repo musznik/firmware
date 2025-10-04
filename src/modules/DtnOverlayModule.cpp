@@ -714,9 +714,19 @@ void DtnOverlayModule::tryForward(uint32_t id, Pending &p)
     if (configEnableFwplusHandoff) {
         uint8_t hopsToDest = getHopsAway(p.data.orig_to);
         if (hopsToDest != 255 && hopsToDest >= configHandoffMinRing) {
-            NodeNum cand = chooseHandoffTarget(p.data.orig_to, id, p);
-            if (cand != 0 && cand != p.data.orig_to) {
-                target = cand;
+            // Check if we have any valid handoff candidates before attempting selection
+            if (hasValidHandoffCandidates(p.data.orig_to, p)) {
+                NodeNum cand = chooseHandoffTarget(p.data.orig_to, id, p);
+                if (cand != 0 && isValidHandoffCandidate(cand, p.data.orig_to, p)) {
+                    target = cand;
+                    LOG_DEBUG("DTN: Using handoff target: 0x%x (hops=%u)", (unsigned)target, (unsigned)hopsToDest);
+                } else {
+                    LOG_DEBUG("DTN: Handoff selection failed, using broadcast fallback");
+                    target = NODENUM_BROADCAST;
+                }
+            } else {
+                LOG_DEBUG("DTN: No valid handoff candidates available, using broadcast fallback");
+                target = NODENUM_BROADCAST;
             }
         }
     }
@@ -987,6 +997,39 @@ void DtnOverlayModule::maybeAdvertiseFwplusVersion()
     lastAdvertiseMs = now;
 }
 
+// Purpose: check if a handoff candidate is valid (not self, dest, or lastCarrier)
+// Returns: true if candidate is safe to use
+bool DtnOverlayModule::isValidHandoffCandidate(NodeNum candidate, NodeNum dest, const Pending &p) const
+{
+    if (candidate == 0) return false;
+    if (candidate == nodeDB->getNodeNum()) return false;
+    if (candidate == dest) return false;
+    if (candidate == p.lastCarrier) return false;
+    return true;
+}
+
+// Purpose: check if we have any valid handoff candidates for destination
+// Returns: true if at least one valid candidate exists
+bool DtnOverlayModule::hasValidHandoffCandidates(NodeNum dest, const Pending &p) const
+{
+    int totalNodes = nodeDB->getNumMeshNodes();
+    for (int i = 0; i < totalNodes; ++i) {
+        meshtastic_NodeInfoLite *ni = nodeDB->getMeshNodeByIndex(i);
+        if (!ni) continue;
+        if (!isFwplus(ni->num)) continue;
+        if (!isValidHandoffCandidate(ni->num, dest, p)) continue;
+        
+        auto itVer = fwplusVersionByNode.find(ni->num);
+        if (itVer == fwplusVersionByNode.end() || itVer->second < configMinFwplusVersionForHandoff) continue;
+        
+        uint8_t ad = getHopsAway(dest);
+        if (ad == 255) continue; // unknown route
+        
+        return true; // Found at least one valid candidate
+    }
+    return false;
+}
+
 //fw+ FW+ custody handoff target selection
 NodeNum DtnOverlayModule::chooseHandoffTarget(NodeNum dest, uint32_t origId, Pending &p)
 {
@@ -1044,6 +1087,10 @@ NodeNum DtnOverlayModule::chooseHandoffTarget(NodeNum dest, uint32_t origId, Pen
             if (itVer == fwplusVersionByNode.end() || itVer->second < configMinFwplusVersionForHandoff) continue;
             uint8_t au = ni->hops_away;
             uint8_t ad = getHopsAway(dest);
+            
+            // Skip candidates with unknown route to destination (255 = unknown)
+            if (ad == 255) continue;
+            
             auto better = [](uint8_t au1, uint8_t ad1, uint8_t au2, uint8_t ad2, NodeNum n1, NodeNum n2) {
                 if (au1 != au2) return au1 < au2;
                 if (ad1 != ad2) return ad1 < ad2;
@@ -1071,7 +1118,13 @@ NodeNum DtnOverlayModule::chooseHandoffTarget(NodeNum dest, uint32_t origId, Pen
     // Rotate through candidates between retries
     NodeNum pick = p.handoffCandidates[p.handoffIndex % p.handoffCount];
     p.handoffIndex = (p.handoffIndex + 1) % 8; // bounded increment
-    // avoid accidental cycles
-    if (pick == dest || pick == nodeDB->getNodeNum()) return 0;
+    
+    // Avoid accidental cycles and routing loops
+    if (pick == dest || pick == nodeDB->getNodeNum() || pick == p.lastCarrier) {
+        LOG_DEBUG("DTN: Skipping handoff candidate (dest/self/lastCarrier): 0x%x", (unsigned)pick);
+        return 0;
+    }
+    
+    LOG_DEBUG("DTN: Selected handoff candidate: 0x%x (index=%u)", (unsigned)pick, (unsigned)p.handoffIndex);
     return pick;
 }
