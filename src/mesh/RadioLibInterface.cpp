@@ -116,16 +116,21 @@ bool RadioLibInterface::receiveDetected(uint16_t irq, ulong syncWordHeaderValidF
     if (detected) {
         if (!activeReceiveStart) {
             activeReceiveStart = millis();
-        } else if (!Throttle::isWithinTimespanMs(activeReceiveStart, 2 * preambleTimeMsec) && !(irq & syncWordHeaderValidFlag)) {
-            // The HEADER_VALID flag should be set by now if it was really a packet, so ignore PREAMBLE_DETECTED flag
-            activeReceiveStart = 0;
-            LOG_DEBUG("Ignore false preamble detection");
-            return false;
-        } else if (!Throttle::isWithinTimespanMs(activeReceiveStart, maxPacketTimeMsec)) {
-            // We should have gotten an RX_DONE IRQ by now if it was really a packet, so ignore HEADER_VALID flag
-            activeReceiveStart = 0;
-            LOG_DEBUG("Ignore false header detection");
-            return false;
+        } else if (!Throttle::isWithinTimespanMs(activeReceiveStart, 2 * preambleTimeMsec)) {
+            if (!(irq & syncWordHeaderValidFlag)) {
+                // The HEADER_VALID flag should be set by now if it was really a packet, so ignore PREAMBLE_DETECTED flag
+                activeReceiveStart = 0;
+                LOG_DEBUG("Ignore false preamble detection");
+                return false;
+            } else {
+                uint32_t maxPacketTimeMsec = getPacketTime(meshtastic_Constants_DATA_PAYLOAD_LEN + sizeof(PacketHeader));
+                if (!Throttle::isWithinTimespanMs(activeReceiveStart, maxPacketTimeMsec)) {
+                    // We should have gotten an RX_DONE IRQ by now if it was really a packet, so ignore HEADER_VALID flag
+                    activeReceiveStart = 0;
+                    LOG_DEBUG("Ignore false header detection");
+                    return false;
+                }
+            }
         }
     }
     return detected;
@@ -173,7 +178,12 @@ ErrorCode RadioLibInterface::send(meshtastic_MeshPacket *p)
     
 
     LOG_DEBUG("txGood=%d,txRelay=%d,rxGood=%d,rxBad=%d", txGood, txRelay, rxGood, rxBad);
-    ErrorCode res = txQueue.enqueue(p) ? ERRNO_OK : ERRNO_UNKNOWN;
+    bool dropped = false;
+    ErrorCode res = txQueue.enqueue(p, &dropped) ? ERRNO_OK : ERRNO_UNKNOWN;
+
+    if (dropped) {
+        txDrop++;
+    }
 
     if (res != ERRNO_OK) { // we weren't able to queue it, so we must drop it to prevent leaks
         packetPool.release(p);
@@ -360,10 +370,14 @@ void RadioLibInterface::clampToLateRebroadcastWindow(NodeNum from, PacketId id)
     meshtastic_MeshPacket *p = txQueue.remove(from, id, true, false);
     if (p) {
         p->tx_after = millis() + getTxDelayMsecWeightedWorst(p->rx_snr);
-        if (txQueue.enqueue(p)) {
+        bool dropped = false;
+        if (txQueue.enqueue(p, &dropped)) {
             LOG_DEBUG("Move existing queued packet to the late rebroadcast window %dms from now", p->tx_after - millis());
         } else {
             packetPool.release(p);
+        }
+        if (dropped) {
+            txDrop++;
         }
     }
 }
@@ -417,8 +431,6 @@ void RadioLibInterface::completeSending()
 
 void RadioLibInterface::handleReceiveInterrupt()
 {
-    uint32_t xmitMsec;
-
     // when this is called, we should be in receive mode - if we are not, just jump out instead of bombing. Possible Race
     // Condition?
     if (!isReceiving) {
@@ -431,12 +443,12 @@ void RadioLibInterface::handleReceiveInterrupt()
     // read the number of actually received bytes
     size_t length = iface->getPacketLength();
 
-    xmitMsec = getPacketTime(length);
+    uint32_t rxMsec = getPacketTime(length, true);
 
 #ifndef DISABLE_WELCOME_UNSET
     if (config.lora.region == meshtastic_Config_LoRaConfig_RegionCode_UNSET) {
         LOG_WARN("lora rx disabled: Region unset");
-        airTime->logAirtime(RX_ALL_LOG, xmitMsec);
+        airTime->logAirtime(RX_ALL_LOG, rxMsec);
         return;
     }
 #endif
@@ -452,7 +464,7 @@ void RadioLibInterface::handleReceiveInterrupt()
                   radioBuffer.header.to, radioBuffer.header.from, radioBuffer.header.flags);
         rxBad++;
 
-        airTime->logAirtime(RX_ALL_LOG, xmitMsec);
+        airTime->logAirtime(RX_ALL_LOG, rxMsec);
 
     } else {
         // Skip the 4 headers that are at the beginning of the rxBuf
@@ -462,7 +474,7 @@ void RadioLibInterface::handleReceiveInterrupt()
         if (payloadLen < 0) {
             LOG_WARN("Ignore received packet too short");
             rxBad++;
-            airTime->logAirtime(RX_ALL_LOG, xmitMsec);
+            airTime->logAirtime(RX_ALL_LOG, rxMsec);
         } else {
             rxGood++;
             // altered packet with "from == 0" can do Remote Node Administration without permission
@@ -500,7 +512,7 @@ void RadioLibInterface::handleReceiveInterrupt()
 
             printPacket("Lora RX", mp);
 
-            airTime->logAirtime(RX_LOG, xmitMsec);
+            airTime->logAirtime(RX_LOG, rxMsec);
 
             deliverToReceiver(mp);
         }
