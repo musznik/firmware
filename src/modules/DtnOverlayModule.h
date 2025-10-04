@@ -106,7 +106,7 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     // Config snapshot
     bool configEnabled = true;
     uint32_t configTtlMinutes = 4; //fw+ dampen overlay window
-    uint32_t configInitialDelayBaseMs = 8000;
+    uint32_t configInitialDelayBaseMs = 2000; //fw+ reduced from 8000ms for faster delivery
     uint32_t configRetryBackoffMs = 60000;
     uint32_t configMaxTries = 2; //fw+ fewer tries by default
     bool configLateFallback = false;
@@ -116,14 +116,14 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     uint32_t configMaxActiveDm = 1; //fw+ default: single active DM
     bool configProbeFwplusNearDeadline = false;
     // Heuristics to reduce airtime while keeping custody
-    uint32_t configGraceAckMs = 0;                 // delay first overlay attempt to allow direct delivery
+    uint32_t configGraceAckMs = 500;               //fw+ reduced grace period for faster delivery
     uint32_t configSuppressMsAfterForeign = 20000; // backoff when we see someone else carrying same id
     bool configSuppressIfDestNeighbor = true;      // extra conservative for direct neighbor
     bool configPreferBestRouteSlotting = true;     // earlier slotting if DV-ETX confidence
     uint8_t configMilestoneChUtilMaxPercent = 60;  // suppress milestones when channel utilization high
     uint32_t configTombstoneMs = 30000;            // ignore re-captures for this id for a short period
     // Topology-aware throttles
-    uint8_t configMaxRingsToAct = 2;               // action radius in hops
+    uint8_t configMaxRingsToAct = 4;               //fw+ increased action radius for mobile nodes
     uint8_t configMilestoneMaxRing = 1;            // milestone only if min(hops to src/dst) <= N
     uint8_t configTailEscalateMaxRing = 2;         // allow tail escalation when within two hops
     // FW+ custody handoff to a direct neighbor when dest is far
@@ -139,13 +139,17 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     uint32_t configAdvertiseIntervalUnknownMs = 120UL * 60UL * 1000UL; // 2h (balanced cold-start discovery)
     // One-shot early advertise after enable/start
     uint32_t configFirstAdvertiseDelayMs = 60UL * 1000UL;              // 60s (allow modules to stabilize)
-    uint32_t configFarMinTtlFracPercent = 60;      // far nodes wait longer before acting
+    uint32_t configFarMinTtlFracPercent = 20;      //fw+ reduced wait time for far nodes
     uint32_t configOriginProgressMinIntervalMs = 15000; // per-source min interval for milestone
     // Proactive route discovery throttle
     uint32_t configRouteProbeCooldownMs = 5UL * 60UL * 1000UL; // 5 minutes
     // Capture policy (default OFF)
     bool configCaptureForeignEncrypted = false;     // capture of foreign ENCRYPTED DMs
     bool configCaptureForeignText = false;          // capture of foreign TEXT DMs
+    
+    // Cold start handling
+    uint32_t configColdStartTimeoutMs = 30000;      //fw+ timeout before enabling native DM fallback
+    bool configColdStartNativeFallback = true;      //fw+ enable native DM when DTN is cold
     // Adaptive milestone limiter
     bool configMilestoneAutoLimiterEnabled = true;       // enable adaptive suppression
     uint8_t configMilestoneAutoSuppressHighChUtil = 55;  // suppress when >= this
@@ -259,11 +263,38 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     std::unordered_map<NodeNum, PreferredHandoffEntry> preferredHandoffByDest;
     uint32_t preferredHandoffTtlMs = 6UL * 60UL * 60UL * 1000UL; // 6h TTL
 
-    // DV-ETX gating wrapper
+    // DV-ETX gating wrapper - more permissive for mobile nodes
     bool hasSufficientRouteConfidence(NodeNum dest) const {
         if (!router) return true;
-        // minimal confidence 1 like S&F
+        // fw+ more permissive: allow attempts even with low confidence for mobile nodes
+        float mobility = fwplus_getMobilityFactor01();
+        if (mobility > 0.5f) return true; // Mobile nodes: always try
+        // minimal confidence 1 like S&F for stationary nodes
         return router->hasRouteConfidence(dest, 1);
+    }
+    
+    // Cold start detection - check if DTN has warmed up
+    bool isDtnCold() const {
+        if (!configColdStartNativeFallback) return false;
+        
+        // Check if we know any FW+ nodes
+        if (!fwplusVersionByNode.empty()) return false;
+        
+        // Check if enough time has passed since module start
+        uint32_t age = millis() - moduleStartMs;
+        return age < configColdStartTimeoutMs;
+    }
+    
+    // Check if DTN should intercept local DMs (cold start bypass)
+    bool shouldInterceptLocalDM() const {
+        if (!configEnabled) return false;
+        
+        // If cold start with native fallback enabled, don't intercept
+        if (isDtnCold() && configColdStartNativeFallback) {
+            return false;
+        }
+        
+        return true;
     }
 
     // Telemetry-triggered FW+ probe config/state
@@ -296,6 +327,9 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     
     // OnDemand response observation for DTN discovery
     void observeOnDemandResponse(const meshtastic_MeshPacket &mp);
+    
+    // Cold start aggressive discovery
+    void triggerAggressiveDiscovery();
 };
 
 extern DtnOverlayModule *dtnOverlayModule; //fw+

@@ -375,7 +375,7 @@ ErrorCode Router::send(meshtastic_MeshPacket *p)
     if (p->which_payload_variant == meshtastic_MeshPacket_decoded_tag) {
         //fw+ DTN-first: intercept private TEXT unicasts when DTN overlay is enabled
 #if __has_include("mesh/generated/meshtastic/fwplus_dtn.pb.h")
-        if (dtnOverlayModule && dtnOverlayModule->isEnabled() &&
+        if (dtnOverlayModule && dtnOverlayModule->shouldInterceptLocalDM() &&
             p->decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP && !isBroadcast(p->to)) {
             uint32_t ttlMinutes = dtnOverlayModule->getTtlMinutes();
             uint32_t deadline = (getValidTime(RTCQualityFromNet) * 1000UL) + ttlMinutes * 60UL * 1000UL;

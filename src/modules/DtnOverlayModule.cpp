@@ -158,7 +158,7 @@ DtnOverlayModule::DtnOverlayModule()
     //fw+ clarify: documented purpose/units for defaults below
     configEnabled = false; // module master switch (default OFF); enable via ModuleConfig
     configTtlMinutes = 4; // DTN custody TTL [minutes] for overlay items; shorter window to limit carry
-    configInitialDelayBaseMs = 8000; // base delay before first attempt [ms] (pre-slot election baseline)
+    configInitialDelayBaseMs = 2000; //fw+ reduced base delay before first attempt [ms] for faster delivery
     //fw+ soften: larger retry backoff to reduce overlay traffic rate
     configRetryBackoffMs = 120000; // retry backoff between attempts [ms]
     configMaxTries = 2; // max overlay forward attempts per item
@@ -170,7 +170,7 @@ DtnOverlayModule::DtnOverlayModule()
     configMaxActiveDm = 1; // global cap of active DTN attempts per scheduler pass
     configProbeFwplusNearDeadline = false; // send lightweight FW+ probe near TTL tail before fallback
     //conservative airtime heuristics
-    configGraceAckMs = 2500;                  // grace window to allow native direct/ACK before overlay [ms]
+    configGraceAckMs = 500;                   //fw+ reduced grace window for faster delivery [ms]
     configSuppressMsAfterForeign = 35000;     // suppression after hearing foreign overlay DATA [ms] (be polite)
     configSuppressIfDestNeighbor = true;      // add extra delay when destination is our direct neighbor
     configPreferBestRouteSlotting = true;     // start earlier if DV-ETX route confidence is good
@@ -201,6 +201,8 @@ DtnOverlayModule::DtnOverlayModule()
              (unsigned)configFarMinTtlFracPercent);
     LOG_INFO("DTN: Module created, first beacon in %u ms", (unsigned)configFirstAdvertiseDelayMs);
     LOG_INFO("DTN: FW_PLUS_VERSION=%d", FW_PLUS_VERSION);
+    LOG_INFO("DTN: Cold start timeout: %u ms, native fallback: %s", 
+             (unsigned)configColdStartTimeoutMs, configColdStartNativeFallback ? "enabled" : "disabled");
     moduleStartMs = millis(); //fw+
 }
 
@@ -498,6 +500,25 @@ void DtnOverlayModule::handleData(const meshtastic_MeshPacket &mp, const meshtas
     // Otherwise, coordinate with others: if we heard someone else carrying this id, suppress our attempt for a while 
     auto it = pendingById.find(d.orig_id);
     if (it == pendingById.end()) {
+        //fw+ Cold start check for intermediate nodes: if we're cold and destination is not FW+, use native DM fallback
+        if (isDtnCold() && !isFwplus(d.orig_to) && d.allow_proxy_fallback) {
+            LOG_INFO("DTN: Intermediate cold start - using native DM fallback for id=0x%x dest=0x%x", 
+                     d.orig_id, (unsigned)d.orig_to);
+            
+            // Trigger discovery and send native DM fallback
+            triggerAggressiveDiscovery();
+            
+            // Create a temporary pending entry just for fallback
+            Pending tempPending;
+            tempPending.data = d;
+            tempPending.tries = 0;
+            
+            if (sendProxyFallback(d.orig_id, tempPending)) {
+                LOG_INFO("DTN: Cold start fallback sent successfully");
+                return; // Don't enqueue for DTN processing
+            }
+        }
+        
         // First time we see this id (from overlay or capture) → schedule normally
         scheduleOrUpdate(d.orig_id, d);
         // If the packet we saw is already overlay DATA from someone else, apply initial suppression window 
@@ -706,6 +727,12 @@ void DtnOverlayModule::tryForward(uint32_t id, Pending &p)
         return;
     }
 
+    //fw+ Cold start handling: trigger aggressive discovery on first attempt
+    if (isDtnCold() && p.tries == 0) {
+        LOG_INFO("DTN: Cold start detected, triggering aggressive discovery");
+        triggerAggressiveDiscovery();
+    }
+    
     // Near-destination fast path: for close targets (<=1 hop), prefer native DM directly instead of DTN overlay
     {
         uint8_t hops = getHopsAway(p.data.orig_to);
@@ -1262,6 +1289,58 @@ void DtnOverlayModule::observeOnDemandResponse(const meshtastic_MeshPacket &mp)
                     lastTelemetryProbeToNodeMs[origin] = nowMs;
                 }
             }
+        }
+    }
+}
+
+// Purpose: trigger aggressive DTN discovery during cold start
+// Effect: sends immediate beacon and probes all known neighbors for FW+ capability
+void DtnOverlayModule::triggerAggressiveDiscovery()
+{
+    if (!configEnabled) return;
+    
+    // Send immediate beacon if channel is clear
+    if (!(airTime && !airTime->isTxAllowedChannelUtil(true))) {
+        LOG_INFO("DTN: Sending aggressive discovery beacon");
+        
+        uint32_t reason = (uint32_t)FW_PLUS_VERSION;
+        meshtastic_FwplusDtn msg = meshtastic_FwplusDtn_init_zero;
+        msg.which_variant = meshtastic_FwplusDtn_receipt_tag;
+        msg.variant.receipt.orig_id = 0;
+        msg.variant.receipt.status = meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_PROGRESSED;
+        msg.variant.receipt.reason = reason;
+        
+        meshtastic_MeshPacket *p = allocDataProtobuf(msg);
+        if (p) {
+            p->to = NODENUM_BROADCAST;
+            p->decoded.portnum = meshtastic_PortNum_FWPLUS_DTN_APP;
+            p->want_ack = false;
+            p->decoded.want_response = false;
+            p->priority = meshtastic_MeshPacket_Priority_DEFAULT; // Higher priority for discovery
+            service->sendToMesh(p, RX_SRC_LOCAL, false);
+            lastAdvertiseMs = millis();
+            LOG_INFO("DTN: Aggressive discovery beacon sent");
+        }
+    }
+    
+    // Probe all direct neighbors for FW+ capability
+    int totalNodes = nodeDB->getNumMeshNodes();
+    for (int i = 0; i < totalNodes; ++i) {
+        meshtastic_NodeInfoLite *ni = nodeDB->getMeshNodeByIndex(i);
+        if (!ni) continue;
+        if (ni->num == nodeDB->getNodeNum()) continue;
+        if (ni->hops_away != 0) continue; // Only direct neighbors
+        
+        // Skip if we already know this node
+        if (isFwplus(ni->num)) continue;
+        
+        // Send FW+ probe
+        uint32_t nowMs = millis();
+        auto it = lastTelemetryProbeToNodeMs.find(ni->num);
+        if (it == lastTelemetryProbeToNodeMs.end() || (nowMs - it->second) >= 30000) { // 30s cooldown for aggressive discovery
+            LOG_DEBUG("DTN: Aggressively probing neighbor 0x%x for FW+ capability", (unsigned)ni->num);
+            maybeProbeFwplus(ni->num);
+            lastTelemetryProbeToNodeMs[ni->num] = nowMs;
         }
     }
 }
