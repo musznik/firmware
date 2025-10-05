@@ -405,11 +405,9 @@ ErrorCode Router::send(meshtastic_MeshPacket *p)
         }
 #if !MESHTASTIC_EXCLUDE_MQTT
         // Only publish to MQTT if we're the original transmitter of the packet
-        if (moduleConfig.mqtt.enabled && isFromUs(p) && mqtt) {
+        if (moduleConfig.mqtt.enabled && mqtt) {
             //fw+ if out of pool memory, skip MQTT publish rather than crash
-            if (!p_decoded) {
-                LOG_WARN("Skip MQTT onSend due to packetPool exhaustion");
-            } else {
+          
                 //fw+ treat private TEXT as non-public if DTN overlay is enabled and MQTT encryption is OFF
                 bool isPrivateText = (p_decoded->decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP &&
                                       p_decoded->to != 0xffffffff);
@@ -423,7 +421,7 @@ ErrorCode Router::send(meshtastic_MeshPacket *p)
                 } else {
                     LOG_DEBUG("Skip MQTT uplink of private TEXT (DTN or prefs)\n");
                 }
-            }
+            
         }
 #endif
         //fw+ only report and release if allocation succeeded
