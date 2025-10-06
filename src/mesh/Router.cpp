@@ -409,6 +409,8 @@ ErrorCode Router::send(meshtastic_MeshPacket *p)
             //fw+ if out of pool memory, skip MQTT publish rather than crash
           
                 //fw+ treat private TEXT as non-public if DTN overlay is enabled and MQTT encryption is OFF
+                // This prevents DTN-delivered private messages from being published as plaintext to MQTT
+                // when encryption is disabled. DTN preserves privacy by not publishing intercepted private DMs.
                 bool isPrivateText = (p_decoded->decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP &&
                                       p_decoded->to != 0xffffffff);
                 bool blockPrivateDueToDTN = (isPrivateText && moduleConfig.has_dtn_overlay && moduleConfig.dtn_overlay.enabled &&
