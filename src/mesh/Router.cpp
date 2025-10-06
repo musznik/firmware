@@ -407,23 +407,23 @@ ErrorCode Router::send(meshtastic_MeshPacket *p)
         // Only publish to MQTT if we're the original transmitter of the packet
         if (moduleConfig.mqtt.enabled && mqtt) {
             //fw+ if out of pool memory, skip MQTT publish rather than crash
-          
-                //fw+ treat private TEXT as non-public if DTN overlay is enabled and MQTT encryption is OFF
-                // This prevents DTN-delivered private messages from being published as plaintext to MQTT
-                // when encryption is disabled. DTN preserves privacy by not publishing intercepted private DMs.
-                bool isPrivateText = (p_decoded->decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP &&
-                                      p_decoded->to != 0xffffffff);
-                bool blockPrivateDueToDTN = (isPrivateText && moduleConfig.has_dtn_overlay && moduleConfig.dtn_overlay.enabled &&
-                                             !moduleConfig.mqtt.encryption_enabled);
-                bool blockPrivateDueToPrefs = (isPrivateText && moduleConfig.nodemodadmin.do_not_send_prv_over_mqtt);
+            //fw+ treat private TEXT as non-public if DTN overlay is enabled and MQTT encryption is OFF
+            bool isPrivateText = false;
+            if (p_decoded && p_decoded->which_payload_variant == meshtastic_MeshPacket_decoded_tag) {
+                isPrivateText = (p_decoded->decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP &&
+                                 !isBroadcast(p_decoded->to) &&
+                                 p_decoded->to != 0xffffffff);
+            }
+            bool blockPrivateDueToDTN = (isPrivateText && moduleConfig.has_dtn_overlay && moduleConfig.dtn_overlay.enabled &&
+                                         !moduleConfig.mqtt.encryption_enabled);
+            bool blockPrivateDueToPrefs = (isPrivateText && moduleConfig.nodemodadmin.do_not_send_prv_over_mqtt);
 
-                // Only publish to MQTT only public messages
-                if (!(blockPrivateDueToDTN || blockPrivateDueToPrefs)) {
-                    mqtt->onSend(*p, *p_decoded, chIndex);
-                } else {
-                    LOG_DEBUG("Skip MQTT uplink of private TEXT (DTN or prefs)\n");
-                }
-            
+            // Only publish to MQTT public messages
+            if (!(blockPrivateDueToDTN || blockPrivateDueToPrefs)) {
+                mqtt->onSend(*p, *p_decoded, chIndex);
+            } else {
+                LOG_DEBUG("Skip MQTT uplink of private TEXT (DTN or prefs)\n");
+            }
         }
 #endif
         //fw+ only report and release if allocation succeeded

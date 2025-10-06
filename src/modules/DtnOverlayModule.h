@@ -156,6 +156,8 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     uint32_t configOriginProgressMinIntervalMs = 15000; // per-source min interval for milestone
     // Proactive route discovery throttle
     uint32_t configRouteProbeCooldownMs = 5UL * 60UL * 1000UL; // 5 minutes
+    // Enhanced monitoring intervals
+    uint32_t configDetailedLogIntervalMs = 600000;      // 10 minutes
     // Capture policy (default OFF)
     bool configCaptureForeignEncrypted = false;     // capture of foreign ENCRYPTED DMs
     bool configCaptureForeignText = false;          // capture of foreign TEXT DMs
@@ -186,6 +188,7 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     uint32_t moduleStartMs = 0;   //fw+
     bool firstAdvertiseDone = false; //fw+
     uint32_t firstAdvertiseRetryMs = 0; //fw+ track retry attempts for first beacon
+    uint32_t lastDetailedLogMs = 0;
     // Hello-back unicast reply throttling
     bool configHelloBackEnabled = true;
     uint32_t configHelloBackMinIntervalMs = 60UL * 60UL * 1000UL; // per-origin min interval 1h (balanced for network efficiency)
@@ -199,6 +202,8 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     std::unordered_map<NodeNum, uint32_t> lastRouteProbeMs; // last proactive traceroute per dest
     // Per-origin hello-back rate limit state
     std::unordered_map<NodeNum, uint32_t> lastHelloBackToNodeMs;
+    // Anti-burst tracking for broadcast fallbacks
+    std::unordered_map<uint32_t, uint32_t> lastBroadcastSentMs; // orig_id -> last broadcast time
     //fw+ cache of destinations confirmed as stock (via native ROUTING ACK/NAK), with age
     std::unordered_map<NodeNum, uint32_t> stockKnownMs;
     bool isDestKnownStock(NodeNum n) const {
@@ -310,6 +315,7 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     // Handoff candidate validation helpers (private - access to Pending struct)
     bool isValidHandoffCandidate(NodeNum candidate, NodeNum dest, const Pending &p) const;
     bool hasValidHandoffCandidates(NodeNum dest, const Pending &p) const;
+    bool isNodeReachable(NodeNum node) const;
     
     // Route invalidation for mobile nodes
     void invalidateStaleRoutes();
@@ -332,7 +338,18 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     bool tryColdStartFallback(uint32_t id, Pending &p);
     bool tryNearDestinationFallback(uint32_t id, Pending &p);
     bool tryKnownStockFallback(uint32_t id, Pending &p);
+    bool tryIntelligentFallback(uint32_t id, Pending &p);
     NodeNum selectForwardTarget(Pending &p);
+    void adaptiveMobilityManagement();
+    void logDetailedStats();
+
+    // Refactored helpers to keep main flows readable
+    bool shouldDeferForIntermediateLowConf(const Pending &p, bool lowConf) const;
+    void triggerTracerouteIfNeededForSource(const Pending &p, bool lowConf);
+    void setPriorityForTailAndSource(meshtastic_MeshPacket *mp, const Pending &p, bool isFromSource);
+    bool sendBroadcastFallback(uint32_t id, Pending &p);
+    void applyForeignCarrySuppression(uint32_t id, Pending &p);
+    void applyNearDestExtraSuppression(Pending &p, NodeNum dest);
 };
 
 extern DtnOverlayModule *dtnOverlayModule; //fw+
