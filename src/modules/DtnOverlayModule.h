@@ -35,6 +35,7 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
         uint32_t giveUps;
         uint32_t milestonesSent;
         uint32_t probesSent;
+        uint32_t fwplusUnresponsiveFallbacks; //fw+ count of fallbacks to unresponsive FW+ nodes
         uint32_t lastForwardAgeSecs;
         bool enabled;
     };
@@ -90,6 +91,10 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
       NodeNum handoffCandidates[3] = {0, 0, 0};
       uint8_t handoffCount = 0;
       uint8_t handoffIndex = 0;
+      // fw+ tracking failed DTN attempts to detect unresponsive FW+ destinations
+      uint8_t dtnFailedAttempts = 0; // consecutive failed DTN overlay attempts
+      uint32_t lastDtnAttemptMs = 0; // timestamp of last DTN attempt
+      bool fallbackTriggered = false; // flag to avoid re-triggering fallback
     };
     std::unordered_map<uint32_t, Pending> pendingById; // key: orig_id
     // Process received FW+ DTN DATA; deliver locally or schedule and coordinate with peers
@@ -165,6 +170,11 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     // Cold start handling
     uint32_t configColdStartTimeoutMs = 30000;      //fw+ timeout before enabling native DM fallback
     bool configColdStartNativeFallback = true;      //fw+ enable native DM when DTN is cold
+    
+    // Unresponsive FW+ destination fallback
+    bool configFwplusUnresponsiveFallback = true;   //fw+ enable fallback when FW+ dest doesn't respond
+    uint8_t configFwplusFailureThreshold = 2;       //fw+ consecutive failures before fallback (default 2)
+    uint32_t configFwplusResponseTimeoutMs = 180000; //fw+ timeout to expect receipt (3 min)
     // Adaptive milestone limiter
     bool configMilestoneAutoLimiterEnabled = true;       // enable adaptive suppression
     uint8_t configMilestoneAutoSuppressHighChUtil = 55;  // suppress when >= this
@@ -181,6 +191,7 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     uint32_t ctrGiveUps = 0;
     uint32_t ctrMilestonesSent = 0;
     uint32_t ctrProbesSent = 0;
+    uint32_t ctrFwplusUnresponsiveFallbacks = 0; //fw+ count of fallbacks to unresponsive FW+ destinations
     uint32_t lastForwardMs = 0;
     // Runtime state
     bool runtimeMilestonesSuppressed = false;
@@ -339,6 +350,7 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     bool tryNearDestinationFallback(uint32_t id, Pending &p);
     bool tryKnownStockFallback(uint32_t id, Pending &p);
     bool tryIntelligentFallback(uint32_t id, Pending &p);
+    bool tryFwplusUnresponsiveFallback(uint32_t id, Pending &p); //fw+ fallback for unresponsive FW+ nodes
     NodeNum selectForwardTarget(Pending &p);
     void adaptiveMobilityManagement();
     void logDetailedStats();

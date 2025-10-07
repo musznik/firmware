@@ -34,6 +34,8 @@ Traceroute & Fallback
 - Source: immediate traceroute hint on low confidence (cooldown), no periodic active probing.
 - Stock destination: early native DM fallback; DTN broadcast only in TTL tail (public, cooldown, load gating).
 - Intermediates: anti‑burst and far‑throttle; coordination via suppression after hearing foreign DATA.
+- Unresponsive FW+: tracks consecutive failed DTN attempts to FW+ destinations; after N failures + timeout without receipt,
+  triggers native DM fallback. Handles version incompatibility, offline nodes, and implementation changes. Counter resets on receipt.
 
 Version Advertisement & Discovery
 - One‑shot public beacon after start (channel‑utilization gated), followed by periodic beacons.
@@ -137,6 +139,7 @@ void DtnOverlayModule::getStatsSnapshot(DtnStatsSnapshot &out) const
     out.giveUps = ctrGiveUps;
     out.milestonesSent = ctrMilestonesSent;
     out.probesSent = ctrProbesSent;
+    out.fwplusUnresponsiveFallbacks = ctrFwplusUnresponsiveFallbacks;
     out.enabled = configEnabled;
     uint32_t now = millis();
     out.lastForwardAgeSecs = (lastForwardMs == 0 || now < lastForwardMs) ? 0 : (now - lastForwardMs) / 1000;
@@ -204,6 +207,9 @@ DtnOverlayModule::DtnOverlayModule()
     LOG_INFO("DTN: FW_PLUS_VERSION=%d", FW_PLUS_VERSION);
     LOG_INFO("DTN: Cold start timeout: %u ms, native fallback: %s", 
              (unsigned)configColdStartTimeoutMs, configColdStartNativeFallback ? "enabled" : "disabled");
+    LOG_INFO("DTN: FW+ unresponsive fallback: %s, threshold: %u failures, timeout: %u ms",
+             configFwplusUnresponsiveFallback ? "enabled" : "disabled",
+             (unsigned)configFwplusFailureThreshold, (unsigned)configFwplusResponseTimeoutMs);
     moduleStartMs = millis(); //fw+
 }
 
@@ -529,6 +535,14 @@ void DtnOverlayModule::handleData(const meshtastic_MeshPacket &mp, const meshtas
         // Ensures apps show "delivered" instead of "pending"
         routingModule->sendAckNak(meshtastic_Routing_Error_NONE, d.orig_from, d.orig_id, d.channel, 0);
         
+        //fw+ Clear stock marking if we successfully received DTN delivery (proves we are FW+)
+        // This is our own node, so clear our nodeNum from stock list if it was mistakenly added
+        auto itStock = stockKnownMs.find(nodeDB->getNodeNum());
+        if (itStock != stockKnownMs.end()) {
+            LOG_DEBUG("DTN: Clearing our own stock marking (we just received DTN!)");
+            stockKnownMs.erase(itStock);
+        }
+        
         // Anti-storm: immediately silence local pending for this ID
         // Prevents continued attempts after successful delivery
         pendingById.erase(d.orig_id);
@@ -578,6 +592,33 @@ void DtnOverlayModule::handleReceipt(const meshtastic_MeshPacket &mp, const mesh
 {
     // Simplest: stop any pending entry
     (void)mp;
+    
+    //fw+ Reset unresponsive tracking before erasing (destination is responsive!)
+    auto itPending = pendingById.find(r.orig_id);
+    if (itPending != pendingById.end()) {
+        NodeNum dest = itPending->second.data.orig_to;
+        
+        // Reset counter for DELIVERED or PROGRESSED (both indicate destination is active)
+        bool shouldReset = (r.status == meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_DELIVERED ||
+                           r.status == meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_PROGRESSED);
+        
+        if (shouldReset && isFwplus(dest) && itPending->second.dtnFailedAttempts > 0) {
+            LOG_INFO("DTN: Receipt (status=%u) indicates FW+ dest 0x%x is responsive - resetting counter (was %u)",
+                     (unsigned)r.status, (unsigned)dest, (unsigned)itPending->second.dtnFailedAttempts);
+            itPending->second.dtnFailedAttempts = 0;
+            itPending->second.fallbackTriggered = false; // Allow future fallback if needed
+        }
+        
+        // Also clear from stockKnownMs if it was marked as stock due to unresponsiveness
+        if (shouldReset) {
+            auto itStock = stockKnownMs.find(dest);
+            if (itStock != stockKnownMs.end()) {
+                LOG_DEBUG("DTN: Clearing stock marking for responsive FW+ dest 0x%x", (unsigned)dest);
+                stockKnownMs.erase(itStock);
+            }
+        }
+    }
+    
     pendingById.erase(r.orig_id);
     // Create a short tombstone to prevent immediate re-capture storms of same id 
     if (configTombstoneMs) tombstoneUntilMs[r.orig_id] = millis() + configTombstoneMs;
@@ -719,6 +760,9 @@ void DtnOverlayModule::tryForward(uint32_t id, Pending &p)
             if (tryNearDestinationFallback(id, p)) return;
             if (tryKnownStockFallback(id, p)) return;
         }
+        
+        //fw+ Try fallback for unresponsive FW+ destinations (both source and intermediate)
+        if (tryFwplusUnresponsiveFallback(id, p)) return;
     }
 
     // Select forward target and handle traceroute
@@ -768,6 +812,14 @@ void DtnOverlayModule::tryForward(uint32_t id, Pending &p)
         auto &ph = preferredHandoffByDest[p.data.orig_to];
         ph.node = target;
         ph.lastUsedMs = millis();
+    }
+    
+    //fw+ Track DTN attempt for unresponsive detection (only for direct-to-dest attempts, not handoffs)
+    if (target == p.data.orig_to && isFwplus(p.data.orig_to)) {
+        p.lastDtnAttemptMs = millis();
+        p.dtnFailedAttempts++; // Will be reset if we get a receipt
+        LOG_DEBUG("DTN: Tracking attempt %u to FW+ dest 0x%x (unresponsive detection)", 
+                 (unsigned)p.dtnFailedAttempts, (unsigned)p.data.orig_to);
     }
     
     // Schedule next attempt
@@ -1194,10 +1246,10 @@ void DtnOverlayModule::logDetailedStats()
     uint32_t now = millis();
     if (now - lastDetailedLogMs < configDetailedLogIntervalMs) return;
     
-    LOG_INFO("DTN Stats: pending=%u forwards=%u fallbacks=%u receipts=%u milestones=%u probes=%u",
+    LOG_INFO("DTN Stats: pending=%u forwards=%u fallbacks=%u fwplus_unresponsive=%u receipts=%u milestones=%u probes=%u",
              (unsigned)pendingById.size(), (unsigned)ctrForwardsAttempted,
-             (unsigned)ctrFallbacksAttempted, (unsigned)ctrReceiptsEmitted,
-             (unsigned)ctrMilestonesSent, (unsigned)ctrProbesSent);
+             (unsigned)ctrFallbacksAttempted, (unsigned)ctrFwplusUnresponsiveFallbacks,
+             (unsigned)ctrReceiptsEmitted, (unsigned)ctrMilestonesSent, (unsigned)ctrProbesSent);
     
     LOG_INFO("DTN FW+ Nodes: %u known", (unsigned)fwplusVersionByNode.size());
     
@@ -1637,6 +1689,54 @@ bool DtnOverlayModule::tryKnownStockFallback(uint32_t id, Pending &p)
         }
         if (sendProxyFallback(id, p)) return true;
     }
+    return false;
+}
+
+// Purpose: try fallback for unresponsive FW+ destinations
+// Returns: true if fallback was attempted
+// fw+ New mechanism to handle FW+ destinations that don't respond despite being marked as DTN-capable.
+// This catches cases where: version changed, node is offline/unreachable, or has incompatible DTN implementation.
+bool DtnOverlayModule::tryFwplusUnresponsiveFallback(uint32_t id, Pending &p)
+{
+    // Skip if feature disabled
+    if (!configFwplusUnresponsiveFallback) return false;
+    
+    // Skip if already triggered fallback for this message
+    if (p.fallbackTriggered) return false;
+    
+    // Skip if destination is not FW+ (normal fallback logic handles stock nodes)
+    if (!isFwplus(p.data.orig_to)) return false;
+    
+    // Skip if proxy fallback is not allowed
+    if (!p.data.allow_proxy_fallback) return false;
+    
+    // Check if we have enough failed attempts
+    if (p.dtnFailedAttempts < configFwplusFailureThreshold) return false;
+    
+    // Check if enough time has passed since last attempt to conclude unresponsiveness
+    if (p.lastDtnAttemptMs == 0) return false;
+    uint32_t timeSinceLastAttempt = millis() - p.lastDtnAttemptMs;
+    if (timeSinceLastAttempt < configFwplusResponseTimeoutMs) return false;
+    
+    // All conditions met - destination is FW+ but unresponsive, try native DM fallback
+    LOG_WARN("DTN: FW+ dest 0x%x unresponsive after %u attempts over %u ms - trying native DM fallback",
+             (unsigned)p.data.orig_to, (unsigned)p.dtnFailedAttempts, (unsigned)timeSinceLastAttempt);
+    
+    // Mark that we've triggered fallback to avoid repeating
+    p.fallbackTriggered = true;
+    
+    // Send native DM fallback
+    if (sendProxyFallback(id, p)) {
+        LOG_INFO("DTN: Native DM fallback sent to unresponsive FW+ dest 0x%x", (unsigned)p.data.orig_to);
+        ctrFwplusUnresponsiveFallbacks++; //fw+ increment counter for diagnostics
+        
+        // Optionally mark this destination as potentially stock for a while
+        // This helps avoid repeated DTN attempts to the same unresponsive FW+ node
+        stockKnownMs[p.data.orig_to] = millis();
+        
+        return true;
+    }
+    
     return false;
 }
 
