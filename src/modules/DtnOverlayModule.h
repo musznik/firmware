@@ -37,6 +37,7 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
         uint32_t probesSent;
         uint32_t fwplusUnresponsiveFallbacks; //fw+ count of fallbacks to unresponsive FW+ nodes
         uint32_t lastForwardAgeSecs;
+        uint32_t knownNodesCount; //fw+ number of known FW+ nodes
         bool enabled;
     };
     // Fill snapshot with current counters

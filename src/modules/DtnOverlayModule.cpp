@@ -35,7 +35,8 @@ Traceroute & Fallback
 - Stock destination: early native DM fallback; DTN broadcast only in TTL tail (public, cooldown, load gating).
 - Intermediates: anti‑burst and far‑throttle; coordination via suppression after hearing foreign DATA.
 - Unresponsive FW+: tracks consecutive failed DTN attempts to FW+ destinations; after N failures + timeout without receipt,
-  triggers native DM fallback. Handles version incompatibility, offline nodes, and implementation changes. Counter resets on receipt.
+  triggers native DM fallback. Handles version incompatibility, offline nodes, disabled DTN, and implementation changes.
+  Counter resets on receipt. Stock marking cleared when node sends beacon/OnDemand (DTN re-enabled scenario).
 
 Version Advertisement & Discovery
 - One‑shot public beacon after start (channel‑utilization gated), followed by periodic beacons.
@@ -143,6 +144,15 @@ void DtnOverlayModule::getStatsSnapshot(DtnStatsSnapshot &out) const
     out.enabled = configEnabled;
     uint32_t now = millis();
     out.lastForwardAgeSecs = (lastForwardMs == 0 || now < lastForwardMs) ? 0 : (now - lastForwardMs) / 1000;
+    
+    // Count active FW+ nodes (seen within last 24h)
+    uint32_t knownCount = 0;
+    for (const auto &kv : fwplusSeenMs) {
+        if ((now - kv.second) <= (24 * 60 * 60 * 1000UL)) {
+            knownCount++;
+        }
+    }
+    out.knownNodesCount = knownCount;
 }
 
 // Purpose: initialize DTN overlay module with conservative defaults and read ModuleConfig.
@@ -957,6 +967,16 @@ void DtnOverlayModule::recordFwplusVersion(NodeNum n, uint16_t version)
 {
     fwplusVersionByNode[n] = version;
     markFwplusSeen(n);
+    
+    //fw+ Clear stock marking when we receive FW+ version advertisement
+    // This handles the case where a node had DTN disabled (was marked as stock via unresponsive fallback),
+    // but later enabled DTN and started sending beacons again
+    auto itStock = stockKnownMs.find(n);
+    if (itStock != stockKnownMs.end()) {
+        LOG_INFO("DTN: Clearing stock marking for node 0x%x (received FW+ version %u beacon)",
+                 (unsigned)n, (unsigned)version);
+        stockKnownMs.erase(itStock);
+    }
 }
 
 void DtnOverlayModule::maybeAdvertiseFwplusVersion()
@@ -1502,6 +1522,13 @@ void DtnOverlayModule::observeOnDemandResponse(const meshtastic_MeshPacket &mp)
             
             // Add to FW+ version tracking (use current FW+ version as placeholder)
             fwplusVersionByNode[origin] = FW_PLUS_VERSION;
+            
+            //fw+ Clear stock marking - node has DTN enabled now
+            auto itStock = stockKnownMs.find(origin);
+            if (itStock != stockKnownMs.end()) {
+                LOG_INFO("DTN: Clearing stock marking for node 0x%x (OnDemand shows DTN enabled)", (unsigned)origin);
+                stockKnownMs.erase(itStock);
+            }
             
             // Also update last seen time
             meshtastic_NodeInfoLite *node = nodeDB->getMeshNode(origin);

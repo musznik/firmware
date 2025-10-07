@@ -376,9 +376,13 @@ meshtastic_OnDemand OnDemandModule::prepareDtnOverlayStats()
         if (s.milestonesSent > 0) { dst.has_milestones_sent = true; dst.milestones_sent = s.milestonesSent; }
         if (s.probesSent > 0) { dst.has_probes_sent = true; dst.probes_sent = s.probesSent; }
         if (s.lastForwardAgeSecs > 0) { dst.has_last_forward_age_secs = true; dst.last_forward_age_secs = s.lastForwardAgeSecs; }
+        if (s.knownNodesCount > 0) { dst.has_known_nodes_count = true; dst.known_nodes_count = s.knownNodesCount; }
     }
 
     //fw+ guard against radio MTU: trim least critical fields 
+    if (!fitsInPacket(onDemand, MAX_PACKET_SIZE)) {
+        dst.has_known_nodes_count = false;
+    }
     if (!fitsInPacket(onDemand, MAX_PACKET_SIZE)) {
         dst.has_milestones_sent = false;
         dst.has_probes_sent = false;

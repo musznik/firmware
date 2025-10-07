@@ -262,6 +262,9 @@ typedef struct _meshtastic_DtnOverlayStats {
     /* Seconds since last forward attempt (0 if none) */
     bool has_last_forward_age_secs;
     uint16_t last_forward_age_secs;
+    /* Number of known FW+ nodes (DTN-capable nodes) */
+    bool has_known_nodes_count;
+    uint16_t known_nodes_count;
 } meshtastic_DtnOverlayStats;
 
 /* fw+ Broadcast Assist statistics for UI/diagnostics */
@@ -379,7 +382,7 @@ extern "C" {
 #define meshtastic_OnDemand_init_default         {false, 0, false, 0, 0, {meshtastic_OnDemandRequest_init_default}}
 #define meshtastic_RoutingTableEntry_init_default {0, 0, 0, 0, 0}
 #define meshtastic_RoutingTable_init_default     {0, {meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default}}
-#define meshtastic_DtnOverlayStats_init_default  {false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0}
+#define meshtastic_DtnOverlayStats_init_default  {false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0}
 #define meshtastic_BroadcastAssistStats_init_default {false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0}
 #define meshtastic_FwPlusVersion_init_zero       {0}
 #define meshtastic_NodeStats_init_zero           {false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, "", false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0}
@@ -401,7 +404,7 @@ extern "C" {
 #define meshtastic_OnDemand_init_zero            {false, 0, false, 0, 0, {meshtastic_OnDemandRequest_init_zero}}
 #define meshtastic_RoutingTableEntry_init_zero   {0, 0, 0, 0, 0}
 #define meshtastic_RoutingTable_init_zero        {0, {meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero}}
-#define meshtastic_DtnOverlayStats_init_zero     {false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0}
+#define meshtastic_DtnOverlayStats_init_zero     {false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0}
 #define meshtastic_BroadcastAssistStats_init_zero {false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0}
 
 /* Field tags (for use in manual encoding/decoding) */
@@ -491,6 +494,7 @@ extern "C" {
 #define meshtastic_DtnOverlayStats_probes_sent_tag 9
 #define meshtastic_DtnOverlayStats_enabled_tag   10
 #define meshtastic_DtnOverlayStats_last_forward_age_secs_tag 11
+#define meshtastic_DtnOverlayStats_known_nodes_count_tag 12
 #define meshtastic_BroadcastAssistStats_enabled_tag 1
 #define meshtastic_BroadcastAssistStats_reflood_attempts_tag 2
 #define meshtastic_BroadcastAssistStats_reflood_sent_tag 3
@@ -723,7 +727,8 @@ X(a, STATIC,   OPTIONAL, UINT32,   give_ups,          7) \
 X(a, STATIC,   OPTIONAL, UINT32,   milestones_sent,   8) \
 X(a, STATIC,   OPTIONAL, UINT32,   probes_sent,       9) \
 X(a, STATIC,   OPTIONAL, BOOL,     enabled,          10) \
-X(a, STATIC,   OPTIONAL, UINT32,   last_forward_age_secs,  11)
+X(a, STATIC,   OPTIONAL, UINT32,   last_forward_age_secs,  11) \
+X(a, STATIC,   OPTIONAL, UINT32,   known_nodes_count,  12)
 #define meshtastic_DtnOverlayStats_CALLBACK NULL
 #define meshtastic_DtnOverlayStats_DEFAULT NULL
 
@@ -790,7 +795,7 @@ extern const pb_msgdesc_t meshtastic_BroadcastAssistStats_msg;
 #define meshtastic_AirActivityEntry_size         18
 #define meshtastic_AirActivityHistory_size       200
 #define meshtastic_BroadcastAssistStats_size     26
-#define meshtastic_DtnOverlayStats_size          42
+#define meshtastic_DtnOverlayStats_size          46
 #define meshtastic_ExchangeEntry_size            18
 #define meshtastic_ExchangeList_size             240
 #define meshtastic_FwPlusVersion_size            6
