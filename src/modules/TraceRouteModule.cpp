@@ -212,7 +212,7 @@ void TraceRouteModule::maybeSetNextHop(NodeNum target, uint8_t nextHopByte)
 
     // fw+: Skip if DV-ETX already has a high-confidence route (let DV-ETX take priority)
     // This is a fallback learning mechanism; DV-ETX learning from traceroute is more sophisticated
-    if (router && router->hasRouteConfidence(target, 3)) {
+    if (router && router->hasRouteConfidence(target, 2)) {
         LOG_DEBUG("Skipping legacy next-hop update for 0x%08x - DV-ETX has high confidence route", target);
         return;
     }
