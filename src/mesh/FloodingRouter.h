@@ -28,9 +28,6 @@
 class FloodingRouter : public Router
 {
   private:
-    /* Check if we should rebroadcast this packet, and do so if needed */
-    void perhapsRebroadcast(const meshtastic_MeshPacket *p);
-
     // Telemetry rebroadcast limiter state (60s fixed window)
     uint32_t telemetryWindowStartMs = 0;
     uint16_t telemetryPacketsInWindow = 0;
@@ -128,6 +125,17 @@ class FloodingRouter : public Router
      * Look for broadcasts we need to rebroadcast
      */
     virtual void sniffReceived(const meshtastic_MeshPacket *p, const meshtastic_Routing *c) override;
+
+    /* Check if we should rebroadcast this packet, and do so if needed */
+    virtual bool perhapsRebroadcast(const meshtastic_MeshPacket *p);
+
+    /* Check if we should handle an upgraded packet (with higher hop_limit)
+     * @return true if we handled it (so stop processing)
+     */
+    bool perhapsHandleUpgradedPacket(const meshtastic_MeshPacket *p);
+
+    /* Call when we receive a packet that needs some reprocessing, but afterwards should be filtered */
+    void reprocessPacket(const meshtastic_MeshPacket *p);
 
     // Return false for roles like ROUTER which should always rebroadcast even when we've heard another rebroadcast of
     // the same packet
