@@ -20,9 +20,8 @@ class NodeModModule : private concurrency::OSThread, public ProtobufModule<mesht
         uptimeWrapCount = 0;
         uptimeLastMs = millis();
         refreshUptime();
-        sendToPhone();
         nodeStatusObserver.observe(&nodeStatus->onNewStatus);
-        setIntervalFromNow(10 * 1000);
+        setIntervalFromNow(10 * 1000); // Quick first run to send to phone
     }
 
     void adminChangedStatus();
@@ -38,7 +37,7 @@ class NodeModModule : private concurrency::OSThread, public ProtobufModule<mesht
      * Send our Telemetry into the mesh
      */
     void sendToMesh(bool statusChanged);
-    void sendToPhone();
+    void sendToPhone(bool force = false);
     meshtastic_MeshPacket* preparePacket();
 
     /**
@@ -51,6 +50,7 @@ class NodeModModule : private concurrency::OSThread, public ProtobufModule<mesht
     uint32_t lastSentToMesh = 0;
     uint32_t lastSentStatsToPhone = 0;
     bool statsHaveBeenSent = false;
+    bool firstTime = true;
 
     void refreshUptime()
     {

@@ -14,7 +14,17 @@ NodeModModule *nodeModModule;
 int32_t NodeModModule::runOnce()
 {
     refreshUptime();
-    sendToPhone();
+    
+    if (firstTime) {
+        // First run after boot - send to phone quickly, but wait for radio
+        firstTime = false;
+        sendToPhone(true); // Force send to phone on first run
+        LOG_INFO("NodeMod: Initialized, sent to phone. Will broadcast to radio in 2-4 min");
+        return (120 + random(120)) * 1000; // 2-4 minutes until first radio broadcast
+    }
+    
+    // Normal operation - send to phone and mesh
+    sendToPhone(false);
     sendToMesh(false);
     return 120 * 1000;
 }
@@ -31,8 +41,8 @@ meshtastic_MeshPacket *NodeModModule::allocReply()
 
 void NodeModModule::adminChangedStatus(){
     refreshUptime();
-    sendToPhone();
-    sendToMesh(true);
+    sendToPhone(true); // Force immediate send to phone on status change
+    sendToMesh(true);  // Send to mesh with statusChanged=true (has throttle)
 }
 
 meshtastic_MeshPacket* NodeModModule::preparePacket(){
@@ -51,12 +61,14 @@ meshtastic_MeshPacket* NodeModModule::preparePacket(){
     return p;
 }
 
-void NodeModModule::sendToPhone()
+void NodeModModule::sendToPhone(bool force)
 {
-    if ((lastSentStatsToPhone == 0) || (uptimeLastMs - lastSentStatsToPhone >= 360*1000)) {
+    // Force send immediately (for status changes), or send if enough time has passed
+    if (force || (lastSentStatsToPhone == 0) || (uptimeLastMs - lastSentStatsToPhone >= 360*1000)) {
         meshtastic_MeshPacket* packet = preparePacket();
         service->sendToPhone(packet);    
         lastSentStatsToPhone = uptimeLastMs;
+        LOG_DEBUG("NodeMod: Sent to phone (force=%d)", force);
     }
 }
  
