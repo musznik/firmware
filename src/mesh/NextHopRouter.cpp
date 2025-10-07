@@ -250,8 +250,31 @@ bool NextHopRouter::shouldFilterReceived(const meshtastic_MeshPacket *p)
                                         &wasUpgraded); // Updates history; returns false when an upgrade is detected
 
     // Handle hop_limit upgrade scenario for rebroadcasters
-    if (wasUpgraded && perhapsHandleUpgradedPacket(p)) {
-        return true; // we handled it, so stop processing
+    // isRebroadcaster() is duplicated in perhapsRelay(), but this avoids confusing log messages
+    if (wasUpgraded && isRebroadcaster() && iface && p->hop_limit > 0) {
+        // Upgrade detection bypasses the duplicate short-circuit so we replace the queued packet before exiting
+        uint8_t dropThreshold = p->hop_limit; // remove queued packets that have fewer hops remaining
+        if (iface->removePendingTXPacket(getFrom(p), p->id, dropThreshold)) {
+            LOG_DEBUG("Processing upgraded packet 0x%08x for relay with hop limit %d (dropping queued < %d)", p->id, p->hop_limit,
+                      dropThreshold);
+
+            if (nodeDB)
+                nodeDB->updateFrom(*p);
+#if !MESHTASTIC_EXCLUDE_TRACEROUTE
+            if (traceRouteModule && p->which_payload_variant == meshtastic_MeshPacket_decoded_tag &&
+                p->decoded.portnum == meshtastic_PortNum_TRACEROUTE_APP)
+                traceRouteModule->processUpgradedPacket(*p);
+#endif
+
+            perhapsRelay(p);
+
+            // We already enqueued the improved copy, so make sure the incoming packet stops here.
+            return true;
+        }
+
+        // No queue entry was replaced by this upgraded copy, so treat it as a duplicate to avoid
+        // delivering the same packet to applications/phone twice with different hop limits.
+        seenRecently = true;
     }
 
     if (seenRecently) {
@@ -270,20 +293,14 @@ bool NextHopRouter::shouldFilterReceived(const meshtastic_MeshPacket *p)
         if (wasFallback) {
             LOG_INFO("Fallback to flooding from relay_node=0x%x", p->relay_node);
             // Check if it's still in the Tx queue, if not, we have to relay it again
-            if (!findInTxQueue(p->from, p->id)) {
-                reprocessPacket(p);
-                perhapsRebroadcast(p);
-            }
+            if (!findInTxQueue(p->from, p->id))
+                perhapsRelay(p);
         } else {
             bool isRepeated = p->hop_start > 0 && p->hop_start == p->hop_limit;
             // If repeated and not in Tx queue anymore, try relaying again, or if we are the destination, send the ACK again
             if (isRepeated) {
-                if (!findInTxQueue(p->from, p->id)) {
-                    reprocessPacket(p);
-                    if (!perhapsRebroadcast(p) && isToUs(p) && p->want_ack) {
-                        sendAckNak(meshtastic_Routing_Error_NONE, getFrom(p), p->id, p->channel, 0);
-                    }
-                }
+                if (!findInTxQueue(p->from, p->id) && !perhapsRelay(p) && isToUs(p) && p->want_ack)
+                    sendAckNak(meshtastic_Routing_Error_NONE, getFrom(p), p->id, p->channel, 0);
             } else if (!weWereNextHop) {
                 perhapsCancelDupe(p); // If it's a dupe, cancel relay if we were not explicitly asked to relay
             }
@@ -342,14 +359,13 @@ void NextHopRouter::sniffReceived(const meshtastic_MeshPacket *p, const meshtast
     bool isAckorReply = (p->which_payload_variant == meshtastic_MeshPacket_decoded_tag) &&
                         (p->decoded.request_id != 0 || p->decoded.reply_id != 0);
     if (isAckorReply) {
-        // Update next-hop for the original transmitter of this successful transmission to the relay node, but ONLY if "from"
-        // is not 0 (means implicit ACK) and original packet was also relayed by this node, or we sent it directly to the
-        // destination
+        // Update next-hop for the original transmitter of this successful transmission to the relay node, but ONLY if "from" is
+        // not 0 (means implicit ACK) and original packet was also relayed by this node, or we sent it directly to the destination
         if (p->from != 0) {
             meshtastic_NodeInfoLite *origTx = nodeDB->getMeshNode(p->from);
             if (origTx) {
-                // Either relayer of ACK was also a relayer of the packet, or we were the *only* relayer and the ACK came
-                // directly from the destination
+                // Either relayer of ACK was also a relayer of the packet, or we were the *only* relayer and the ACK came directly
+                // from the destination
                 bool wasAlreadyRelayer = wasRelayer(p->relay_node, p->decoded.request_id, p->to);
                 bool weWereSoleRelayer = false;
                 bool weWereRelayer = wasRelayer(ourRelayID, p->decoded.request_id, p->to, &weWereSoleRelayer);
@@ -385,7 +401,7 @@ void NextHopRouter::sniffReceived(const meshtastic_MeshPacket *p, const meshtast
         }
     }
 
-    perhapsRebroadcast(p);
+    perhapsRelay(p);
     //fw+ delegate proactive scheduling to a helper to ease upstream merges
     maybeScheduleTraceroute(millis());
 
@@ -519,8 +535,8 @@ bool NextHopRouter::sendTracerouteTo(uint32_t dest)
     return true;
 }
 
-/* Check if we should be rebroadcasting this packet if so, do so. */
-bool NextHopRouter::perhapsRebroadcast(const meshtastic_MeshPacket *p)
+/* Check if we should be relaying this packet if so, do so. */
+bool NextHopRouter::perhapsRelay(const meshtastic_MeshPacket *p)
 {
     //fw+
     if (!isToUs(p) && (p->hop_limit <= 0) && !isFromUs(p)) {
@@ -548,45 +564,41 @@ bool NextHopRouter::perhapsRebroadcast(const meshtastic_MeshPacket *p)
             }
         }
         // Check if packet has next_hop not set OR addressed to us
-        if (p->id != 0) {
+        if (p->next_hop == NO_NEXT_HOP_PREFERENCE || p->next_hop == nodeDB->getLastByteOfNodeNum(getNodeNum())) {
             if (isRebroadcaster()) {
-                if (p->next_hop == NO_NEXT_HOP_PREFERENCE || p->next_hop == nodeDB->getLastByteOfNodeNum(getNodeNum())) {
-                    //fw+ use retrans pool first; preserve hop_limit when policy dictates
-                    meshtastic_MeshPacket *tosend = retransPacketPool.allocCopy(*p);
-                    if (!tosend) tosend = packetPool.allocCopy(*p);
-                    if (tosend) {
-                        LOG_INFO("Rebroadcast received message coming from %x", p->relay_node);
-                        
-                        // Use shared logic to determine if hop_limit should be decremented
-                        if (shouldDecrementHopLimit(p)) {
-                            tosend->hop_limit--; // bump down the hop count
-                        } else {
-                            LOG_INFO("favorite-ROUTER/CLIENT_BASE-to-ROUTER/CLIENT_BASE rebroadcast: preserving hop_limit");
-                        }
+                //fw+ use retrans pool first; preserve hop_limit when policy dictates
+                meshtastic_MeshPacket *tosend = retransPacketPool.allocCopy(*p);
+                if (!tosend) tosend = packetPool.allocCopy(*p);
+                if (tosend) {
+                    LOG_INFO("Relaying received message coming from %x", p->relay_node);
+                    
+                    // Use shared logic to determine if hop_limit should be decremented
+                    if (shouldDecrementHopLimit(p)) {
+                        tosend->hop_limit--; // bump down the hop count
+                    } else {
+                        LOG_INFO("favorite-ROUTER/CLIENT_BASE-to-ROUTER/CLIENT_BASE relay: preserving hop_limit");
+                    }
 #if USERPREFS_EVENT_MODE
-                        if (tosend->hop_limit > 2) {
-                            // if we are "correcting" the hop_limit, "correct" the hop_start by the same amount to preserve hops away.
-                            tosend->hop_start -= (tosend->hop_limit - 2);
-                            tosend->hop_limit = 2;
-                        }
+                    if (tosend->hop_limit > 2) {
+                        // if we are "correcting" the hop_limit, "correct" the hop_start by the same amount to preserve hops away.
+                        tosend->hop_start -= (tosend->hop_limit - 2);
+                        tosend->hop_limit = 2;
+                    }
 #endif
 
-                        if (p->next_hop == NO_NEXT_HOP_PREFERENCE) {
-                            FloodingRouter::send(tosend);
-                        } else {
-                            NextHopRouter::send(tosend);
-                        }
+                    if (p->next_hop == NO_NEXT_HOP_PREFERENCE) {
+                        FloodingRouter::send(tosend);
                     } else {
-                        LOG_WARN("Pool exhausted; skipping rebroadcast");
+                        NextHopRouter::send(tosend);
                     }
-
-                    return true;
+                } else {
+                    LOG_WARN("Pool exhausted; skipping relay");
                 }
+
+                return true;
             } else {
-                LOG_DEBUG("No rebroadcast: Role = CLIENT_MUTE or Rebroadcast Mode = NONE");
+                LOG_DEBUG("Not relaying: Role = CLIENT_MUTE or Rebroadcast Mode = NONE");
             }
-        } else {
-            LOG_DEBUG("Ignore 0 id broadcast");
         }
     }
 
@@ -656,13 +668,13 @@ bool NextHopRouter::stopRetransmission(GlobalPacketId key)
             }
         }
 
-        // Regardless of whether or not we canceled this packet from the txQueue, remove it from our pending list so it
-        // doesn't get scheduled again. (This is the core of stopRetransmission.)
+        // Regardless of whether or not we canceled this packet from the txQueue, remove it from our pending list so it doesn't
+        // get scheduled again. (This is the core of stopRetransmission.)
         auto numErased = pending.erase(key);
         assert(numErased == 1);
 
-        // When we remove an entry from pending, always be sure to release the copy of the packet that was allocated in the
-        // call to startRetransmission.
+        // When we remove an entry from pending, always be sure to release the copy of the packet that was allocated in the call
+        // to startRetransmission.
         packetPool.release(p);
 
         return true;

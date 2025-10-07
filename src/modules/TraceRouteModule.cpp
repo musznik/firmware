@@ -21,11 +21,6 @@ void TraceRouteModule::alterReceivedProtobuf(meshtastic_MeshPacket &p, meshtasti
 {
     const meshtastic_Data &incoming = p.decoded;
 
-    // Update next-hops using returned route
-    if (incoming.request_id) {
-        updateNextHops(p, r);
-    }
-
     // Insert unknown hops if necessary
     insertUnknownHops(p, r, !incoming.request_id);
 

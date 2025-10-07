@@ -237,9 +237,9 @@ class NextHopRouter : public FloodingRouter
      */
     uint8_t getNextHop(NodeNum to, uint8_t relay_node);
 
-    /** Check if we should be rebroadcasting this packet if so, do so.
-     *  @return true if we did rebroadcast */
-    bool perhapsRebroadcast(const meshtastic_MeshPacket *p) override;
+    /** Check if we should be relaying this packet if so, do so.
+     *  @return true if we did relay */
+    bool perhapsRelay(const meshtastic_MeshPacket *p);
 
   public:
     struct PublicRouteEntry {
