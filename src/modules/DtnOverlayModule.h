@@ -311,12 +311,12 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     // DV-ETX gating wrapper - more permissive for mobile nodes
     bool hasSufficientRouteConfidence(NodeNum dest) const;
     
-    // Cold start detection - check if DTN has warmed up (DEPRECATED - use fwplusVersionByNode.empty() instead)
-    // This is kept for compatibility but no longer blocks message transmission
+    // Cold start detection - check if DTN has warmed up (knows at least one FW+ node)
+    // Used to trigger aggressive discovery and native DM fallback for intermediate nodes
     bool isDtnCold() const {
-        // Always return false - we no longer block on cold start
-        // Native DM will be used automatically if no DTN nodes are known
-        return false;
+        // Cold if we don't know any FW+ nodes yet
+        // This allows intermediate nodes to use native DM fallback during cold start
+        return fwplusVersionByNode.empty();
     }
 
     // Telemetry-triggered FW+ probe config/state

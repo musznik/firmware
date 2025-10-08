@@ -262,7 +262,8 @@ void MeshService::handleToRadio(meshtastic_MeshPacket &p)
         bool isUnicast = (p.to != NODENUM_BROADCAST && p.to != NODENUM_BROADCAST_NO_LORA);
         bool isText = (p.which_payload_variant == meshtastic_MeshPacket_decoded_tag &&
                        p.decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP);
-        if (dtnOverlayModule && isUnicast && isText) {
+        //fw+ Intelligent interception: only use DTN if it can actually help with this destination
+        if (dtnOverlayModule && isUnicast && isText && dtnOverlayModule->shouldInterceptLocalDM(p.to)) {
             uint32_t ttlMinutes = moduleConfig.dtn_overlay.ttl_minutes ? moduleConfig.dtn_overlay.ttl_minutes : 4; //fw+
             uint32_t deadline = (getValidTime(RTCQualityFromNet) * 1000UL) + ttlMinutes * 60UL * 1000UL;
             // enqueue overlay carrying plaintext DM; allow proxy fallback later

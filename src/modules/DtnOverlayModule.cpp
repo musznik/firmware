@@ -11,16 +11,19 @@ Ingress sources
 - FWPLUS_DTN DATA overheard on the mesh: always accepted and scheduled; if we are the destination we unwrap and deliver.
 - Optional capture of foreign (non-DTN) unicasts is conservative (default OFF) to avoid DTN-on-DTN recursion.
 - OnDemand observation: passively discovers DTN-enabled nodes from OnDemand responses and records their versions.
+- Telemetry-triggered probes: optionally probes unknown nodes (≥2 hops) when observing telemetry/nodeinfo (default OFF).
 
 Scheduling
-- First attempt: fast path for the sender and direct neighbors; intermediates use deterministic slotting and per-destination
-  spacing. DV‑ETX gating is more permissive for mobile nodes. Far nodes are delayed (far‑throttle).
+- First attempt: immediate for source (50-150ms), fast path for direct neighbors (50ms base, 25ms slots); intermediates use 
+  deterministic slotting and per-destination spacing. DV‑ETX gating is more permissive for mobile nodes. Far nodes are delayed.
+- Source optimization: zero slot delay for source's first attempt ensures immediate transmission when DTN can help.
+- Adaptive parameters: mobility factor adjusts retry backoff, spacing, and max attempts dynamically.
 
 Forwarding and Handoff
 - Primary action: send FWPLUS_DTN DATA toward the destination, or hand off custody to a better FW+ neighbor.
 - When the destination is far: prefer handoff to a FW+ neighbor (safe mapping of `next_hop` → unique direct neighbor).
 - Shortlist up to 3 FW+ neighbors closer to the destination; rotate between them across retries; per‑destination preference cache.
-- Skip candidates with unknown route (ad==255). Prevent loops via lastCarrier/self/dest checks.
+- Skip candidates with unknown route (ad==255) or unreachable. Prevent loops via lastCarrier/self/dest checks.
 - Broadcast as last resort in TTL tail: public (unencrypted), channel‑utilization gated, randomized cooldown 60–120 s.
 - Priority defaults to BACKGROUND; escalate to DEFAULT in TTL tail when near the destination or when we are the source.
 - Global active cap and per‑destination spacing limit concurrency.
@@ -28,29 +31,35 @@ Forwarding and Handoff
 Receipts & Milestones
 - Any receipt (DELIVERED/PROGRESSED/EXPIRED) clears pending and sets a tombstone to avoid re‑enqueue storms.
 - PROGRESSED is emitted sparingly (ring‑gated, auto‑limited) with hysteresis under high load.
-- Version advertisement: 16‑bit reason carries FW+ version number (0–65535).
+- Version advertisement: 32‑bit reason field carries FW+ version number; receiver extracts lower 16 bits.
 
 Traceroute & Fallback
 - Source: immediate traceroute hint on low confidence (cooldown), no periodic active probing.
 - Stock destination: early native DM fallback; DTN broadcast only in TTL tail (public, cooldown, load gating).
 - Intermediates: anti‑burst and far‑throttle; coordination via suppression after hearing foreign DATA.
+- Cold start: intermediate nodes use native DM fallback for unknown destinations during cold start (aggressive discovery triggered).
 - Unresponsive FW+: tracks consecutive failed DTN attempts to FW+ destinations; after N failures + timeout without receipt,
   triggers native DM fallback. Handles version incompatibility, offline nodes, disabled DTN, and implementation changes.
   Counter resets on receipt. Stock marking cleared when node sends beacon/OnDemand (DTN re-enabled scenario).
 
 Version Advertisement & Discovery
-- One‑shot public beacon after start (channel‑utilization gated), followed by periodic beacons.
-- Hello-back: unicast version up to 3 hops (rate‑limited).
+- One‑shot public beacon after start (aggressive, retried on failure), followed by periodic beacons with adaptive interval.
+- Hello-back: unicast version up to 3 hops (rate‑limited, more frequent for known FW+ nodes).
 - Passive discovery: OnDemand responses, overheard DTN DATA/RECEIPTs; no periodic active probing.
+- Aggressive discovery: triggered during cold start; probes all direct neighbors for FW+ capability.
+- Dynamic re-evaluation: newly discovered DTN nodes trigger rescheduling of pending messages for potential handoff.
+- Intelligent interception: local DMs only intercepted when DTN nodes are known AND can help reach destination (proximity/topology).
 
 Mobility Adaptation
 - Route invalidation: periodically invalidates stale routes for mobile nodes based on last_heard time and mobility factor.
 - Adaptive timeouts: shorter timeouts for mobile nodes (15-30min) vs stationary nodes (2h).
-- Mobility-aware scheduling: reduced spacing and earlier attempts for mobile nodes.
+- Mobility-aware scheduling: reduced spacing (60% when mobile), earlier attempts, and adjusted backoff for mobile nodes.
+- Dynamic parameters: retry backoff, spacing, and max tries adapt to mobility factor in real-time.
 
 Airtime protections
 - Channel utilization gate; deterministic election and mobility‑aware slotting; per‑destination spacing; global active cap;
   suppression after hearing foreign overlay DATA; neighbor/grace heuristics; tombstones and bounded caches with pruning.
+- Near-destination extra suppression (2-3× longer) to prevent duplicate deliveries close to destination.
 */
 #include "DtnOverlayModule.h"
 #if __has_include("mesh/generated/meshtastic/fwplus_dtn.pb.h")
@@ -1559,10 +1568,10 @@ uint32_t DtnOverlayModule::calculateBaseDelay(const meshtastic_FwplusDtnData &d,
     // Standard delay for multi-hop destinations
     uint32_t base = configInitialDelayBaseMs ? configInitialDelayBaseMs : 8000;
     
-    // Immediate-from-source: tiny jitter instead of long base/slot
+    // Immediate-from-source: minimal jitter for fast first attempt
     bool isFromSource = (d.orig_from == nodeDB->getNodeNum());
     if (isFromSource && p.tries == 0) {
-        base = 200 + (uint32_t)random(401); // 200..600 ms
+        base = 50 + (uint32_t)random(101); // 50..150 ms - faster first send for source
     }
     
     // Apply grace window only for non-self-origin
@@ -1606,11 +1615,16 @@ uint32_t DtnOverlayModule::calculateTopologyDelay(const meshtastic_FwplusDtnData
 // Purpose: calculate mobility-aware election slot timing
 uint32_t DtnOverlayModule::calculateMobilitySlot(uint32_t id, const meshtastic_FwplusDtnData &d, const Pending &p) const
 {
+    //fw+ Source node with first attempt: NO slotting - immediate send
+    bool isFromSource = (d.orig_from == nodeDB->getNodeNum());
+    if (isFromSource && p.tries == 0) {
+        return 0; // No slot delay for source's first attempt
+    }
+    
     //fw+ Fast path for direct neighbors - minimal slotting
     if (isDirectNeighbor(d.orig_to)) {
         uint32_t rank = fnv1a32(id ^ nodeDB->getNodeNum());
-        bool isFromSource = (d.orig_from == nodeDB->getNodeNum());
-        uint32_t slot = (isFromSource && p.tries == 0) ? 0 : (rank % 2); // 2 slots for direct neighbors
+        uint32_t slot = rank % 2; // 2 slots for direct neighbors
         return slot * 25 + (uint32_t)random(25); // 25ms slots for direct neighbors
     }
     
@@ -1624,8 +1638,7 @@ uint32_t DtnOverlayModule::calculateMobilitySlot(uint32_t id, const meshtastic_F
     }
     
     uint32_t rank = fnv1a32(id ^ nodeDB->getNodeNum());
-    bool isFromSource = (d.orig_from == nodeDB->getNodeNum());
-    uint32_t slot = (isFromSource && p.tries == 0) ? 0 : (rank % slots);
+    uint32_t slot = rank % slots;
     
     return slot * slotLen + (uint32_t)random(slotLen);
 }
@@ -1849,7 +1862,8 @@ void DtnOverlayModule::applyNearDestExtraSuppression(Pending &p, NodeNum dest)
 }
 
 // Purpose: check if any known DTN nodes can help reach destination
-// Strategy: DTN node is helpful if it's closer to destination than we are, or on path to destination
+// Strategy: DTN node is helpful if it's closer to destination than we are, on path to destination,
+//           or can provide alternative route through mesh topology
 bool DtnOverlayModule::canDtnHelpWithDestination(NodeNum dest) const
 {
     if (fwplusVersionByNode.empty()) return false;
@@ -1863,7 +1877,7 @@ bool DtnOverlayModule::canDtnHelpWithDestination(NodeNum dest) const
         return true;
     }
     
-    // Check if any known DTN node is closer to destination
+    // Check if any known DTN node can help reach destination
     for (const auto& kv : fwplusVersionByNode) {
         NodeNum dtnNode = kv.first;
         // uint16_t version = kv.second; // unused for now
@@ -1874,29 +1888,44 @@ bool DtnOverlayModule::canDtnHelpWithDestination(NodeNum dest) const
             return true;
         }
         
-        // Skip if we don't know how to reach this DTN node
+        // Get DTN node's distance from us and from destination
         uint8_t hopsToNode = getHopsAway(dtnNode);
-        if (hopsToNode == 255) continue;
+        if (hopsToNode == 255) continue; // Can't reach this DTN node
         
-        // Check if DTN node is closer to destination than we are
-        // This uses router's topology knowledge
-        if (router) {
-            auto nh = static_cast<NextHopRouter *>(router);
-            // Query if dtnNode has a route to dest
-            if (nh->hasRouteConfidence(dest, 1)) {
-                // DTN node is on network and might have better path
-                LOG_DEBUG("DTN: Node 0x%x may help reach 0x%x (topology)", 
+        // Check if DTN node is reachable and not too far
+        if (!isNodeReachable(dtnNode)) continue;
+        
+        // Strategy 1: DTN node is closer to destination than we are
+        // This works for nodes on the direct path
+        meshtastic_NodeInfoLite *dtnNodeInfo = nodeDB->getMeshNode(dtnNode);
+        if (dtnNodeInfo) {
+            // We can't directly query another node's routing table, but we can use heuristics:
+            // If the DTN node is much closer to us than the destination is, it might be on path
+            // This catches "side branch" nodes that can provide alternative routes
+            
+            // Relaxed heuristic: DTN node within reasonable distance (not just half)
+            // Example: dest at 7 hops, DTN at 3 hops can still help significantly
+            if (hopsToNode <= 4 && hopsToNode < ourHopsToDest) {
+                LOG_DEBUG("DTN: Node 0x%x (hops=%u) may help reach 0x%x (hops=%u) - reachable and closer", 
+                         (unsigned)dtnNode, (unsigned)hopsToNode, (unsigned)dest, (unsigned)ourHopsToDest);
+                return true;
+            }
+            
+            // Strategy 2: For far destinations (>4 hops), any reachable DTN node might help
+            // as it can store-carry-forward through different mesh branches
+            if (ourHopsToDest > 4) {
+                LOG_DEBUG("DTN: Node 0x%x may help reach far dest 0x%x (hops=%u) via store-carry-forward", 
+                         (unsigned)dtnNode, (unsigned)dest, (unsigned)ourHopsToDest);
+                return true;
+            }
+            
+            // Strategy 3: If we have route confidence to destination but DTN node is reachable,
+            // DTN can provide redundancy and alternative path (useful for mobility)
+            if (router && router->hasRouteConfidence(dest, 1) && hopsToNode <= 3) {
+                LOG_DEBUG("DTN: Node 0x%x may provide redundant path to 0x%x", 
                          (unsigned)dtnNode, (unsigned)dest);
                 return true;
             }
-        }
-        
-        // Heuristic: if DTN node is significantly closer to us than destination is,
-        // it might be on path to destination
-        if (hopsToNode < ourHopsToDest / 2) {
-            LOG_DEBUG("DTN: Node 0x%x may help reach 0x%x (proximity heuristic: %u hops vs %u)", 
-                     (unsigned)dtnNode, (unsigned)dest, (unsigned)hopsToNode, (unsigned)ourHopsToDest);
-            return true;
         }
     }
     
