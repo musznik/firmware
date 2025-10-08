@@ -64,6 +64,11 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     bool shouldInterceptLocalDM(NodeNum dest) const {
         if (!configEnabled) return false;
         
+        // Never intercept broadcasts - DTN is for unicast only
+        if (dest == NODENUM_BROADCAST || dest == NODENUM_BROADCAST_NO_LORA) {
+            return false;
+        }
+        
         // No DTN nodes known - use native DM immediately
         if (fwplusVersionByNode.empty()) {
             return false;
