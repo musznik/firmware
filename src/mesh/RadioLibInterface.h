@@ -5,6 +5,7 @@
 #include "concurrency/NotifiedWorkerThread.h"
 
 #include <RadioLib.h>
+#include <atomic>
 #include <sys/types.h>
 
 // ESP32 has special rules about ISR code
@@ -95,7 +96,8 @@ class RadioLibInterface : public RadioInterface, protected concurrency::Notified
     PhysicalLayer *iface;
 
     /// are _trying_ to receive a packet currently (note - we might just be waiting for one)
-    bool isReceiving = false;
+    /// fw+ Using atomic to prevent race conditions between ISR and main thread
+    std::atomic<bool> isReceiving{false};
 
   public:
     /** Our ISR code currently needs this to find our active instance

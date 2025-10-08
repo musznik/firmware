@@ -465,6 +465,7 @@ void RadioLibInterface::handleReceiveInterrupt()
         rxBad++;
 
         airTime->logAirtime(RX_ALL_LOG, rxMsec);
+        return; // fw+ return after CRC/radio error to prevent corrupted packet processing
 
     } else {
         // Skip the 4 headers that are at the beginning of the rxBuf
