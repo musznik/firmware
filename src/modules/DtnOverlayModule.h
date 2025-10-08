@@ -47,16 +47,35 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     // Periodically advertise FW+ version (one-shot early and periodic thereafter)
     void maybeAdvertiseFwplusVersion();
 
-    // Check if DTN should intercept local DMs (cold start bypass) - PUBLIC for Router access
+    // Check if DTN should intercept local DMs (intelligent routing) - PUBLIC for Router access
     bool shouldInterceptLocalDM() const {
         if (!configEnabled) return false;
         
-        // If cold start with native fallback enabled, don't intercept
-        if (isDtnCold() && configColdStartNativeFallback) {
+        // If we don't know any DTN nodes, don't intercept - use native DM immediately
+        // This prevents cold start delays and allows immediate delivery
+        if (fwplusVersionByNode.empty()) {
             return false;
         }
         
         return true;
+    }
+    
+    // Check if DTN can help with specific destination - PUBLIC for Router access
+    bool shouldInterceptLocalDM(NodeNum dest) const {
+        if (!configEnabled) return false;
+        
+        // No DTN nodes known - use native DM immediately
+        if (fwplusVersionByNode.empty()) {
+            return false;
+        }
+        
+        // Direct neighbor - native DM is faster, don't use DTN overlay
+        if (isDirectNeighbor(dest)) {
+            return false;
+        }
+        
+        // Check if any known DTN node can help reach destination
+        return canDtnHelpWithDestination(dest);
     }
 
   protected:
@@ -292,16 +311,12 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     // DV-ETX gating wrapper - more permissive for mobile nodes
     bool hasSufficientRouteConfidence(NodeNum dest) const;
     
-    // Cold start detection - check if DTN has warmed up
+    // Cold start detection - check if DTN has warmed up (DEPRECATED - use fwplusVersionByNode.empty() instead)
+    // This is kept for compatibility but no longer blocks message transmission
     bool isDtnCold() const {
-        if (!configColdStartNativeFallback) return false;
-        
-        // Check if we know any FW+ nodes
-        if (!fwplusVersionByNode.empty()) return false;
-        
-        // Check if enough time has passed since module start
-        uint32_t age = millis() - moduleStartMs;
-        return age < configColdStartTimeoutMs;
+        // Always return false - we no longer block on cold start
+        // Native DM will be used automatically if no DTN nodes are known
+        return false;
     }
 
     // Telemetry-triggered FW+ probe config/state
@@ -338,6 +353,12 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     
     // Cold start aggressive discovery
     void triggerAggressiveDiscovery();
+    
+    // Check if DTN nodes can help reach destination (proximity analysis)
+    bool canDtnHelpWithDestination(NodeNum dest) const;
+    
+    // Check pending messages for potential handoff when new DTN node discovered
+    void checkPendingMessagesForHandoff(NodeNum newDtnNode);
     
     // Scheduling helper functions
     uint32_t calculateBaseDelay(const meshtastic_FwplusDtnData &d, const Pending &p) const;

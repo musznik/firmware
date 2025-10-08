@@ -373,9 +373,9 @@ ErrorCode Router::send(meshtastic_MeshPacket *p)
     fixPriority(p); // Before encryption, fix the priority if it's unset
     // If the packet is not yet encrypted, do so now
     if (p->which_payload_variant == meshtastic_MeshPacket_decoded_tag) {
-        //fw+ DTN-first: intercept private TEXT unicasts when DTN overlay is enabled
+        //fw+ DTN-first: intercept private TEXT unicasts when DTN overlay is enabled and can help
 #if __has_include("mesh/generated/meshtastic/fwplus_dtn.pb.h")
-        if (dtnOverlayModule && dtnOverlayModule->shouldInterceptLocalDM() &&
+        if (dtnOverlayModule && dtnOverlayModule->shouldInterceptLocalDM(p->to) &&
             p->decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP && !isBroadcast(p->to)) {
             uint32_t ttlMinutes = dtnOverlayModule->getTtlMinutes();
             //fw+ Fix overflow: use 64-bit arithmetic for deadline calculation

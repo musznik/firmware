@@ -762,6 +762,8 @@ void DtnOverlayModule::tryForward(uint32_t id, Pending &p)
         bool isFromSource = (p.data.orig_from == nodeDB->getNodeNum());
         if (isFromSource) {
             triggerTracerouteIfNeededForSource(p, lowConf);
+            // fw+ Allow broadcast fallback for source in TTL tail as last resort
+            if (tryIntelligentFallback(id, p)) return;
         } else {
             // Intermediate nodes: try intelligent fallback first
             if (tryIntelligentFallback(id, p)) return;
@@ -1501,9 +1503,9 @@ bool DtnOverlayModule::hasSufficientRouteConfidence(NodeNum dest) const
 // Effect: adds DTN-enabled nodes to fwplusVersionByNode for future handoff consideration
 void DtnOverlayModule::observeOnDemandResponse(const meshtastic_MeshPacket &mp)
 {
-    // Only process if we don't already know this node as FW+
+    // Check if we already know this node as FW+
     NodeNum origin = getFrom(&mp);
-    if (isFwplus(origin)) return;
+    bool wasUnknown = !isFwplus(origin);
     
     // Decode OnDemand response
     meshtastic_OnDemand ondemand = meshtastic_OnDemand_init_zero;
@@ -1546,6 +1548,12 @@ void DtnOverlayModule::observeOnDemandResponse(const meshtastic_MeshPacket &mp)
                     maybeProbeFwplus(origin);
                     lastTelemetryProbeToNodeMs[origin] = nowMs;
                 }
+            }
+            
+            // fw+ NEW: If this is a newly discovered DTN node, check if any pending messages can benefit
+            if (wasUnknown) {
+                LOG_INFO("DTN: New DTN node discovered - checking pending messages for potential handoff");
+                checkPendingMessagesForHandoff(origin);
             }
         }
     }
@@ -1887,5 +1895,119 @@ void DtnOverlayModule::applyNearDestExtraSuppression(Pending &p, NodeNum dest)
         uint32_t postpone = millis() + longerSuppress + (uint32_t)random(1000);
         if (p.nextAttemptMs < postpone) p.nextAttemptMs = postpone;
         LOG_DEBUG("DTN near-dest extra suppress for %u ms", (unsigned)longerSuppress);
+    }
+}
+
+// Purpose: check if any known DTN nodes can help reach destination
+// Strategy: DTN node is helpful if it's closer to destination than we are, or on path to destination
+bool DtnOverlayModule::canDtnHelpWithDestination(NodeNum dest) const
+{
+    if (fwplusVersionByNode.empty()) return false;
+    
+    // Get our distance to destination
+    uint8_t ourHopsToDest = getHopsAway(dest);
+    
+    // If we don't know route to dest, DTN might help with discovery
+    if (ourHopsToDest == 255) {
+        LOG_DEBUG("DTN: Unknown route to 0x%x - DTN may help with discovery", (unsigned)dest);
+        return true;
+    }
+    
+    // Check if any known DTN node is closer to destination
+    for (const auto& kv : fwplusVersionByNode) {
+        NodeNum dtnNode = kv.first;
+        // uint16_t version = kv.second; // unused for now
+        
+        if (dtnNode == dest) {
+            // Destination itself is DTN-enabled!
+            LOG_DEBUG("DTN: Destination 0x%x is DTN-enabled", (unsigned)dest);
+            return true;
+        }
+        
+        // Skip if we don't know how to reach this DTN node
+        uint8_t hopsToNode = getHopsAway(dtnNode);
+        if (hopsToNode == 255) continue;
+        
+        // Check if DTN node is closer to destination than we are
+        // This uses router's topology knowledge
+        if (router) {
+            auto nh = static_cast<NextHopRouter *>(router);
+            // Query if dtnNode has a route to dest
+            if (nh->hasRouteConfidence(dest, 1)) {
+                // DTN node is on network and might have better path
+                LOG_DEBUG("DTN: Node 0x%x may help reach 0x%x (topology)", 
+                         (unsigned)dtnNode, (unsigned)dest);
+                return true;
+            }
+        }
+        
+        // Heuristic: if DTN node is significantly closer to us than destination is,
+        // it might be on path to destination
+        if (hopsToNode < ourHopsToDest / 2) {
+            LOG_DEBUG("DTN: Node 0x%x may help reach 0x%x (proximity heuristic: %u hops vs %u)", 
+                     (unsigned)dtnNode, (unsigned)dest, (unsigned)hopsToNode, (unsigned)ourHopsToDest);
+            return true;
+        }
+    }
+    
+    LOG_DEBUG("DTN: No DTN nodes can help reach 0x%x - using native DM", (unsigned)dest);
+    return false;
+}
+
+// Purpose: check if any pending messages can benefit from newly discovered DTN node
+// Effect: may trigger re-evaluation of pending messages that were using native DM
+void DtnOverlayModule::checkPendingMessagesForHandoff(NodeNum newDtnNode)
+{
+    if (!configEnabled) return;
+    
+    uint8_t hopsToNewNode = getHopsAway(newDtnNode);
+    if (hopsToNewNode == 255) {
+        LOG_DEBUG("DTN: Unknown route to new DTN node 0x%x - cannot evaluate handoff", (unsigned)newDtnNode);
+        return;
+    }
+    
+    LOG_INFO("DTN: Evaluating pending messages for potential handoff to new DTN node 0x%x (hops=%u)", 
+             (unsigned)newDtnNode, (unsigned)hopsToNewNode);
+    
+    // Iterate through pending messages
+    for (auto& kv : pendingById) {
+        uint32_t id = kv.first;
+        Pending& pending = kv.second;
+        
+        // Skip if message is from us and already being handled
+        bool isFromUs = (pending.data.orig_from == nodeDB->getNodeNum());
+        if (!isFromUs) continue; // Only consider messages we originated
+        
+        // Skip if destination is direct neighbor (native DM is faster)
+        if (isDirectNeighbor(pending.data.orig_to)) continue;
+        
+        uint8_t hopsToDest = getHopsAway(pending.data.orig_to);
+        if (hopsToDest == 255) {
+            // Unknown destination - new DTN node might help with discovery
+            LOG_INFO("DTN: Message 0x%x to unknown dest 0x%x - new DTN node may help", 
+                    id, (unsigned)pending.data.orig_to);
+            // Reschedule for earlier attempt
+            uint32_t now = millis();
+            if (pending.nextAttemptMs > now + 5000) {
+                pending.nextAttemptMs = now + 2000 + (uint32_t)random(1000);
+                LOG_INFO("DTN: Rescheduled message 0x%x for earlier attempt", id);
+            }
+            continue;
+        }
+        
+        // Check if new DTN node is closer to destination
+        // This is a simple heuristic - new node might be on path
+        if (hopsToNewNode < hopsToDest) {
+            LOG_INFO("DTN: Message 0x%x to dest 0x%x (hops=%u) may benefit from DTN node 0x%x (hops=%u)", 
+                    id, (unsigned)pending.data.orig_to, (unsigned)hopsToDest,
+                    (unsigned)newDtnNode, (unsigned)hopsToNewNode);
+            
+            // Reschedule for earlier attempt if currently delayed
+            uint32_t now = millis();
+            if (pending.nextAttemptMs > now + 5000) {
+                pending.nextAttemptMs = now + 1000 + (uint32_t)random(500);
+                LOG_INFO("DTN: Rescheduled message 0x%x for earlier DTN attempt", id);
+            }
+        }
     }
 }
