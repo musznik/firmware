@@ -169,11 +169,15 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     uint8_t configHandoffMaxCandidates = 3;         // FW+ neighbors shortlist size
     uint16_t configMinFwplusVersionForHandoff = 45; // require FW+ >= this version
     
-    // Periodic FW+ version advertisement
-    uint32_t configAdvertiseIntervalMs = 6UL * 60UL * 60UL * 1000UL;  // 6h
+    // Periodic FW+ version advertisement with staged warmup
+    uint32_t configAdvertiseIntervalMs = 6UL * 60UL * 60UL * 1000UL;  // 6h (normal operation)
     uint32_t configAdvertiseJitterMs = 5UL * 60UL * 1000UL;           // ±5 min
-    // Cold-start: faster seeding cadence until we learn at least one FW+ peer
-    uint32_t configAdvertiseIntervalUnknownMs = 120UL * 60UL * 1000UL; // 2h (balanced cold-start discovery)
+    // Staged warmup: aggressive discovery in first hour, then progressive backoff
+    uint32_t configAdvertiseWarmupIntervalMs = 15UL * 60UL * 1000UL;   // 15min (first hour warmup)
+    uint32_t configAdvertiseWarmupDurationMs = 60UL * 60UL * 1000UL;   // 1h (warmup phase duration)
+    uint8_t configAdvertiseWarmupCount = 4;                            // 4 beacons in warmup (15min × 4 = 60min)
+    // Post-warmup: if still no FW+ nodes known, continue searching
+    uint32_t configAdvertiseIntervalUnknownMs = 120UL * 60UL * 1000UL; // 2h (post-warmup cold-start)
     // One-shot early advertise after enable/start
     uint32_t configFirstAdvertiseDelayMs = 2UL * 60UL * 1000UL;        // 2min (wait for MQTT proxy connection)
     uint32_t configFirstAdvertiseRetryMs = 10UL * 1000UL;              // 10s retry interval if first beacon fails
@@ -219,6 +223,7 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     uint32_t moduleStartMs = 0;   //fw+
     bool firstAdvertiseDone = false; //fw+
     uint32_t firstAdvertiseRetryMs = 0; //fw+ track retry attempts for first beacon
+    uint8_t warmupBeaconsSent = 0; //fw+ track warmup beacons sent (staged discovery)
     uint32_t lastDetailedLogMs = 0;
     // Hello-back unicast reply throttling
     bool configHelloBackEnabled = true;

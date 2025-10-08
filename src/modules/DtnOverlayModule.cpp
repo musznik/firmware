@@ -45,7 +45,8 @@ Traceroute & Fallback
   Counter resets on receipt. Stock marking cleared when node sends beacon/OnDemand (DTN re-enabled scenario).
 
 Version Advertisement & Discovery
-- One‑shot public beacon after start (aggressive, retried on failure), followed by periodic beacons with adaptive interval.
+- One‑shot public beacon after start (aggressive, retried on failure), followed by staged periodic beacons.
+- Staged warmup: first hour = 4 beacons @ 15min (aggressive), then 2h if unknown, finally 6h when FW+ nodes known.
 - Hello-back: unicast version up to 3 hops (rate‑limited, more frequent for known FW+ nodes).
 - Passive discovery: OnDemand responses, overheard DTN DATA/RECEIPTs; no periodic active probing.
 - Aggressive discovery: triggered during cold start; probes all direct neighbors for FW+ capability.
@@ -1012,10 +1013,27 @@ void DtnOverlayModule::maybeAdvertiseFwplusVersion()
     // Adaptive mobility management - adjust parameters based on mobility
     adaptiveMobilityManagement();
     
-    // Cold-start: if we don't yet know any FW+ peer, use a shorter interval
+    // Staged warmup with progressive backoff
     bool knowsAnyFwplus = false;
     for (const auto &kv : fwplusVersionByNode) { (void)kv; knowsAnyFwplus = true; break; }
-    uint32_t interval = knowsAnyFwplus ? configAdvertiseIntervalMs : configAdvertiseIntervalUnknownMs;
+    
+    uint32_t uptimeMs = now - moduleStartMs;
+    bool inWarmupPhase = (uptimeMs < configAdvertiseWarmupDurationMs);
+    bool warmupComplete = (warmupBeaconsSent >= configAdvertiseWarmupCount);
+    
+    // Select interval based on phase:
+    // 1. Warmup (first hour): 15min aggressive discovery
+    // 2. Post-warmup unknown: 2h continued search
+    // 3. Normal (FW+ known): 6h maintenance
+    uint32_t interval;
+    if (inWarmupPhase && !warmupComplete) {
+        interval = configAdvertiseWarmupIntervalMs; // 15min warmup
+    } else if (!knowsAnyFwplus) {
+        interval = configAdvertiseIntervalUnknownMs; // 2h post-warmup
+    } else {
+        interval = configAdvertiseIntervalMs; // 6h normal
+    }
+    
     if (lastAdvertiseMs == 0) lastAdvertiseMs = now - (uint32_t)random(interval);
     // One-shot early advertise shortly after module start to speed up discovery (unconditional broadcast)
     if (!firstAdvertiseDone && now - moduleStartMs >= configFirstAdvertiseDelayMs) {
@@ -1076,8 +1094,19 @@ void DtnOverlayModule::maybeAdvertiseFwplusVersion()
                 
                 service->sendToMesh(p, RX_SRC_LOCAL, false);
                 lastAdvertiseMs = now;
-                LOG_INFO("DTN: Beacon sent successfully");
                 firstAdvertiseDone = true; // Mark as done only on success
+                
+                //fw+ Track warmup beacons
+                if (inWarmupPhase && !warmupComplete) {
+                    warmupBeaconsSent++;
+                    LOG_INFO("DTN: Warmup beacon %u/%u sent (next in ~%u min)", 
+                             (unsigned)warmupBeaconsSent, (unsigned)configAdvertiseWarmupCount,
+                             (unsigned)(configAdvertiseWarmupIntervalMs / 60000));
+                } else {
+                    LOG_INFO("DTN: Beacon sent successfully (phase: %s, interval: %u min)",
+                             knowsAnyFwplus ? "normal" : "post-warmup search",
+                             (unsigned)(interval / 60000));
+                }
                 
                 //fw+ Force MQTT proxy queue flush to ensure beacon reaches lorastats.pl
                 if (mqtt && mqtt->isEnabled() && moduleConfig.mqtt.proxy_to_client_enabled) {
@@ -1133,6 +1162,19 @@ void DtnOverlayModule::maybeAdvertiseFwplusVersion()
     p->priority = meshtastic_MeshPacket_Priority_BACKGROUND;
     service->sendToMesh(p, RX_SRC_LOCAL, false);
     lastAdvertiseMs = now;
+    
+    //fw+ Track warmup beacons and log phase
+    if (inWarmupPhase && !warmupComplete) {
+        warmupBeaconsSent++;
+        LOG_INFO("DTN: Warmup beacon %u/%u sent (next in ~%u min)", 
+                 (unsigned)warmupBeaconsSent, (unsigned)configAdvertiseWarmupCount,
+                 (unsigned)(configAdvertiseWarmupIntervalMs / 60000));
+    } else {
+        const char* phase = knowsAnyFwplus ? "normal" : 
+                           (warmupComplete ? "post-warmup" : "warmup-complete");
+        LOG_INFO("DTN: Periodic beacon sent (phase: %s, next in ~%u min, known FW+ nodes: %u)",
+                 phase, (unsigned)(interval / 60000), (unsigned)fwplusVersionByNode.size());
+    }
 }
 
 // Purpose: check if a handoff candidate is valid (not self, dest, or lastCarrier)
