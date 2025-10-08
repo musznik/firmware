@@ -220,7 +220,7 @@ bool FloodingRouter::perhapsRebroadcast(const meshtastic_MeshPacket *p)
 
                 Router::send(tosend);
                 return true;
-                send(tosend);
+            } else {
                 LOG_DEBUG("No rebroadcast: Role = CLIENT_MUTE or Rebroadcast Mode = NONE");
             }
         } else {
