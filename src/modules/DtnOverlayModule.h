@@ -111,15 +111,18 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
         meshtastic_FwplusDtnData data;
         uint32_t nextAttemptMs = 0;
         uint8_t tries = 0;
-      uint32_t lastCarrier = 0; // node num of last hop we heard from
-      // shortlist of FW+ handoff targets (fixed small array)
-      NodeNum handoffCandidates[3] = {0, 0, 0};
-      uint8_t handoffCount = 0;
-      uint8_t handoffIndex = 0;
-      // fw+ tracking failed DTN attempts to detect unresponsive FW+ destinations
-      uint8_t dtnFailedAttempts = 0; // consecutive failed DTN overlay attempts
-      uint32_t lastDtnAttemptMs = 0; // timestamp of last DTN attempt
-      bool fallbackTriggered = false; // flag to avoid re-triggering fallback
+        //fw+ Loop detection: track recent carriers (circular buffer)
+        uint32_t lastCarrier = 0; // node num of last hop we heard from (backward compat)
+        NodeNum recentCarriers[3] = {0, 0, 0}; // last 3 carriers for loop detection
+        uint8_t recentCarrierIndex = 0; // circular buffer index
+        // shortlist of FW+ handoff targets (fixed small array)
+        NodeNum handoffCandidates[3] = {0, 0, 0};
+        uint8_t handoffCount = 0;
+        uint8_t handoffIndex = 0;
+        // fw+ tracking failed DTN attempts to detect unresponsive FW+ destinations
+        uint8_t dtnFailedAttempts = 0; // consecutive failed DTN overlay attempts
+        uint32_t lastDtnAttemptMs = 0; // timestamp of last DTN attempt
+        bool fallbackTriggered = false; // flag to avoid re-triggering fallback
     };
     std::unordered_map<uint32_t, Pending> pendingById; // key: orig_id
     // Process received FW+ DTN DATA; deliver locally or schedule and coordinate with peers
@@ -144,6 +147,9 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     void prunePerDestCache();
     // Perform late native DM fallback (encrypted)
     bool sendProxyFallback(uint32_t id, Pending &p);
+    // Loop detection helpers
+    bool isCarrierLoop(Pending &p, NodeNum carrier) const;
+    void trackCarrier(Pending &p, NodeNum carrier);
 
     // Config snapshot
     bool configEnabled = true;
@@ -221,6 +227,12 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     uint32_t ctrMilestonesSent = 0;
     uint32_t ctrProbesSent = 0;
     uint32_t ctrFwplusUnresponsiveFallbacks = 0; //fw+ count of fallbacks to unresponsive FW+ destinations
+    //fw+ Enhanced metrics (issue #9)
+    uint32_t ctrHandoffsAttempted = 0;       // custody handoff to another FW+ node
+    uint32_t ctrHandoffCacheHits = 0;        // used cached handoff target
+    uint32_t ctrLoopsDetected = 0;           // carrier loop detected and avoided
+    uint32_t ctrDeliveredLocal = 0;          // messages delivered to us as destination
+    uint32_t ctrDuplicatesSuppressed = 0;    // duplicate deliveries prevented by tombstone
     uint32_t lastForwardMs = 0;
     // Runtime state
     bool runtimeMilestonesSuppressed = false;
@@ -314,6 +326,7 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     struct PreferredHandoffEntry {
         NodeNum node = 0;
         uint32_t lastUsedMs = 0;
+        uint8_t rotationIndex = 0; //fw+ global rotation counter for this destination
     };
     std::unordered_map<NodeNum, PreferredHandoffEntry> preferredHandoffByDest;
     uint32_t preferredHandoffTtlMs = 6UL * 60UL * 60UL * 1000UL; // 6h TTL

@@ -35,7 +35,7 @@ bool OnDemandModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, mes
 {
     if (t->which_variant == meshtastic_OnDemand_request_tag) 
     {
-        //fw+ only answer if request is for us or originated locally (phone)
+        //only answer if request is for us or originated locally (phone)
         if (mp.from != RX_SRC_LOCAL && mp.to != nodeDB->getNodeNum()) {
             return false; // not our request; let it route
         }
@@ -379,7 +379,7 @@ meshtastic_OnDemand OnDemandModule::prepareDtnOverlayStats()
         if (s.knownNodesCount > 0) { dst.has_known_nodes_count = true; dst.known_nodes_count = s.knownNodesCount; }
     }
 
-    //fw+ guard against radio MTU: trim least critical fields 
+    //guard against radio MTU: trim least critical fields 
     if (!fitsInPacket(onDemand, MAX_PACKET_SIZE)) {
         dst.has_known_nodes_count = false;
     }
