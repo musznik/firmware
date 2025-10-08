@@ -341,7 +341,6 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
 
     // Handoff candidate validation helpers (private - access to Pending struct)
     bool isValidHandoffCandidate(NodeNum candidate, NodeNum dest, const Pending &p) const;
-    bool hasValidHandoffCandidates(NodeNum dest, const Pending &p) const;
     bool isNodeReachable(NodeNum node) const;
     
     // Route invalidation for mobile nodes
@@ -368,7 +367,6 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     
     // Forwarding helper functions
     bool shouldUseFallback(const Pending &p) const;
-    bool tryColdStartFallback(uint32_t id, Pending &p);
     bool tryNearDestinationFallback(uint32_t id, Pending &p);
     bool tryKnownStockFallback(uint32_t id, Pending &p);
     bool tryIntelligentFallback(uint32_t id, Pending &p);
@@ -381,7 +379,6 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     bool shouldDeferForIntermediateLowConf(const Pending &p, bool lowConf) const;
     void triggerTracerouteIfNeededForSource(const Pending &p, bool lowConf);
     void setPriorityForTailAndSource(meshtastic_MeshPacket *mp, const Pending &p, bool isFromSource);
-    bool sendBroadcastFallback(uint32_t id, Pending &p);
     void applyForeignCarrySuppression(uint32_t id, Pending &p);
     void applyNearDestExtraSuppression(Pending &p, NodeNum dest);
 };

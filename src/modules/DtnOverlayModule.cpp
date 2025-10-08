@@ -768,7 +768,6 @@ void DtnOverlayModule::tryForward(uint32_t id, Pending &p)
             // Intermediate nodes: try intelligent fallback first
             if (tryIntelligentFallback(id, p)) return;
             // Try various fallback mechanisms for multi-hop destinations
-            if (tryColdStartFallback(id, p)) return;
             if (tryNearDestinationFallback(id, p)) return;
             if (tryKnownStockFallback(id, p)) return;
         }
@@ -1289,29 +1288,6 @@ void DtnOverlayModule::logDetailedStats()
     lastDetailedLogMs = now;
 }
 
-// Purpose: check if we have any valid handoff candidates for destination
-// Returns: true if at least one valid candidate exists
-bool DtnOverlayModule::hasValidHandoffCandidates(NodeNum dest, const Pending &p) const
-{
-    int totalNodes = nodeDB->getNumMeshNodes();
-    for (int i = 0; i < totalNodes; ++i) {
-        meshtastic_NodeInfoLite *ni = nodeDB->getMeshNodeByIndex(i);
-        if (!ni) continue;
-        if (!isFwplus(ni->num)) continue;
-        if (!isValidHandoffCandidate(ni->num, dest, p)) continue;
-        if (!isNodeReachable(ni->num)) continue; // Check if candidate is reachable
-        
-        auto itVer = fwplusVersionByNode.find(ni->num);
-        if (itVer == fwplusVersionByNode.end() || itVer->second < configMinFwplusVersionForHandoff) continue;
-        
-        uint8_t ad = getHopsAway(dest);
-        if (ad == 255) continue; // unknown route
-        
-        return true; // Found at least one valid candidate
-    }
-    return false;
-}
-
 //fw+ FW+ custody handoff target selection
 NodeNum DtnOverlayModule::chooseHandoffTarget(NodeNum dest, uint32_t origId, Pending &p)
 {
@@ -1677,22 +1653,6 @@ bool DtnOverlayModule::shouldUseFallback(const Pending &p) const
     return !isFwplus(p.data.orig_to) && p.data.allow_proxy_fallback;
 }
 
-// Purpose: try cold start fallback for intermediate nodes
-bool DtnOverlayModule::tryColdStartFallback(uint32_t id, Pending &p)
-{
-    if (isDtnCold() && shouldUseFallback(p)) {
-        LOG_INFO("DTN: Cold start detected, using native DM fallback for dest=0x%x", (unsigned)p.data.orig_to);
-        
-        if (p.tries == 0) {
-            LOG_INFO("DTN: Triggering aggressive discovery for cold start");
-            triggerAggressiveDiscovery();
-        }
-        
-        if (sendProxyFallback(id, p)) return true;
-    }
-    return false;
-}
-
 // Purpose: try near-destination fallback for close targets
 bool DtnOverlayModule::tryNearDestinationFallback(uint32_t id, Pending &p)
 {
@@ -1783,18 +1743,14 @@ NodeNum DtnOverlayModule::selectForwardTarget(Pending &p)
     if (configEnableFwplusHandoff) {
         uint8_t hopsToDest = getHopsAway(p.data.orig_to);
         if (hopsToDest != 255 && hopsToDest >= configHandoffMinRing) {
-            if (hasValidHandoffCandidates(p.data.orig_to, p)) {
-                NodeNum cand = chooseHandoffTarget(p.data.orig_to, 0, p);
-                if (cand != 0 && isValidHandoffCandidate(cand, p.data.orig_to, p)) {
-                    target = cand;
-                    LOG_DEBUG("DTN: Using handoff target: 0x%x (hops=%u)", (unsigned)target, (unsigned)hopsToDest);
-                } else {
-                    LOG_DEBUG("DTN: Handoff selection failed, using broadcast fallback");
-                    target = NODENUM_BROADCAST;
-                }
+            // Try to find handoff candidate - chooseHandoffTarget returns 0 if none available
+            NodeNum cand = chooseHandoffTarget(p.data.orig_to, 0, p);
+            if (cand != 0 && isValidHandoffCandidate(cand, p.data.orig_to, p)) {
+                target = cand;
+                LOG_DEBUG("DTN: Using handoff target: 0x%x (hops=%u)", (unsigned)target, (unsigned)hopsToDest);
             } else {
-                LOG_DEBUG("DTN: No valid handoff candidates available, using broadcast fallback");
-                target = NODENUM_BROADCAST;
+                LOG_DEBUG("DTN: No valid handoff candidates available, using direct");
+                // Keep target as orig_to (direct delivery attempt)
             }
         }
     }
@@ -1870,12 +1826,6 @@ void DtnOverlayModule::setPriorityForTailAndSource(meshtastic_MeshPacket *mp, co
     if (nowEpoch >= tailStart && (nearDst || isFromSource)) {
         mp->priority = meshtastic_MeshPacket_Priority_DEFAULT;
     }
-}
-
-bool DtnOverlayModule::sendBroadcastFallback(uint32_t id, Pending &p)
-{
-    // Reuse tryIntelligentFallback broadcast branch by calling it directly
-    return tryIntelligentFallback(id, p);
 }
 
 void DtnOverlayModule::applyForeignCarrySuppression(uint32_t id, Pending &p)
