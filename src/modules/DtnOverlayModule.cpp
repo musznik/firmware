@@ -23,8 +23,10 @@ Forwarding and Handoff
 - Primary action: send FWPLUS_DTN DATA toward the destination, or hand off custody to a better FW+ neighbor.
 - When the destination is far: prefer handoff to a FW+ neighbor (safe mapping of `next_hop` → unique direct neighbor).
 - Shortlist up to 3 FW+ neighbors closer to the destination; rotate between them across retries; per‑destination preference cache.
-- Skip candidates with unknown route (ad==255) or unreachable. Prevent loops via lastCarrier/self/dest checks.
-- Broadcast as last resort in TTL tail: public (unencrypted), channel‑utilization gated, randomized cooldown 60–120 s.
+- Optimistic handoff: when route to destination is unknown (255), use closest FW+ neighbors - they may have better topology knowledge.
+- Prevent loops via lastCarrier/self/dest checks and reachability validation.
+- Broadcast as last resort: aggressive for unknown routes (after 1 retry or 40% TTL), conservative for known (20% TTL tail).
+- Broadcast: public (unencrypted), channel‑utilization gated, randomized cooldown 60–120s to allow 7-hop propagation.
 - Priority defaults to BACKGROUND; escalate to DEFAULT in TTL tail when near the destination or when we are the source.
 - Global active cap and per‑destination spacing limit concurrency.
 
@@ -787,6 +789,19 @@ void DtnOverlayModule::tryForward(uint32_t id, Pending &p)
 
     // Select forward target and handle traceroute
     NodeNum target = selectForwardTarget(p);
+    
+    //fw+ Log handoff decision for debugging
+    if (target != p.data.orig_to) {
+        LOG_INFO("DTN: Handoff custody id=0x%x from dest=0x%x to intermediate=0x%x", 
+                 id, (unsigned)p.data.orig_to, (unsigned)target);
+    } else {
+        uint8_t hopsToDest = getHopsAway(p.data.orig_to);
+        if (hopsToDest == 255) {
+            LOG_INFO("DTN: Unknown route to dest=0x%x - attempting optimistic send/broadcast", 
+                     (unsigned)p.data.orig_to);
+        }
+    }
+    
     // Only trigger traceroute for intermediate nodes, not source (source already triggered above)
     if (lowConf && target == p.data.orig_to && !isDirectNeighbor(p.data.orig_to) && !isFromSource) {
         maybeTriggerTraceroute(p.data.orig_to);
@@ -1159,14 +1174,23 @@ bool DtnOverlayModule::tryIntelligentFallback(uint32_t id, Pending &p)
         return sendProxyFallback(id, p);
     }
     
-    // For unreachable destinations in TTL tail, try DTN broadcast as last resort
+    // For unreachable destinations, try DTN broadcast as last resort
     if (!isNodeReachable(p.data.orig_to)) {
         uint32_t nowEpoch = getValidTime(RTCQualityFromNet) * 1000UL;
         uint32_t ttl = (p.data.deadline_ms > p.data.orig_rx_time * 1000UL) ? 
                       (p.data.deadline_ms - (p.data.orig_rx_time * 1000UL)) : 0;
-        uint32_t tailStart = p.data.deadline_ms - (ttl * 20 / 100); // Last 20% of TTL
         
-        if (nowEpoch >= tailStart) {
+        //fw+ For completely unknown routes (255), be more aggressive with broadcast
+        // Try after 1+ attempts OR in last 40% of TTL (vs 20% for known routes)
+        uint8_t hopsToDest = getHopsAway(p.data.orig_to);
+        bool completelyUnknown = (hopsToDest == 255);
+        uint32_t tailPercent = completelyUnknown ? 40 : 20; // More aggressive for unknown
+        uint32_t tailStart = p.data.deadline_ms - (ttl * tailPercent / 100);
+        
+        // For unknown routes, also allow broadcast after first retry fails
+        bool allowEarlyBroadcast = completelyUnknown && p.tries >= 1;
+        
+        if (nowEpoch >= tailStart || allowEarlyBroadcast) {
             // Anti-burst: check global cooldown and per-id cooldown before broadcasting
             {
                 auto itBroadcast = lastBroadcastSentMs.find(p.data.orig_id);
@@ -1352,6 +1376,11 @@ NodeNum DtnOverlayModule::chooseHandoffTarget(NodeNum dest, uint32_t origId, Pen
         uint8_t best1_au = 255, best2_au = 255, best3_au = 255; // hopsFromUs
         uint8_t best1_ad = 255, best2_ad = 255, best3_ad = 255; // hopsToDest
         int totalNodes = nodeDB->getNumMeshNodes();
+        
+        //fw+ Check if WE know route to destination for optimistic handoff strategy
+        uint8_t ourHopsToDest = getHopsAway(dest);
+        bool unknownRoute = (ourHopsToDest == 255);
+        
         for (int i = 0; i < totalNodes; ++i) {
             meshtastic_NodeInfoLite *ni = nodeDB->getMeshNodeByIndex(i);
             if (!ni) continue;
@@ -1364,8 +1393,15 @@ NodeNum DtnOverlayModule::chooseHandoffTarget(NodeNum dest, uint32_t origId, Pen
             uint8_t au = ni->hops_away;
             uint8_t ad = getHopsAway(dest);
             
-            // Skip candidates with unknown route to destination (255 = unknown)
-            if (ad == 255) continue;
+            //fw+ Optimistic handoff: if we don't know route to destination, try closest FW+ neighbors
+            // They might have better topology knowledge or be closer to hidden intermediates
+            // Use ad=255 for unknown routes to prioritize by proximity to us (au)
+            if (unknownRoute && ad == 255) {
+                // Keep ad=255 to sort by proximity to us (au becomes primary sort key)
+            } else if (ad == 255) {
+                // Skip if we know route but this candidate doesn't help
+                continue;
+            }
             
             auto better = [](uint8_t au1, uint8_t ad1, uint8_t au2, uint8_t ad2, NodeNum n1, NodeNum n2) {
                 if (au1 != au2) return au1 < au2;
