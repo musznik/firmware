@@ -365,11 +365,10 @@ void DtnOverlayModule::prunePerDestCache()
 }
 
 
-// Purpose: handle incoming FW+ DTN protobuf packets (DATA/RECEIPT) and conservative foreign capture.
-// Returns: true if the packet was consumed by DTN; false to let normal processing continue.
-bool DtnOverlayModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, meshtastic_FwplusDtn *msg)
+// Purpose: check and suppress duplicate native TEXT messages delivered via DTN
+// Returns: true if packet should be consumed (duplicate detected)
+bool DtnOverlayModule::checkAndSuppressDuplicateNativeText(const meshtastic_MeshPacket &mp)
 {
-    // Drop duplicate native TEXT to us if we've just delivered same id via DTN (tombstone active)
     if (mp.which_payload_variant == meshtastic_MeshPacket_decoded_tag &&
         mp.decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP &&
         mp.to == nodeDB->getNodeNum()) {
@@ -379,6 +378,211 @@ bool DtnOverlayModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, m
             return true; // consume to prevent duplicate UI delivery
         }
     }
+    return false;
+}
+
+// Purpose: process milestone emission for overheard DTN DATA packets
+// Effect: emits sparse PROGRESSED receipts with rate limiting and topology-based filtering
+void DtnOverlayModule::processMilestoneEmission(const meshtastic_MeshPacket &mp, const meshtastic_FwplusDtnData &data)
+{
+    if (!configMilestonesEnabled || !shouldEmitMilestone(data.orig_from, data.orig_to)) {
+        return;
+    }
+    
+    // Early return: channel too busy
+    if (airTime && airTime->channelUtilizationPercent() > configMilestoneChUtilMaxPercent) {
+        return;
+    }
+    
+    // Early return: recently tombstoned (avoid spam)
+    auto itTs = tombstoneUntilMs.find(data.orig_id);
+    if (itTs != tombstoneUntilMs.end() && millis() < itTs->second) {
+        return;
+    }
+    
+    // Early return: too far from source and destination
+    uint8_t ringToSrc = getHopsAway(data.orig_from);
+    uint8_t ringToDst = getHopsAway(data.orig_to);
+    uint8_t minRing = (ringToSrc != 255 && ringToDst != 255) ? std::min(ringToSrc, ringToDst) :
+                      (ringToSrc != 255) ? ringToSrc :
+                      (ringToDst != 255) ? ringToDst : 255;
+    if (minRing != 255 && minRing > configMilestoneMaxRing) {
+        return;
+    }
+    
+    // Early return: we already have this pending locally
+    auto it = pendingById.find(data.orig_id);
+    if (it != pendingById.end()) {
+        return;
+    }
+    
+    // Rate limiting: per-source minimum interval
+    auto itLast = lastProgressEmitMsBySource.find(data.orig_from);
+    if (itLast != lastProgressEmitMsBySource.end()) {
+        if (millis() - itLast->second < configOriginProgressMinIntervalMs) {
+            return;
+        }
+    }
+    
+    // All checks passed - emit milestone
+    uint32_t via = nodeDB->getNodeNum() & 0xFFu;
+    emitReceipt(data.orig_from, data.orig_id,
+               meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_PROGRESSED, via);
+    ctrMilestonesSent++;
+    lastProgressEmitMsBySource[data.orig_from] = millis();
+    
+    // Tombstone to avoid re-emitting on repeated hears
+    if (configTombstoneMs) {
+        tombstoneUntilMs[data.orig_id] = millis() + configTombstoneMs;
+    }
+}
+
+// Purpose: process foreign (non-DTN) direct messages for potential DTN capture
+// Returns: true if packet was consumed (e.g., duplicate detected)
+bool DtnOverlayModule::processForeignDMCapture(const meshtastic_MeshPacket &mp)
+{
+    // Non-DTN packet: optionally capture foreign DM into overlay
+    // Policy: by default do NOT capture foreign unicasts to avoid recursive wrapping in mixed meshes
+    if (isFromUs(&mp) || mp.to == nodeDB->getNodeNum()) {
+        return false; // Not a foreign packet
+    }
+    
+    bool isDM = (mp.to != NODENUM_BROADCAST && mp.to != NODENUM_BROADCAST_NO_LORA);
+    if (!isDM) {
+        return false; // Not a direct message
+    }
+    
+    // If we've just delivered this id via DTN locally, drop late-arriving native duplicates
+    auto itDeliveredTs = tombstoneUntilMs.find(mp.id);
+    if (itDeliveredTs != tombstoneUntilMs.end() && millis() < itDeliveredTs->second) {
+        return false;
+    }
+    
+    // Capture-time gating: ignore far/unknown unicasts to avoid ballooning pending
+    uint8_t hopsToDest = getHopsAway(mp.to);
+    uint8_t hopsToSrc = getHopsAway(getFrom(&mp));
+    bool farFromDest = (configMaxRingsToAct > 0 && hopsToDest != 255 && hopsToDest > configMaxRingsToAct);
+    bool nearEitherEnd = isDirectNeighbor(getFrom(&mp)) || isDirectNeighbor(mp.to);
+    
+    // If both endpoints are our neighbors, prefer direct-only (skip overlay capture)
+    if (isDirectNeighbor(getFrom(&mp)) && isDirectNeighbor(mp.to)) {
+        return false;
+    }
+    
+    // If we are closer to source than to destination, skip capture (let nodes closer to dest act)
+    if (hopsToSrc != 255 && hopsToDest != 255 && hopsToDest > hopsToSrc) {
+        return false;
+    }
+    
+    bool haveRoute = hasSufficientRouteConfidence(mp.to);
+    if (farFromDest && !nearEitherEnd && !haveRoute) {
+        // Too far and no confidence: skip capture
+        return false;
+    }
+    
+    // Use configured TTL instead of fixed 5 minutes
+    uint32_t ttlMinutes = (configTtlMinutes ? configTtlMinutes : 5);
+    uint64_t deadline = getEpochMs() + (ttlMinutes * 60ULL * 1000ULL);
+    
+    if (mp.which_payload_variant == meshtastic_MeshPacket_encrypted_tag) {
+        // Policy: by default do NOT capture foreign encrypted unicasts to avoid DTN-on-DTN in mixed meshes
+        if (!configCaptureForeignEncrypted) return false;
+        
+        // Tombstone check: avoid rapid re-enqueue of same orig_id
+        auto itTs = tombstoneUntilMs.find(mp.id);
+        if (itTs != tombstoneUntilMs.end() && millis() < itTs->second) return false;
+        
+        enqueueFromCaptured(mp.id, getFrom(&mp), mp.to, mp.channel,
+                            deadline,
+                            true, mp.encrypted.bytes, mp.encrypted.size, true /*allow fallback*/);
+        
+        // Apply grace and optional neighbor suppression immediately for captured ciphertext
+        auto it = pendingById.find(mp.id);
+        if (it != pendingById.end()) {
+            if (configGraceAckMs && it->second.tries == 0) {
+                uint32_t t = millis() + configGraceAckMs + (uint32_t)random(250);
+                if (it->second.nextAttemptMs < t) it->second.nextAttemptMs = t;
+            }
+            if (configSuppressIfDestNeighbor && isDirectNeighbor(mp.to)) {
+                uint32_t add = (configGraceAckMs ? configGraceAckMs : 1500);
+                it->second.nextAttemptMs += add;
+            }
+        }
+    } else if (mp.decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP) {
+        if (!configCaptureForeignText) return false;
+        
+        auto itTs = tombstoneUntilMs.find(mp.id);
+        if (itTs != tombstoneUntilMs.end() && millis() < itTs->second) return false;
+        
+        enqueueFromCaptured(mp.id, getFrom(&mp), mp.to, mp.channel,
+                            deadline,
+                            false, mp.decoded.payload.bytes, mp.decoded.payload.size, true /*allow fallback*/);
+        auto it = pendingById.find(mp.id);
+        if (it != pendingById.end() && configGraceAckMs && it->second.tries == 0) {
+            uint32_t t = millis() + configGraceAckMs + (uint32_t)random(250);
+            if (it->second.nextAttemptMs < t) it->second.nextAttemptMs = t;
+        }
+    } else if (mp.decoded.portnum == meshtastic_PortNum_ROUTING_APP && mp.decoded.request_id) {
+        // Native ACK/NAK: cancel pending for this orig DM id and mark destination as stock for a while
+        pendingById.erase(mp.decoded.request_id);
+        if (configTombstoneMs) tombstoneUntilMs[mp.decoded.request_id] = millis() + configTombstoneMs;
+        stockKnownMs[mp.to] = millis();
+    }
+    
+    return false; // Do not consume non-DTN packets
+}
+
+// Purpose: observe telemetry/nodeinfo packets to opportunistically probe for FW+ capability
+// Effect: sends lightweight probes to unknown nodes at ≥2 hops distance
+void DtnOverlayModule::processTelemetryProbe(const meshtastic_MeshPacket &mp)
+{
+    if (mp.which_payload_variant != meshtastic_MeshPacket_decoded_tag) {
+        return;
+    }
+    
+    // Only if enabled and we don't already know this origin as FW+
+    if (!configTelemetryProbeEnabled || isFwplus(getFrom(&mp))) {
+        return;
+    }
+    
+    bool isTelemetry = (mp.decoded.portnum == meshtastic_PortNum_TELEMETRY_APP);
+    bool isNodeInfo = (mp.decoded.portnum == meshtastic_PortNum_NODEINFO_APP);
+    
+    if (!isTelemetry && !isNodeInfo) {
+        return;
+    }
+    
+    NodeNum origin = getFrom(&mp);
+    uint8_t hops = getHopsAway(origin);
+    
+    if (hops == 255 || hops < configTelemetryProbeMinRing) {
+        return;
+    }
+    
+    uint32_t nowMs = millis();
+    auto it = lastTelemetryProbeToNodeMs.find(origin);
+    
+    if (it != lastTelemetryProbeToNodeMs.end() && (nowMs - it->second) < configTelemetryProbeCooldownMs) {
+        return; // Cooldown active
+    }
+    
+    if (airTime && !airTime->isTxAllowedChannelUtil(true)) {
+        return; // Channel too busy
+    }
+    
+    // Send minimal FW+ probe (receipt PROGRESSED, reason=0) to origin
+    maybeProbeFwplus(origin);
+    lastTelemetryProbeToNodeMs[origin] = nowMs;
+}
+
+// Purpose: handle incoming FW+ DTN protobuf packets (DATA/RECEIPT) and conservative foreign capture.
+// Returns: true if the packet was consumed by DTN; false to let normal processing continue.
+bool DtnOverlayModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, meshtastic_FwplusDtn *msg)
+{
+    // Check for duplicate native TEXT delivered via DTN
+    if (checkAndSuppressDuplicateNativeText(mp)) {
+        return true;
+    }
 
     // Handle LOCAL packets (our own beacons) - just log and return false to let them route
     if (mp.from == RX_SRC_LOCAL) {
@@ -386,174 +590,45 @@ bool DtnOverlayModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, m
         return false; // Let it route normally
     }
     
+    // Handle DTN DATA packets
     if (msg && msg->which_variant == meshtastic_FwplusDtn_data_tag) {
-        // capability: mark sender as FW+
+        // Mark sender as FW+ capable
         markFwplusSeen(getFrom(&mp));
         
-        //Milestone emission logic (refactored with early returns for clarity)
-        if (configMilestonesEnabled && shouldEmitMilestone(msg->variant.data.orig_from, msg->variant.data.orig_to)) {
-            // Early return: channel too busy
-            if (airTime && airTime->channelUtilizationPercent() > configMilestoneChUtilMaxPercent) {
-                goto skip_milestone; // Skip milestone due to high utilization
-            }
-            
-            // Early return: recently tombstoned (avoid spam)
-            auto itTs = tombstoneUntilMs.find(msg->variant.data.orig_id);
-            if (itTs != tombstoneUntilMs.end() && millis() < itTs->second) {
-                goto skip_milestone; // Within tombstone window
-            }
-            
-            // Early return: too far from source and destination
-            uint8_t ringToSrc = getHopsAway(msg->variant.data.orig_from);
-            uint8_t ringToDst = getHopsAway(msg->variant.data.orig_to);
-            uint8_t minRing = (ringToSrc != 255 && ringToDst != 255) ? std::min(ringToSrc, ringToDst) :
-                              (ringToSrc != 255) ? ringToSrc :
-                              (ringToDst != 255) ? ringToDst : 255;
-            if (minRing != 255 && minRing > configMilestoneMaxRing) {
-                goto skip_milestone; // Too far: suppress milestone
-            }
-            
-            // Early return: we already have this pending locally
-            auto it = pendingById.find(msg->variant.data.orig_id);
-            if (it != pendingById.end()) {
-                goto skip_milestone; // We're handling it, no need for milestone
-            }
-            
-            // Rate limiting: per-source minimum interval
-            auto itLast = lastProgressEmitMsBySource.find(msg->variant.data.orig_from);
-            if (itLast != lastProgressEmitMsBySource.end()) {
-                if (millis() - itLast->second < configOriginProgressMinIntervalMs) {
-                    goto skip_milestone; // Rate limited
-                }
-            }
-            
-            // All checks passed - emit milestone
-            uint32_t via = nodeDB->getNodeNum() & 0xFFu;
-            emitReceipt(msg->variant.data.orig_from, msg->variant.data.orig_id,
-                       meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_PROGRESSED, via);
-            ctrMilestonesSent++;
-            lastProgressEmitMsBySource[msg->variant.data.orig_from] = millis();
-            
-            // Tombstone to avoid re-emitting on repeated hears
-            if (configTombstoneMs) {
-                tombstoneUntilMs[msg->variant.data.orig_id] = millis() + configTombstoneMs;
-            }
-        }
-        skip_milestone:
+        // Process milestone emission (sparse PROGRESSED receipts)
+        processMilestoneEmission(mp, msg->variant.data);
+        
         LOG_INFO("DTN rx DATA id=0x%x from=0x%x to=0x%x enc=%d dl=%u", msg->variant.data.orig_id,
                  (unsigned)getFrom(&mp), (unsigned)msg->variant.data.orig_to, (int)msg->variant.data.is_encrypted,
                  (unsigned)msg->variant.data.deadline_ms);
         handleData(mp, msg->variant.data);
         return true;
-    } else if (msg && msg->which_variant == meshtastic_FwplusDtn_receipt_tag) {
+    }
+    
+    // Handle DTN RECEIPT packets
+    if (msg && msg->which_variant == meshtastic_FwplusDtn_receipt_tag) {
         markFwplusSeen(getFrom(&mp));
         LOG_INFO("DTN rx RECEIPT id=0x%x status=%u from=0x%x", msg->variant.receipt.orig_id,
                  (unsigned)msg->variant.receipt.status, (unsigned)getFrom(&mp));
         handleReceipt(mp, msg->variant.receipt);
         return true;
     }
-    // Non-DTN packet (decoded==NULL): optionally capture foreign DM into overlay
-    // Policy: by default do NOT capture foreign unicasts to avoid recursive wrapping in mixed meshes
-    if (!isFromUs(&mp) && mp.to != nodeDB->getNodeNum()) { 
-        bool isDM = (mp.to != NODENUM_BROADCAST && mp.to != NODENUM_BROADCAST_NO_LORA);
-        if (isDM) {
-            // If we've just delivered this id via DTN locally, drop late-arriving native duplicates
-            auto itDeliveredTs = tombstoneUntilMs.find(mp.id);
-            if (itDeliveredTs != tombstoneUntilMs.end() && millis() < itDeliveredTs->second) {
-                return false;
-            }
-            //capture-time gating: ignore far/unknown unicasts to avoid ballooning pending
-            uint8_t hopsToDest = getHopsAway(mp.to);
-            uint8_t hopsToSrc = getHopsAway(getFrom(&mp));
-            bool farFromDest = (configMaxRingsToAct > 0 && hopsToDest != 255 && hopsToDest > configMaxRingsToAct);
-            bool nearEitherEnd = isDirectNeighbor(getFrom(&mp)) || isDirectNeighbor(mp.to);
-            // If both endpoints are our neighbors, prefer direct-only (skip overlay capture) 
-            if (isDirectNeighbor(getFrom(&mp)) && isDirectNeighbor(mp.to)) {
-                return false;
-            }
-            // If we are closer to source than to destination, skip capture (let nodes closer to dest act) 
-            if (hopsToSrc != 255 && hopsToDest != 255 && hopsToDest > hopsToSrc) {
-                return false;
-            }
-            bool haveRoute = hasSufficientRouteConfidence(mp.to);
-            if (farFromDest && !nearEitherEnd && !haveRoute) {
-                // Too far and no confidence: skip capture
-                return false;
-            }
-            //Use configured TTL instead of fixed 5 minutes
-            uint32_t ttlMinutes = (configTtlMinutes ? configTtlMinutes : 5);
-            // Calculate deadline using helper (safe overflow protection)
-            uint64_t deadline = getEpochMs() + (ttlMinutes * 60ULL * 1000ULL);
-            if (mp.which_payload_variant == meshtastic_MeshPacket_encrypted_tag) {
-                //policy: by default do NOT capture foreign encrypted unicasts to avoid DTN-on-DTN in mixed meshes
-                if (!configCaptureForeignEncrypted) return false;
-                // Tombstone check: avoid rapid re-enqueue of same orig_id
-                auto itTs = tombstoneUntilMs.find(mp.id);
-                if (itTs != tombstoneUntilMs.end() && millis() < itTs->second) return false;
-                enqueueFromCaptured(mp.id, getFrom(&mp), mp.to, mp.channel,
-                                    deadline,
-                                    true, mp.encrypted.bytes, mp.encrypted.size, true /*allow fallback*/);
-                // Apply grace and optional neighbor suppression immediately for captured ciphertext 
-                auto it = pendingById.find(mp.id);
-                if (it != pendingById.end()) {
-                    if (configGraceAckMs && it->second.tries == 0) {
-                        uint32_t t = millis() + configGraceAckMs + (uint32_t)random(250);
-                        if (it->second.nextAttemptMs < t) it->second.nextAttemptMs = t;
-                    }
-                    if (configSuppressIfDestNeighbor && isDirectNeighbor(mp.to)) {
-                        uint32_t add = (configGraceAckMs ? configGraceAckMs : 1500);
-                        it->second.nextAttemptMs += add;
-                    }
-                }
-            } else if (mp.decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP) {
-                if (!configCaptureForeignText) return false; //fw+
-                auto itTs = tombstoneUntilMs.find(mp.id);
-                if (itTs != tombstoneUntilMs.end() && millis() < itTs->second) return false;
-                enqueueFromCaptured(mp.id, getFrom(&mp), mp.to, mp.channel,
-                                    deadline,
-                                    false, mp.decoded.payload.bytes, mp.decoded.payload.size, true /*allow fallback*/);
-                auto it = pendingById.find(mp.id);
-                if (it != pendingById.end() && configGraceAckMs && it->second.tries == 0) {
-                    uint32_t t = millis() + configGraceAckMs + (uint32_t)random(250);
-                    if (it->second.nextAttemptMs < t) it->second.nextAttemptMs = t;
-                }
-            } else if (mp.decoded.portnum == meshtastic_PortNum_ROUTING_APP && mp.decoded.request_id) {
-                // Native ACK/NAK: cancel pending for this orig DM id and mark destination as stock for a while
-                pendingById.erase(mp.decoded.request_id);
-                if (configTombstoneMs) tombstoneUntilMs[mp.decoded.request_id] = millis() + configTombstoneMs;
-                stockKnownMs[mp.to] = millis();
-            }
-        }
+    
+    // Process foreign DM capture (conservative policy)
+    if (processForeignDMCapture(mp)) {
+        return true; // Packet consumed
     }
-    // Additionally, observe decoded packets for telemetry or node info to opportunistically probe FW+
-    if (mp.which_payload_variant == meshtastic_MeshPacket_decoded_tag) {
-        // Only if enabled and we don't already know this origin as FW+
-        if (configTelemetryProbeEnabled && !isFwplus(getFrom(&mp))) {
-            bool isTelemetry = (mp.decoded.portnum == meshtastic_PortNum_TELEMETRY_APP);
-            bool isNodeInfo = (mp.decoded.portnum == meshtastic_PortNum_NODEINFO_APP);
-            if (isTelemetry || isNodeInfo) {
-                NodeNum origin = getFrom(&mp);
-                uint8_t hops = getHopsAway(origin);
-                if (hops != 255 && hops >= configTelemetryProbeMinRing) {
-                    uint32_t nowMs = millis();
-                    auto it = lastTelemetryProbeToNodeMs.find(origin);
-                    if (it == lastTelemetryProbeToNodeMs.end() || (nowMs - it->second) >= configTelemetryProbeCooldownMs) {
-                        if (!(airTime && !airTime->isTxAllowedChannelUtil(true))) {
-                            // Send minimal FW+ probe (receipt PROGRESSED, reason=0) to origin
-                            maybeProbeFwplus(origin);
-                            lastTelemetryProbeToNodeMs[origin] = nowMs;
-                        }
-                    }
-                }
-            }
-        }
-        
-        // fw+ Observe OnDemand responses to discover DTN-enabled nodes
-        if (mp.decoded.portnum == meshtastic_PortNum_ON_DEMAND_APP) {
-            observeOnDemandResponse(mp);
-        }
+    
+    // Process telemetry-triggered FW+ probes
+    processTelemetryProbe(mp);
+    
+    // Observe OnDemand responses for DTN discovery
+    if (mp.which_payload_variant == meshtastic_MeshPacket_decoded_tag &&
+        mp.decoded.portnum == meshtastic_PortNum_ON_DEMAND_APP) {
+        observeOnDemandResponse(mp);
     }
-    return false; //do not consume non-DTN packets; allow normal processing
+    
+    return false; // Do not consume non-DTN packets; allow normal processing
 }
 
 // Purpose: create DTN envelope from a captured DM (plaintext or ciphertext) and schedule forwarding.

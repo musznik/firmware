@@ -411,6 +411,12 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     void setPriorityForTailAndSource(meshtastic_MeshPacket *mp, const Pending &p, bool isFromSource);
     void applyForeignCarrySuppression(uint32_t id, Pending &p);
     void applyNearDestExtraSuppression(Pending &p, NodeNum dest);
+    
+    // handleReceivedProtobuf helper functions for improved readability
+    bool checkAndSuppressDuplicateNativeText(const meshtastic_MeshPacket &mp);
+    void processMilestoneEmission(const meshtastic_MeshPacket &mp, const meshtastic_FwplusDtnData &data);
+    bool processForeignDMCapture(const meshtastic_MeshPacket &mp);
+    void processTelemetryProbe(const meshtastic_MeshPacket &mp);
 };
 
 extern DtnOverlayModule *dtnOverlayModule; //fw+
