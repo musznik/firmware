@@ -63,6 +63,61 @@ Airtime protections
 - Channel utilization gate; deterministic election and mobility‑aware slotting; per‑destination spacing; global active cap;
   suppression after hearing foreign overlay DATA; neighbor/grace heuristics; tombstones and bounded caches with pruning.
 - Near-destination extra suppression (2-3× longer) to prevent duplicate deliveries close to destination.
+
+Example Scenarios (Mixed Network: Stock + FW+ Nodes)
+
+Scenario 1: Direct path with DTN relay
+  Alice(FW+) --2h-- Bob(FW+) --3h-- Charlie(FW+) --1h-- Dave(Stock)
+  - Alice sends DM to Dave → intercepted, wrapped as DTN DATA (DTN-first)
+  - Bob carries packet, forwards DTN DATA toward Dave (custody maintained)
+  - Charlie (1-hop from Dave) receives DTN, unwraps and injects native DM to Dave
+  - Dave receives normal DM, no firmware changes needed
+  - Charlie sends DELIVERED receipt back to Alice → mission complete
+
+Scenario 2: DTN nodes off main path (side relay)
+  Alice(FW+) --2h-- Bob(Stock) --3h-- Charlie(Stock)
+       |
+      1h
+       |
+    Emma(FW+) --2h-- Frank(FW+)
+  - Alice sends DM to Charlie (far, low confidence)
+  - Alice hands off custody to Emma (closer FW+ neighbor, better topology knowledge)
+  - Emma carries packet, later encounters Frank who has route to Charlie
+  - Frank receives handoff, forwards toward Charlie using native DM fallback (stock destination)
+  - Result: DTN provided alternative path when direct route was weak
+
+Scenario 3: Mobile messenger (store-carry-forward)
+  Alice(FW+) --5h-- [gap] --4h-- Bob(Stock)
+       \
+        Emma(FW+, mobile) moves between areas
+  - Alice sends DM to Bob → low confidence, far destination
+  - Alice hands custody to Emma (mobile node, may encounter better routes)
+  - Emma carries packet while moving, topology changes
+  - Emma gets closer to Bob's area → unwraps and sends native DM
+  - Mobility adaptation: shorter retry timeouts, adjusted spacing
+
+Scenario 4: Cold start (no DTN knowledge yet)
+  Alice(FW+, just booted) --2h-- Bob(FW+) --1h-- Charlie(Stock)
+  - Alice sends DM to Charlie but doesn't know Bob is FW+ yet (cold start)
+  - Alice uses native DM fallback (conservative, avoids black hole)
+  - Alice triggers aggressive discovery → probes neighbors
+  - Bob responds with FW+ version beacon → Alice learns Bob is DTN-capable
+  - Next message: Alice can use DTN handoff to Bob
+
+Scenario 5: Unresponsive FW+ fallback
+  Alice(FW+) --2h-- Bob(FW+, offline) --1h-- Charlie(Stock)
+  - Alice sends DM to Charlie, attempts DTN handoff to Bob
+  - Bob doesn't respond (offline/version mismatch) after N attempts + timeout
+  - Alice detects unresponsive FW+ → switches to native DM fallback
+  - Message reaches Charlie via stock routing
+  - Later: Bob sends beacon → Alice clears "stock" marking, DTN re-enabled
+
+Key Behaviors in Mixed Networks:
+- FW+ nodes intercept local DMs only when DTN can help (topology/proximity check)
+- Stock destinations get native DM fallback in TTL tail (seamless compatibility)
+- Intermediates suppress after hearing foreign DATA (coordination, avoid storms)
+- Receipts provide end-to-end confirmation and passive FW+ discovery
+- Broadcast as last resort: public, cooldown-gated, allows 7-hop propagation
 */
 #include "DtnOverlayModule.h"
 #if __has_include("mesh/generated/meshtastic/fwplus_dtn.pb.h")
@@ -73,12 +128,12 @@ Airtime protections
 #include "Default.h"
 #include "airtime.h"
 #include "configuration.h"
-#include "MobilityOracle.h" //fw+
+#include "MobilityOracle.h"
 #include "modules/RoutingModule.h"
-#include "mesh/NextHopRouter.h" //fw+
-#include "FwPlusVersion.h" //fw+
-#include "mesh/generated/meshtastic/ondemand.pb.h" //fw+
-#include "mqtt/MQTT.h" //fw+
+#include "mesh/NextHopRouter.h"
+#include "FwPlusVersion.h"
+#include "mesh/generated/meshtastic/ondemand.pb.h" 
+#include "mqtt/MQTT.h"
 #include <pb_encode.h>
 #include <cstring>
 
