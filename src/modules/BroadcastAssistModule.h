@@ -5,7 +5,7 @@
 #include "MeshService.h"
 #include "airtime.h"
 
-//fw+ BroadcastAssist: selective reflooding of broadcasts in sparse neighborhoods
+//BroadcastAssist: selective reflooding of broadcasts in sparse neighborhoods
 struct BaStatsSnapshot {
     bool enabled = false;
     uint32_t refloodAttempts = 0;
@@ -14,7 +14,7 @@ struct BaStatsSnapshot {
     uint32_t suppressedDegree = 0;
     uint32_t suppressedAirtime = 0;
     uint32_t lastRefloodAgeSecs = 0;
-    //fw+ upstream router duplicate drops observed in this node
+    //upstream router duplicate drops observed in this node
     uint32_t upstreamDupDropped = 0;
 };
 
@@ -23,9 +23,9 @@ class BroadcastAssistModule : public MeshModule
 {
   public:
     BroadcastAssistModule();
-    //fw+ observe when router drops a duplicate upstream (pre-module)
+    //observe when router drops a duplicate upstream (pre-module)
     inline void onUpstreamDupeDropped() { statUpstreamDupDropped++; }
-    //fw+ mark overheard by id/from within the window
+    //mark overheard by id/from within the window
     void onOverheardFromId(uint32_t from, uint32_t id);
 
   protected:
@@ -35,11 +35,11 @@ class BroadcastAssistModule : public MeshModule
   private:
     struct SeenRec {
         uint32_t id = 0;
-        uint32_t from = 0; //fw+ sender for uniqueness
+        uint32_t from = 0; //sender for uniqueness
         uint32_t firstMs = 0;
-        uint32_t count = 0; //fw+ changed from uint16_t to prevent overflow in dense networks
+        uint32_t count = 0; //changed from uint16_t to prevent overflow in dense networks
         bool reflooded = false;
-        bool overheard = false; //fw+ router observed a duplicate for this id/from
+        bool overheard = false; //router observed a duplicate for this id/from
     };
 
     static const int SEEN_CAP = 32;
@@ -53,9 +53,9 @@ class BroadcastAssistModule : public MeshModule
     bool airtimeOk() const;
     float computeRefloodProbability(uint8_t neighborCount) const;
     bool isBackboneRole() const; //fw+
-    //fw+ detect if there exists a far, active backbone node in the DB
+    //detect if there exists a far, active backbone node in the DB
     bool existsActiveFarBackbone(uint32_t minDistanceMeters = 50000, uint32_t freshSecs = 2 * 60 * 60) const;
-    //fw+ decide if we should amplify (permit reflood) targeting far backbone case
+    //decide if we should amplify (permit reflood) targeting far backbone case
     bool shouldAmplifyForFarBackbone(const SeenRec &rec) const;
 
     // stats
@@ -65,10 +65,10 @@ class BroadcastAssistModule : public MeshModule
     uint32_t statSuppressedDegree = 0;
     uint32_t statSuppressedAirtime = 0;
     uint32_t lastRefloodMs = 0;
-    //fw+ count of upstream dedup drops signaled by router
+    //count of upstream dedup drops signaled by router
     uint32_t statUpstreamDupDropped = 0;
 
-    //fw+ cache for expensive far backbone calculation
+    //cache for expensive far backbone calculation
     mutable bool cachedFarBackboneResult = false;
     mutable uint32_t cachedFarBackboneMs = 0;
     mutable int32_t cachedSelfLatI = 0;

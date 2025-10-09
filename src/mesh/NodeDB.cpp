@@ -910,11 +910,11 @@ void NodeDB::installDefaultModuleConfig()
     moduleConfig.has_nodemodadmin = true; // ensure presence
     moduleConfig.nodemodadmin.opportunistic_flooding_enabled = true;
     moduleConfig.nodemodadmin.opportunistic_auto = true;
-    moduleConfig.nodemodadmin.opportunistic_base_delay_ms = 60;
-    moduleConfig.nodemodadmin.opportunistic_hop_delay_ms = 30;
-    moduleConfig.nodemodadmin.opportunistic_snr_gain_ms = 8;
-    moduleConfig.nodemodadmin.opportunistic_jitter_ms = 40;
-    moduleConfig.nodemodadmin.opportunistic_cancel_on_first_hear = true;
+    moduleConfig.nodemodadmin.opportunistic_base_delay_ms = 120;
+    moduleConfig.nodemodadmin.opportunistic_hop_delay_ms = 40;
+    moduleConfig.nodemodadmin.opportunistic_snr_gain_ms = 10;
+    moduleConfig.nodemodadmin.opportunistic_jitter_ms = 60;
+    moduleConfig.nodemodadmin.opportunistic_cancel_on_first_hear = false; // disabled by default - sparse network safety
 
     // proactive traceroute defaults (FW+)
     moduleConfig.nodemodadmin.proactive_traceroute_enabled = true;
@@ -1559,9 +1559,9 @@ void NodeDB::loadFromDisk()
 
 
         // Only backfill numeric parameters when they are zero (unset in prior versions).
-        if (adm.opportunistic_base_delay_ms == 0) { adm.opportunistic_base_delay_ms = 60; mutated = true; }
-        if (adm.opportunistic_hop_delay_ms == 0) { adm.opportunistic_hop_delay_ms = 30; mutated = true; }
-        if (adm.opportunistic_snr_gain_ms == 0) { adm.opportunistic_snr_gain_ms = 8; mutated = true; }
+        if (adm.opportunistic_base_delay_ms == 0) { adm.opportunistic_base_delay_ms = 120; mutated = true; }
+        if (adm.opportunistic_hop_delay_ms == 0) { adm.opportunistic_hop_delay_ms = 40; mutated = true; }
+        if (adm.opportunistic_snr_gain_ms == 0) { adm.opportunistic_snr_gain_ms = 10; mutated = true; }
         if (adm.opportunistic_jitter_ms == 0) { adm.opportunistic_jitter_ms = 40; mutated = true; }
 
         if (mutated) {

@@ -18,29 +18,35 @@ extern BroadcastAssistModule *broadcastAssistModule;
 
 FloodingRouter::FloodingRouter() {
     // Initialize profile defaults (no designated initializers to keep C++11 compatible)
-    profileParamsSparse.base = 10;
-    profileParamsSparse.hop = 0;
-    profileParamsSparse.snrGain = 6;
-    profileParamsSparse.jitter = 10;
+    // Timings adjusted for MEDIUM_FAST preset (~200ms packet time)
+    
+    // SPARSE: Fast propagation (0.3-0.5 packet time), avoid CAD collision
+    profileParamsSparse.base = 50;
+    profileParamsSparse.hop = 20;
+    profileParamsSparse.snrGain = 8;
+    profileParamsSparse.jitter = 30;
     profileParamsSparse.backboneBias = 0;
 
-    profileParamsBalanced.base = 60;
-    profileParamsBalanced.hop = 30;
-    profileParamsBalanced.snrGain = 8;
-    profileParamsBalanced.jitter = 40;
+    // BALANCED: Moderate delay (0.6-0.9 packet time), general purpose
+    profileParamsBalanced.base = 120;
+    profileParamsBalanced.hop = 40;
+    profileParamsBalanced.snrGain = 10;
+    profileParamsBalanced.jitter = 60;
     profileParamsBalanced.backboneBias = 0;
 
-    profileParamsDense.base = 120;
-    profileParamsDense.hop = 50;
-    profileParamsDense.snrGain = 10;
-    profileParamsDense.jitter = 80;
+    // DENSE: Slower propagation (1.0-1.5 packet time), maximize cancel opportunities
+    profileParamsDense.base = 200;
+    profileParamsDense.hop = 60;
+    profileParamsDense.snrGain = 12;
+    profileParamsDense.jitter = 100;
     profileParamsDense.backboneBias = 0;
 
-    profileParamsBridge.base = 60;
-    profileParamsBridge.hop = 30;
-    profileParamsBridge.snrGain = 8;
-    profileParamsBridge.jitter = 40;
-    profileParamsBridge.backboneBias = 20;
+    // BACKBONE_BRIDGE: Similar to BALANCED but with bias for earlier transmission
+    profileParamsBridge.base = 100;
+    profileParamsBridge.hop = 40;
+    profileParamsBridge.snrGain = 10;
+    profileParamsBridge.jitter = 50;
+    profileParamsBridge.backboneBias = 30; // -30ms earlier for backbone priority
 }
 
 /**
@@ -292,14 +298,17 @@ void FloodingRouter::maybeRecomputeProfile(uint32_t nowMs)
         if (n->hops_away == 0 && !n->via_mqtt && n->num != nodeDB->getNodeNum()) neighborsWin++;
     }
 
-    // Select target profile with simple thresholds; BACKBONE_BRIDGE overrides
+    // Select target profile with tuned thresholds; BACKBONE_BRIDGE overrides
+    // Adjusted for realistic network density classifications
     OpportunisticProfile newTarget = OpportunisticProfile::BALANCED;
     bool hasBackbone = hasBackboneNeighbor();
     if (hasBackbone) {
         newTarget = OpportunisticProfile::BACKBONE_BRIDGE;
-    } else if (neighborsWin <= 1 && dupeRatio < 0.05f && chanUtilEma < 10.0f) {
+    } else if (neighborsWin <= 2 && dupeRatio < 0.10f && chanUtilEma < 15.0f) {
+        // SPARSE: <= 2 neighbors (was <= 1), relaxed thresholds for true sparse networks
         newTarget = OpportunisticProfile::SPARSE;
-    } else if (neighborsWin >= 4 || dupeRatio >= 0.20f || chanUtilEma >= 30.0f) {
+    } else if (neighborsWin >= 8 || dupeRatio >= 0.30f || chanUtilEma >= 40.0f) {
+        // DENSE: >= 8 neighbors (was >= 4), higher thresholds for genuinely dense networks
         newTarget = OpportunisticProfile::DENSE;
     }
 
@@ -349,9 +358,11 @@ bool FloodingRouter::isOpportunisticAuto() const
 //fw+
 uint32_t FloodingRouter::clampDelay(uint32_t d) const
 {
-    // Reasonable defaults; can be adjusted later or made configurable
-    const uint32_t D_MIN = 5;
-    const uint32_t D_MAX = 800;
+    // Adjusted for MEDIUM_FAST timing (~200ms packet time)
+    // D_MIN: Must be > CAD time (~15-20ms) to avoid collision
+    // D_MAX: ~2.5x packet time for worst-case dense network
+    const uint32_t D_MIN = 25;
+    const uint32_t D_MAX = 500;
     if (d < D_MIN) return D_MIN;
     if (d > D_MAX) return D_MAX;
     return d;
@@ -395,13 +406,29 @@ uint32_t FloodingRouter::computeOpportunisticDelayMs(const meshtastic_MeshPacket
         uint16_t pHop = pp.hop;
         uint8_t pSnr = pp.snrGain;
         int32_t backboneBias = (int32_t)pp.backboneBias;
-        d = (int32_t)pBase + (int32_t)(pHop * usedHops) - (int32_t)(pSnr * (int32_t)snr) + (int32_t)rj - backboneBias;
+        
+        // Overflow-safe calculation: compute components separately
+        int32_t hopDelay = (int32_t)(pHop * usedHops);
+        if (hopDelay > 5000) hopDelay = 5000; // clamp intermediate to prevent overflow
+        
+        int32_t snrReduction = (int32_t)(pSnr * (int32_t)snr);
+        if (snrReduction > 5000) snrReduction = 5000;
+        
+        d = (int32_t)pBase + hopDelay - snrReduction + (int32_t)rj - backboneBias;
     } else {
         // Manual override path (admin-config values)
-        uint16_t pBase = base ? base : 60;
-        uint16_t pHop = hop ? hop : 30;
-        uint8_t pSnr = snrGain ? (uint8_t)snrGain : 8;
-        d = (int32_t)pBase + (int32_t)(pHop * usedHops) - (int32_t)(pSnr * (int32_t)snr) + (int32_t)rj;
+        uint16_t pBase = base ? base : 120;
+        uint16_t pHop = hop ? hop : 40;
+        uint8_t pSnr = snrGain ? (uint8_t)snrGain : 10;
+        
+        // Overflow-safe calculation
+        int32_t hopDelay = (int32_t)(pHop * usedHops);
+        if (hopDelay > 5000) hopDelay = 5000;
+        
+        int32_t snrReduction = (int32_t)(pSnr * (int32_t)snr);
+        if (snrReduction > 5000) snrReduction = 5000;
+        
+        d = (int32_t)pBase + hopDelay - snrReduction + (int32_t)rj;
     }
     if (d <= 0) return (uint32_t)rj; // ensure non-negative, allow pure jitter
     return clampDelay((uint32_t)d);

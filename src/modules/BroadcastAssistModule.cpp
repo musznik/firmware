@@ -524,8 +524,9 @@ bool BroadcastAssistModule::shouldAmplifyForFarBackbone(const SeenRec &rec) cons
     // require airtime ok
     if (moduleConfig.broadcast_assist.airtime_guard && !airtimeOk()) return false;
     
-    // require presence of an active far backbone (50km+, heard within ~2h)
-    if (!existsActiveFarBackbone(50000, 2 * 60 * 60)) return false;
+    // require presence of an active far backbone (50km+, heard within 30min)
+    // Reduced from 2h to avoid relying on potentially offline nodes
+    if (!existsActiveFarBackbone(50000, 30 * 60)) return false;
     
     return true;
 }
