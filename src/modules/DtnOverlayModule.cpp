@@ -1256,12 +1256,15 @@ bool DtnOverlayModule::isNodeReachable(NodeNum node) const
     // Check if node is not too far
     if (info->hops_away > 3) return false;
     
-    // Check if node was seen recently
-    uint32_t now = millis();
-    uint32_t lastSeen = info->last_heard * 1000UL;
-    uint32_t maxAge = 30UL * 60UL * 1000UL; // 30 minutes
+    // Check if node was seen recently (use epoch time, not uptime)
+    uint32_t nowEpoch = getValidTime(RTCQualityFromNet); // epoch seconds
+    uint32_t lastSeenEpoch = info->last_heard; // epoch seconds
+    uint32_t maxAgeSec = 30UL * 60UL; // 30 minutes in seconds
     
-    return (now - lastSeen) < maxAge;
+    // Handle clock not set or very old nodes
+    if (nowEpoch == 0 || lastSeenEpoch == 0) return false;
+    
+    return (nowEpoch - lastSeenEpoch) < maxAgeSec;
 }
 
 // Purpose: intelligent fallback for unknown or low-confidence destinations
@@ -1639,19 +1642,24 @@ bool DtnOverlayModule::isRouteStale(NodeNum dest) const
     if (!node) return true; // No node info = stale
     
     // Calculate stale timeout based on mobility
-    // Mobile nodes: 30min, stationary: 2h
-    uint32_t staleTimeoutMs = 30UL * 60UL * 1000UL; // 30min base
+    // Mobile nodes: 15-30min, stationary: 2h
+    uint32_t staleTimeoutSec = 30UL * 60UL; // 30min base (in seconds)
     if (mobility < 0.3f) {
-        staleTimeoutMs = 2UL * 60UL * 60UL * 1000UL; // 2h for stationary
+        staleTimeoutSec = 2UL * 60UL * 60UL; // 2h for stationary
     } else if (mobility > 0.7f) {
-        staleTimeoutMs = 15UL * 60UL * 1000UL; // 15min for very mobile
+        staleTimeoutSec = 15UL * 60UL; // 15min for very mobile
     }
     
-    // Check if we haven't seen this node recently
-    uint32_t lastSeen = node->last_heard * 1000UL; // Convert to ms
-    if (now - lastSeen > staleTimeoutMs) {
-        LOG_DEBUG("DTN: Route to 0x%x is stale (last_heard=%u, timeout=%u, mobility=%.2f)", 
-                 (unsigned)dest, (unsigned)lastSeen, (unsigned)staleTimeoutMs, mobility);
+    // Check if we haven't seen this node recently (use epoch time, not uptime)
+    uint32_t nowEpoch = getValidTime(RTCQualityFromNet); // epoch seconds
+    uint32_t lastSeenEpoch = node->last_heard; // epoch seconds
+    
+    // Handle clock not set or very old nodes
+    if (nowEpoch == 0 || lastSeenEpoch == 0) return true; // stale if no valid time
+    
+    if (nowEpoch - lastSeenEpoch > staleTimeoutSec) {
+        LOG_DEBUG("DTN: Route to 0x%x is stale (age=%u sec, timeout=%u sec, mobility=%.2f)", 
+                 (unsigned)dest, (unsigned)(nowEpoch - lastSeenEpoch), (unsigned)staleTimeoutSec, mobility);
         return true;
     }
     
