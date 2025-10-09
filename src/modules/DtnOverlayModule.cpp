@@ -248,7 +248,7 @@ int32_t DtnOverlayModule::runOnce()
     logDetailedStats();
     //simple scheduler: attempt forwards whose time arrived
     uint32_t now = millis();
-    uint32_t nowEpoch = getValidTime(RTCQualityFromNet) * 1000UL;
+    uint64_t nowEpoch = getEpochMs(); // helper: safe epoch ms with overflow protection
     uint32_t dmIssuedThisPass = 0; // reset per scheduler pass
     //dynamic wake: compute nearest nextAttempt across pendings
     uint32_t nextWakeMs = 2000;
@@ -270,8 +270,8 @@ int32_t DtnOverlayModule::runOnce()
             uint32_t wait = p.nextAttemptMs - now;
             if (wait < nextWakeMs) nextWakeMs = wait;
         }
-        // Remove if past deadline
-        if (p.data.deadline_ms && nowEpoch > p.data.deadline_ms) {
+        // Remove if past deadline (only check if we have valid time)
+        if (p.data.deadline_ms && nowEpoch > 0 && nowEpoch > p.data.deadline_ms) {
             // emit EXPIRED receipt to source and drop
             LOG_WARN("DTN expire id=0x%x dl=%u now=%u", it->first, (unsigned)p.data.deadline_ms, (unsigned)nowEpoch);
             emitReceipt(p.data.orig_from, it->first, meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_EXPIRED, 0);
@@ -427,7 +427,8 @@ bool DtnOverlayModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, m
             }
             //Use configured TTL instead of fixed 5 minutes
             uint32_t ttlMinutes = (configTtlMinutes ? configTtlMinutes : 5);
-            uint32_t deadline = (getValidTime(RTCQualityFromNet) * 1000UL) + ttlMinutes * 60UL * 1000UL;
+            // Calculate deadline using helper (safe overflow protection)
+            uint64_t deadline = getEpochMs() + (ttlMinutes * 60ULL * 1000ULL);
             if (mp.which_payload_variant == meshtastic_MeshPacket_encrypted_tag) {
                 //policy: by default do NOT capture foreign encrypted unicasts to avoid DTN-on-DTN in mixed meshes
                 if (!configCaptureForeignEncrypted) return false;
@@ -502,7 +503,7 @@ bool DtnOverlayModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, m
 
 // Purpose: create DTN envelope from a captured DM (plaintext or ciphertext) and schedule forwarding.
 void DtnOverlayModule::enqueueFromCaptured(uint32_t origId, uint32_t origFrom, uint32_t origTo, uint8_t channel,
-                                           uint32_t deadlineMs, bool isEncrypted, const uint8_t *bytes, pb_size_t size,
+                                           uint64_t deadlineMs, bool isEncrypted, const uint8_t *bytes, pb_size_t size,
                                            bool allowProxyFallback)
 {
     //guard: if payload won't fit into FW+ DTN container, skip overlay to avoid corrupting DM
@@ -523,14 +524,17 @@ void DtnOverlayModule::enqueueFromCaptured(uint32_t origId, uint32_t origFrom, u
     d.orig_to = origTo;
     d.channel = channel;
     d.orig_rx_time = getValidTime(RTCQualityFromNet);
-    d.deadline_ms = deadlineMs; // absolute epoch ms
+    //Safe cast: clamp deadline to uint32 max (proto limitation until we migrate to uint64)
+    d.deadline_ms = (deadlineMs > 0xFFFFFFFFULL) ? 0xFFFFFFFF : (uint32_t)deadlineMs;
     d.is_encrypted = isEncrypted;
     d.allow_proxy_fallback = allowProxyFallback;
     memcpy(d.payload.bytes, bytes, size);
     d.payload.size = size;
+    
     //Calculate TTL for logging (deadline - now)
-    uint64_t nowMs = (uint64_t)getValidTime(RTCQualityFromNet) * 1000ULL;
-    uint32_t ttlMs = (deadlineMs > nowMs) ? (uint32_t)(deadlineMs - nowMs) : 0;
+    uint64_t nowMs = getEpochMs(); // helper: safe epoch ms
+    uint64_t ttlMs64 = (deadlineMs > nowMs) ? (deadlineMs - nowMs) : 0;
+    uint32_t ttlMs = (ttlMs64 > 0xFFFFFFFFULL) ? 0xFFFFFFFF : (uint32_t)ttlMs64;
     LOG_DEBUG("DTN capture id=0x%x src=0x%x dst=0x%x enc=%d ch=%u ttlms=%u", origId, (unsigned)origFrom,
               (unsigned)origTo, (int)isEncrypted, (unsigned)channel, ttlMs);
     scheduleOrUpdate(origId, d);
@@ -739,6 +743,38 @@ void DtnOverlayModule::trackCarrier(Pending &p, NodeNum carrier)
     p.lastCarrier = carrier; // backward compat
 }
 
+// Purpose: get current epoch time in milliseconds (uint64 to avoid overflow)
+uint64_t DtnOverlayModule::getEpochMs() const
+{
+    return (uint64_t)getValidTime(RTCQualityFromNet) * 1000ULL;
+}
+
+// Purpose: calculate TTL from deadline and orig_rx_time (with overflow protection)
+uint64_t DtnOverlayModule::calculateTtl(const meshtastic_FwplusDtnData &d) const
+{
+    if (d.deadline_ms == 0 || d.orig_rx_time == 0) return 0;
+    uint64_t origRxMs = (uint64_t)d.orig_rx_time * 1000ULL;
+    return (d.deadline_ms > origRxMs) ? ((uint64_t)d.deadline_ms - origRxMs) : 0;
+}
+
+// Purpose: calculate TTL tail start time in epoch milliseconds
+uint64_t DtnOverlayModule::calculateTailStart(const meshtastic_FwplusDtnData &d, uint32_t tailPercent) const
+{
+    uint64_t ttl = calculateTtl(d);
+    if (ttl == 0) return 0;
+    uint32_t percent = (tailPercent > 100) ? 100 : tailPercent;
+    return (uint64_t)d.deadline_ms - (ttl * percent / 100);
+}
+
+// Purpose: check if we're in TTL tail (returns false if no valid time)
+bool DtnOverlayModule::isInTtlTail(const meshtastic_FwplusDtnData &d, uint32_t tailPercent) const
+{
+    uint64_t nowEpoch = getEpochMs();
+    if (nowEpoch == 0 || d.deadline_ms == 0 || d.orig_rx_time == 0) return false;
+    uint64_t tailStart = calculateTailStart(d, tailPercent);
+    return (nowEpoch >= tailStart);
+}
+
 // Purpose: create or refresh a pending DTN entry and compute the next attempt time.
 // Inputs: original message id and payload envelope; uses topology, mobility and per-destination spacing.
 // Effect: updates election timing, applies far-node throttle, and stores per-dest last TX timestamp.
@@ -779,7 +815,7 @@ void DtnOverlayModule::scheduleOrUpdate(uint32_t id, const meshtastic_FwplusDtnD
 void DtnOverlayModule::tryForward(uint32_t id, Pending &p)
 {
     // Get current time for deadline checks
-    uint32_t nowEpoch = getValidTime(RTCQualityFromNet) * 1000UL;
+    uint64_t nowEpoch = getEpochMs(); // helper: safe epoch ms
     
     // Check channel utilization gate (be polite for overlay)
     bool txAllowed = (!airTime) || airTime->isTxAllowedChannelUtil(true);
@@ -790,8 +826,9 @@ void DtnOverlayModule::tryForward(uint32_t id, Pending &p)
     }
 
     // Check max tries limit (always respect deadline even if maxTries=0)
+    // Only check deadline if we have valid time
     bool exceedsMaxTries = (configMaxTries > 0 && p.tries >= configMaxTries);
-    bool pastDeadline = (p.data.deadline_ms > 0 && nowEpoch > p.data.deadline_ms);
+    bool pastDeadline = (p.data.deadline_ms > 0 && nowEpoch > 0 && nowEpoch > p.data.deadline_ms);
     
     if (exceedsMaxTries || pastDeadline) {
         const char* reason = exceedsMaxTries ? "max tries" : "deadline";
@@ -1279,21 +1316,16 @@ bool DtnOverlayModule::tryIntelligentFallback(uint32_t id, Pending &p)
     
     // For unreachable destinations, try DTN broadcast as last resort
     if (!isNodeReachable(p.data.orig_to)) {
-        uint32_t nowEpoch = getValidTime(RTCQualityFromNet) * 1000UL;
-        uint32_t ttl = (p.data.deadline_ms > p.data.orig_rx_time * 1000UL) ? 
-                      (p.data.deadline_ms - (p.data.orig_rx_time * 1000UL)) : 0;
-        
-        //For completely unknown routes (255), be more aggressive with broadcast
-        // Try after 1+ attempts OR in last 40% of TTL (vs 20% for known routes)
+        // For unknown routes, allow broadcast after first retry (even without valid time)
         uint8_t hopsToDest = getHopsAway(p.data.orig_to);
         bool completelyUnknown = (hopsToDest == 255);
-        uint32_t tailPercent = completelyUnknown ? 40 : 20; // More aggressive for unknown
-        uint32_t tailStart = p.data.deadline_ms - (ttl * tailPercent / 100);
-        
-        // For unknown routes, also allow broadcast after first retry fails
         bool allowEarlyBroadcast = completelyUnknown && p.tries >= 1;
         
-        if (nowEpoch >= tailStart || allowEarlyBroadcast) {
+        // TTL-based broadcast: more aggressive for unknown routes (40% vs 20%)
+        uint32_t tailPercent = completelyUnknown ? 40 : 20;
+        bool allowTtlBroadcast = isInTtlTail(p.data, tailPercent); // helper: handles valid time check
+        
+        if (allowTtlBroadcast || allowEarlyBroadcast) {
             // Anti-burst: check global cooldown and per-id cooldown before broadcasting
             {
                 auto itBroadcast = lastBroadcastSentMs.find(p.data.orig_id);
@@ -1634,7 +1666,6 @@ void DtnOverlayModule::invalidateStaleRoutes()
 // Returns: true if route should be considered stale and invalidated
 bool DtnOverlayModule::isRouteStale(NodeNum dest) const
 {
-    uint32_t now = millis();
     float mobility = fwplus_getMobilityFactor01();
     
     // Get node info to check last seen time
@@ -1801,14 +1832,23 @@ uint32_t DtnOverlayModule::calculateTopologyDelay(const meshtastic_FwplusDtnData
     if (hopsToDest == 255 || hopsToDest <= configMaxRingsToAct) return 0;
     
     if (d.deadline_ms && d.orig_rx_time) {
-        uint32_t ttl = (d.deadline_ms > d.orig_rx_time * 1000UL) ? 
-                      (d.deadline_ms - (d.orig_rx_time * 1000UL)) : 0;
-        uint32_t mustWait = (uint64_t)ttl * (configFarMinTtlFracPercent > 100 ? 100 : configFarMinTtlFracPercent) / 100;
-        uint32_t readyEpoch = (d.orig_rx_time * 1000UL) + mustWait;
-        uint32_t nowEpoch = getValidTime(RTCQualityFromNet) * 1000UL;
+        uint64_t nowEpoch = getEpochMs(); // helper: safe epoch ms
+        
+        // Only calculate delay if we have valid time
+        if (nowEpoch == 0) {
+            return 5000; // fallback: arbitrary delay when no valid time
+        }
+        
+        // Calculate TTL and required wait time
+        uint64_t ttl = calculateTtl(d); // helper: safe TTL calculation
+        uint64_t mustWait = ttl * (configFarMinTtlFracPercent > 100 ? 100 : configFarMinTtlFracPercent) / 100;
+        uint64_t origRxMs = (uint64_t)d.orig_rx_time * 1000ULL;
+        uint64_t readyEpoch = origRxMs + mustWait;
         
         if (nowEpoch < readyEpoch) {
-            return readyEpoch - nowEpoch;
+            uint64_t delayMs = readyEpoch - nowEpoch;
+            //Clamp to uint32 max for return value
+            return (delayMs > 0xFFFFFFFFULL) ? 0xFFFFFFFF : (uint32_t)delayMs;
         }
     } else {
         return 5000; // no TTL: arbitrary extra delay when far
@@ -1886,15 +1926,9 @@ bool DtnOverlayModule::tryNearDestinationFallback(uint32_t id, Pending &p)
 bool DtnOverlayModule::tryKnownStockFallback(uint32_t id, Pending &p)
 {
     bool destKnownStock = isDestKnownStock(p.data.orig_to);
-    uint32_t nowEpoch = getValidTime(RTCQualityFromNet) * 1000UL;
-    uint32_t ttlTailStart = 0;
     
-    if (p.data.deadline_ms && configLateFallback && configFallbackTailPercent) {
-        uint32_t ttl = (p.data.deadline_ms > p.data.orig_rx_time * 1000UL) ? 
-                      (p.data.deadline_ms - (p.data.orig_rx_time * 1000UL)) : 0;
-        ttlTailStart = p.data.deadline_ms - (ttl * (configFallbackTailPercent > 100 ? 100 : configFallbackTailPercent) / 100);
-    }
-    bool inTail = (p.data.deadline_ms && nowEpoch >= ttlTailStart);
+    // Check if we're in TTL tail (helper handles all validity checks)
+    bool inTail = configLateFallback && isInTtlTail(p.data, configFallbackTailPercent);
     
     if ((destKnownStock || inTail) && shouldUseFallback(p)) {
         if (inTail && configProbeFwplusNearDeadline) {
@@ -2019,16 +2053,18 @@ void DtnOverlayModule::setPriorityForTailAndSource(meshtastic_MeshPacket *mp, co
 {
     mp->priority = meshtastic_MeshPacket_Priority_BACKGROUND;
     if (!p.data.deadline_ms) return;
-    uint32_t nowEpoch = getValidTime(RTCQualityFromNet) * 1000UL;
-    uint32_t ttl = (p.data.deadline_ms > p.data.orig_rx_time * 1000UL) ?
-                  (p.data.deadline_ms - (p.data.orig_rx_time * 1000UL)) : 0;
-    uint32_t tailStart = p.data.deadline_ms - (ttl * (configFallbackTailPercent > 100 ? 100 : configFallbackTailPercent) / 100);
+    
+    // Check if we're in TTL tail (helper handles valid time checks)
+    bool inTail = isInTtlTail(p.data, configFallbackTailPercent);
+    
     bool nearDst = false;
     if (configTailEscalateMaxRing > 0) {
         uint8_t hopsToDest = getHopsAway(p.data.orig_to);
         nearDst = (hopsToDest != 255 && hopsToDest <= configTailEscalateMaxRing);
     }
-    if (nowEpoch >= tailStart && (nearDst || isFromSource)) {
+    
+    // Escalate to DEFAULT priority in TTL tail when near destination or source
+    if (inTail && (nearDst || isFromSource)) {
         mp->priority = meshtastic_MeshPacket_Priority_DEFAULT;
     }
 }

@@ -382,7 +382,7 @@ ErrorCode Router::send(meshtastic_MeshPacket *p)
             uint64_t nowSec = getValidTime(RTCQualityFromNet);
             uint64_t deadline = (nowSec * 1000ULL) + (ttlMinutes * 60ULL * 1000ULL);
             //fw+ enqueue plaintext payload for DTN; allow proxy fallback later
-            dtnOverlayModule->enqueueFromCaptured(p->id, getFrom(p), p->to, p->channel, (uint32_t)deadline,
+            dtnOverlayModule->enqueueFromCaptured(p->id, getFrom(p), p->to, p->channel, deadline,
                                                   false, p->decoded.payload.bytes, p->decoded.payload.size, true);
             //fw+ Don't send ACK here - let DTN module handle ACK after actual delivery
             // This prevents "queued" status in Android app - DTN will send proper ACK after delivery

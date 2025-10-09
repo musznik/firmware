@@ -20,8 +20,9 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     bool isEnabled() const { return configEnabled; } //fw+
     uint32_t getTtlMinutes() const { return configTtlMinutes; } //fw+
     // Enqueue overlay data created from a captured DM (plaintext or encrypted)
+    // deadlineMs uses uint64_t to avoid overflow (epoch*1000 exceeds uint32 in 2025+)
     void enqueueFromCaptured(uint32_t origId, uint32_t origFrom, uint32_t origTo, uint8_t channel,
-                             uint32_t deadlineMs, bool isEncrypted, const uint8_t *bytes, pb_size_t size,
+                             uint64_t deadlineMs, bool isEncrypted, const uint8_t *bytes, pb_size_t size,
                              bool allowProxyFallback);
     // Expose DTN stats snapshot for diagnostics
     size_t getPendingCount() const { return pendingById.size(); }
@@ -150,6 +151,13 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     // Loop detection helpers
     bool isCarrierLoop(Pending &p, NodeNum carrier) const;
     void trackCarrier(Pending &p, NodeNum carrier);
+    
+    // Time calculation helpers (avoid code duplication and overflow bugs)
+    // Implementations in .cpp to avoid header include dependencies
+    uint64_t getEpochMs() const;
+    uint64_t calculateTtl(const meshtastic_FwplusDtnData &d) const;
+    uint64_t calculateTailStart(const meshtastic_FwplusDtnData &d, uint32_t tailPercent) const;
+    bool isInTtlTail(const meshtastic_FwplusDtnData &d, uint32_t tailPercent) const;
 
     // Config snapshot
     bool configEnabled = true;

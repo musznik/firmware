@@ -265,7 +265,9 @@ void MeshService::handleToRadio(meshtastic_MeshPacket &p)
         //fw+ Intelligent interception: only use DTN if it can actually help with this destination
         if (dtnOverlayModule && isUnicast && isText && dtnOverlayModule->shouldInterceptLocalDM(p.to)) {
             uint32_t ttlMinutes = moduleConfig.dtn_overlay.ttl_minutes ? moduleConfig.dtn_overlay.ttl_minutes : 4; //fw+
-            uint32_t deadline = (getValidTime(RTCQualityFromNet) * 1000UL) + ttlMinutes * 60UL * 1000UL;
+            //Use uint64_t for epoch milliseconds to avoid overflow
+            uint64_t deadline = ((uint64_t)getValidTime(RTCQualityFromNet) * 1000ULL) + 
+                               (ttlMinutes * 60ULL * 1000ULL);
             // enqueue overlay carrying plaintext DM; allow proxy fallback later
             dtnOverlayModule->enqueueFromCaptured(p.id,
                                                   nodeDB->getNodeNum(),
