@@ -606,13 +606,19 @@ void DtnOverlayModule::handleData(const meshtastic_MeshPacket &mp, const meshtas
         
         // First time we see this id (from overlay or capture) → schedule normally
         scheduleOrUpdate(d.orig_id, d);
+        // Track who carried this packet for loop detection
+        auto &p = pendingById[d.orig_id];
+        trackCarrier(p, getFrom(&mp));
+        
         // If the packet we saw is already overlay DATA from someone else, apply initial suppression window 
-        if (configSuppressMsAfterForeign && !isFromUs(&mp)) {
-            auto &p = pendingById[d.orig_id];
+        if (configSuppressMsAfterForeign && getFrom(&mp) != nodeDB->getNodeNum()) {
             applyForeignCarrySuppression(d.orig_id, p);
         }
     } else {
-        // We already have an entry; seeing foreign DATA suggests someone carries it → backoff our schedule 
+        // We already have an entry; seeing foreign DATA suggests someone carries it → backoff our schedule
+        // Track this carrier for loop detection
+        trackCarrier(it->second, getFrom(&mp));
+        
         if (configSuppressMsAfterForeign) {
             applyForeignCarrySuppression(d.orig_id, it->second);
             applyNearDestExtraSuppression(it->second, d.orig_to);
@@ -799,7 +805,14 @@ void DtnOverlayModule::tryForward(uint32_t id, Pending &p)
     // Check DV-ETX route confidence gating
     bool lowConf = !hasSufficientRouteConfidence(p.data.orig_to);
     bool isFromSource = (p.data.orig_from == nodeDB->getNodeNum());
-    if (shouldDeferForIntermediateLowConf(p, lowConf)) {
+    
+    //Intermediate nodes with low confidence: defer to allow route discovery
+    if (lowConf && !isDirectNeighbor(p.data.orig_to) && !isFromSource) {
+        float mobility = fwplus_getMobilityFactor01();
+        uint32_t backoff = configRetryBackoffMs + (uint32_t)random(2000);
+        if (mobility > 0.5f) backoff = backoff / 2; // try sooner if we are moving
+        p.nextAttemptMs = millis() + backoff;
+        LOG_DEBUG("DTN: Intermediate low conf defer id=0x%x, next in %u ms", id, backoff);
         return;
     }
 
@@ -810,7 +823,7 @@ void DtnOverlayModule::tryForward(uint32_t id, Pending &p)
         // Continue to DTN forwarding below
     } else {
         // For source node: immediate attempt with traceroute hint if needed
-        bool isFromSource = (p.data.orig_from == nodeDB->getNodeNum());
+        // (reuse isFromSource from line 801 - no redeclaration needed)
         if (isFromSource) {
             triggerTracerouteIfNeededForSource(p, lowConf);
             // fw+ Allow broadcast fallback for source in TTL tail as last resort
@@ -1471,7 +1484,12 @@ NodeNum DtnOverlayModule::chooseHandoffTarget(NodeNum dest, uint32_t origId, Pen
             }
             if (mapped && isFwplus(mapped)) {
                 auto itVer = fwplusVersionByNode.find(mapped);
-                if (itVer != fwplusVersionByNode.end() && itVer->second >= configMinFwplusVersionForHandoff) {
+                //Check if NextHopRouter suggestion is still reachable (mesh stability)
+                if (itVer != fwplusVersionByNode.end() && 
+                    itVer->second >= configMinFwplusVersionForHandoff &&
+                    isNodeReachable(mapped)) {
+                    LOG_DEBUG("DTN: Using NextHopRouter suggested FW+ node 0x%x for dest 0x%x", 
+                             (unsigned)mapped, (unsigned)dest);
                     return mapped;
                 }
             }
@@ -1980,19 +1998,6 @@ void DtnOverlayModule::triggerAggressiveDiscovery()
             lastTelemetryProbeToNodeMs[ni->num] = nowMs;
         }
     }
-}
-
-bool DtnOverlayModule::shouldDeferForIntermediateLowConf(const Pending &p, bool lowConf) const
-{
-    if (!lowConf) return false;
-    if (isDirectNeighbor(p.data.orig_to)) return false;
-    bool isFromSource = (p.data.orig_from == nodeDB->getNodeNum());
-    if (isFromSource) return false;
-    float mobility = fwplus_getMobilityFactor01();
-    uint32_t backoff = configRetryBackoffMs + (uint32_t)random(2000);
-    if (mobility > 0.5f) backoff = backoff / 2; // try sooner if we are moving
-    // We cannot mutate p here (const), so signal caller to handle
-    return true;
 }
 
 void DtnOverlayModule::triggerTracerouteIfNeededForSource(const Pending &p, bool lowConf)

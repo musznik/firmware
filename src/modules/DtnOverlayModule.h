@@ -399,7 +399,6 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     void logDetailedStats();
 
     // Refactored helpers to keep main flows readable
-    bool shouldDeferForIntermediateLowConf(const Pending &p, bool lowConf) const;
     void triggerTracerouteIfNeededForSource(const Pending &p, bool lowConf);
     void setPriorityForTailAndSource(meshtastic_MeshPacket *mp, const Pending &p, bool isFromSource);
     void applyForeignCarrySuppression(uint32_t id, Pending &p);
