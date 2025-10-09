@@ -37,7 +37,7 @@ class BroadcastAssistModule : public MeshModule
         uint32_t id = 0;
         uint32_t from = 0; //fw+ sender for uniqueness
         uint32_t firstMs = 0;
-        uint16_t count = 0;
+        uint32_t count = 0; //fw+ changed from uint16_t to prevent overflow in dense networks
         bool reflooded = false;
         bool overheard = false; //fw+ router observed a duplicate for this id/from
     };
@@ -67,6 +67,13 @@ class BroadcastAssistModule : public MeshModule
     uint32_t lastRefloodMs = 0;
     //fw+ count of upstream dedup drops signaled by router
     uint32_t statUpstreamDupDropped = 0;
+
+    //fw+ cache for expensive far backbone calculation
+    mutable bool cachedFarBackboneResult = false;
+    mutable uint32_t cachedFarBackboneMs = 0;
+    mutable int32_t cachedSelfLatI = 0;
+    mutable int32_t cachedSelfLonI = 0;
+    static const uint32_t FAR_BACKBONE_CACHE_MS = 5000; // 5 seconds
 
   public:
     void getStatsSnapshot(BaStatsSnapshot &out) const;

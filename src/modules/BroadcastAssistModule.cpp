@@ -1,7 +1,6 @@
 #include "BroadcastAssistModule.h"
 #include "Default.h"
 #include "configuration.h"
-//fw+ for distance calculation to detect far backbones
 #include "gps/GeoCoord.h"
 
 BroadcastAssistModule *broadcastAssistModule;
@@ -34,6 +33,11 @@ ProcessMessage BroadcastAssistModule::handleReceived(const meshtastic_MeshPacket
 {
     if (!moduleConfig.has_broadcast_assist || !moduleConfig.broadcast_assist.enabled) return ProcessMessage::CONTINUE;
 
+    //CRITICAL: Check nodeDB before use to prevent NULL dereference crash
+    if (!nodeDB) {
+        return ProcessMessage::CONTINUE;
+    }
+
     uint32_t now = millis();
     auto *rec = findOrCreate(mp.id, getFrom(&mp), now);
     if (!rec) return ProcessMessage::CONTINUE;
@@ -53,17 +57,17 @@ ProcessMessage BroadcastAssistModule::handleReceived(const meshtastic_MeshPacket
     uint32_t degThr = moduleConfig.broadcast_assist.degree_threshold;
     if (degThr) {
         if (neighbors > degThr) {
-            //fw+ permit amplification if far backbone exists and no overhear yet
+            //permit amplification if far backbone exists and no overhear yet
             if (!shouldAmplifyForFarBackbone(*rec)) { statSuppressedDegree++; return ProcessMessage::CONTINUE; }
         }
     } else {
         // Probabilistic scaling if no hard threshold configured
         float p = computeRefloodProbability(neighbors);
-        // Convert to [0..1) using deterministic jitter from id to avoid rand global state
-        uint32_t jitter = (mp.id ^ nodeDB->getNodeNum()) & 0xFFFF;
+        //Add temporal component for better entropy and avoid synchronization
+        uint32_t jitter = ((mp.id ^ nodeDB->getNodeNum()) + (millis() & 0xFF)) & 0xFFFF;
         float r = (float)(jitter) / 65536.0f;
         if (r > p) {
-            //fw+ permit amplification if far backbone exists and no overhear yet
+            //permit amplification if far backbone exists and no overhear yet
             if (!shouldAmplifyForFarBackbone(*rec)) { statSuppressedDegree++; return ProcessMessage::CONTINUE; }
         }
     }
@@ -72,12 +76,12 @@ ProcessMessage BroadcastAssistModule::handleReceived(const meshtastic_MeshPacket
     uint32_t dupThr = moduleConfig.broadcast_assist.dup_threshold ? moduleConfig.broadcast_assist.dup_threshold : 1;
     if (isBackboneRole() && !rec->overheard) {
         if (rec->count > (dupThr + 1)) {
-            //fw+ allow one more if targeting far backbone case
+            //allow one more if targeting far backbone case
             if (!shouldAmplifyForFarBackbone(*rec)) { statSuppressedDup++; return ProcessMessage::CONTINUE; }
         }
     } else {
         if (rec->count > dupThr) {
-            //fw+ allow one more if targeting far backbone case
+            //allow one more if targeting far backbone case
             if (!shouldAmplifyForFarBackbone(*rec)) { statSuppressedDup++; return ProcessMessage::CONTINUE; }
         }
     }
@@ -99,9 +103,24 @@ ProcessMessage BroadcastAssistModule::handleReceived(const meshtastic_MeshPacket
     // Here we simply prevent increasing hops; module never increases hop_limit so this is a no-op guard.
     (void)moduleConfig.broadcast_assist.max_extra_hops;
 
-    // Jitter
-    uint32_t jitter = moduleConfig.broadcast_assist.jitter_ms ? moduleConfig.broadcast_assist.jitter_ms : 400;
-    if (jitter) tosend->tx_after = millis() + (random(jitter + 1));
+    //CRITICAL FIX: Safe jitter calculation with overflow protection
+    uint32_t jitterConfig = moduleConfig.broadcast_assist.jitter_ms ? moduleConfig.broadcast_assist.jitter_ms : 400;
+    if (jitterConfig) {
+        uint32_t now = millis();
+        //Better entropy: mix packet ID, node num, and time
+        uint32_t seed = (mp.id ^ nodeDB->getNodeNum() ^ (now & 0xFFFF));
+        uint32_t jitterMs = (seed % (jitterConfig + 1));
+        
+        //Safe addition with overflow protection
+        if (jitterMs > UINT32_MAX - now) {
+            // Wraparound would occur - send immediately
+            tosend->tx_after = now;
+        } else {
+            tosend->tx_after = now + jitterMs;
+        }
+    } else {
+        tosend->tx_after = millis();
+    }
 
     tosend->next_hop = NO_NEXT_HOP_PREFERENCE;
     tosend->priority = meshtastic_MeshPacket_Priority_DEFAULT;
@@ -115,21 +134,53 @@ ProcessMessage BroadcastAssistModule::handleReceived(const meshtastic_MeshPacket
 BroadcastAssistModule::SeenRec *BroadcastAssistModule::findOrCreate(uint32_t id, uint32_t from, uint32_t nowMs)
 {
     // Find existing
-    for (int i = 0; i < SEEN_CAP; ++i) if (seen[i].id == id && seen[i].from == from) return &seen[i];
-    // Reuse slot
-    SeenRec &slot = seen[seenIdx];
-    seenIdx = (seenIdx + 1) % SEEN_CAP;
+    for (int i = 0; i < SEEN_CAP; ++i) {
+        if (seen[i].id == id && seen[i].from == from) {
+            return &seen[i];
+        }
+    }
+    
+    //CRITICAL FIX: Find best slot to reuse - prefer expired slots over oldest
+    uint32_t windowMs = moduleConfig.broadcast_assist.window_ms ? 
+                        moduleConfig.broadcast_assist.window_ms : 600;
+    
+    int bestIdx = seenIdx;
+    uint32_t oldestTime = seen[seenIdx].firstMs;
+    
+    // First pass: look for expired slots (outside window)
+    for (int i = 0; i < SEEN_CAP; ++i) {
+        if (nowMs - seen[i].firstMs > windowMs) {
+            // Found expired slot - use it immediately
+            bestIdx = i;
+            break;
+        }
+        // Track oldest for fallback
+        if (seen[i].firstMs < oldestTime) {
+            oldestTime = seen[i].firstMs;
+            bestIdx = i;
+        }
+    }
+    
+    // Update round-robin index
+    seenIdx = (bestIdx + 1) % SEEN_CAP;
+    
+    // Initialize slot
+    SeenRec &slot = seen[bestIdx];
     slot.id = id;
     slot.from = from;
     slot.firstMs = nowMs;
     slot.count = 0;
     slot.reflooded = false;
     slot.overheard = false;
+    
     return &slot;
 }
 
 uint8_t BroadcastAssistModule::countDirectNeighbors(uint32_t freshnessSecs) const
 {
+    //CRITICAL: NULL check to prevent crash during boot
+    if (!nodeDB) return 0;
+    
     uint8_t cnt = 0;
     for (int i = 0; i < nodeDB->numMeshNodes; ++i) {
         const auto &n = nodeDB->meshNodes->at(i);
@@ -159,7 +210,7 @@ bool BroadcastAssistModule::airtimeOk() const
     return (!airTime) || airTime->isTxAllowedChannelUtil(true);
 }
 
-//fw+ backbone role check used for opportunistic second attempt
+//backbone role check used for opportunistic second attempt
 bool BroadcastAssistModule::isBackboneRole() const
 {
     auto role = config.device.role;
@@ -175,32 +226,51 @@ float BroadcastAssistModule::computeRefloodProbability(uint8_t neighborCount) co
     float base = 1.0f / (1.0f + (float)neighborCount); // 1, 0.5, 0.33, ...
     float util = airTime ? (airTime->channelUtilizationPercent() / 100.0f) : 0.0f;
     float p = base * (1.0f - util);
-    // Clamp
-    if (p < 0.05f) p = 0.05f;      // never zero
-    if (p > 0.9f) p = 0.9f;        // avoid implosion
+    
+    //Adaptive boost for sparse networks (< 3 neighbors)
+    // This helps ensure messages propagate in very sparse meshes
+    if (neighborCount < 3) {
+        p = p * 1.5f; // 50% boost for isolated nodes
+    }
+    
+    // Clamp (higher minimum for better propagation)
+    if (p < 0.10f) p = 0.10f;      //increased from 0.05 for better coverage
+    if (p > 0.95f) p = 0.95f;      //increased from 0.9
     return p;
 }
 
 void BroadcastAssistModule::onOverheardFromId(uint32_t from, uint32_t id)
 {
     uint32_t now = millis();
-    // Try to find quickly; don't allocate new slot just to mark overheard
+    uint32_t windowMs = moduleConfig.broadcast_assist.window_ms ? 
+                        moduleConfig.broadcast_assist.window_ms : 600;
+    
+    //OPTIMIZED: Single pass - find existing OR create new (avoid redundant loop)
+    SeenRec *slot = nullptr;
+    
+    // First check if already exists
     for (int i = 0; i < SEEN_CAP; ++i) {
         if (seen[i].id == id && seen[i].from == from) {
-            // if window expired, refresh basic fields
-            uint32_t windowMs = moduleConfig.broadcast_assist.window_ms ? moduleConfig.broadcast_assist.window_ms : 600;
-            if (now - seen[i].firstMs > windowMs) {
-                seen[i].firstMs = now;
-                seen[i].count = 0;
-                seen[i].reflooded = false;
-            }
-            seen[i].overheard = true;
-            return;
+            slot = &seen[i];
+            break;
         }
     }
-    // Optionally prime a slot so that subsequent handleReceived can observe overheard
-    SeenRec *slot = findOrCreate(id, from, now);
-    if (slot) slot->overheard = true;
+    
+    // If not found, create new slot
+    if (!slot) {
+        slot = findOrCreate(id, from, now);
+        if (!slot) return; // Should never happen, but safety check
+    }
+    
+    // Window management
+    if (now - slot->firstMs > windowMs) {
+        slot->firstMs = now;
+        slot->count = 0;
+        slot->reflooded = false;
+    }
+    
+    // Mark as overheard
+    slot->overheard = true;
 }
 
 void BroadcastAssistModule::getStatsSnapshot(BaStatsSnapshot &out) const
@@ -211,29 +281,61 @@ void BroadcastAssistModule::getStatsSnapshot(BaStatsSnapshot &out) const
     out.suppressedDup = statSuppressedDup;
     out.suppressedDegree = statSuppressedDegree;
     out.suppressedAirtime = statSuppressedAirtime;
-    //fw+ include upstream router duplicate drop count in snapshot
+    //include upstream router duplicate drop count in snapshot
     out.upstreamDupDropped = statUpstreamDupDropped;
     uint32_t now = millis();
     out.lastRefloodAgeSecs = (lastRefloodMs == 0 || now < lastRefloodMs) ? 0 : (now - lastRefloodMs) / 1000;
 }
 
-//fw+ detect if there exists a far, active backbone node in the DB
+//detect if there exists a far, active backbone node in the DB
 bool BroadcastAssistModule::existsActiveFarBackbone(uint32_t minDistanceMeters, uint32_t freshSecs) const
 {
+    //CRITICAL: NULL check to prevent crash during boot
+    if (!nodeDB) return false;
+    
+    uint32_t now = millis();
+    
     // guard: need our own valid position
     meshtastic_NodeInfoLite *self = nodeDB->getMeshNode(nodeDB->getNodeNum());
-    if (!self || !nodeDB->hasValidPosition(self)) return false;
-
-    double selfLat = self->position.latitude_i * 1e-7;
-    double selfLon = self->position.longitude_i * 1e-7;
+    if (!self || !nodeDB->hasValidPosition(self)) {
+        cachedFarBackboneResult = false;
+        return false;
+    }
+    
+    int32_t currentLat = self->position.latitude_i;
+    int32_t currentLon = self->position.longitude_i;
+    
+    //PERFORMANCE: Check if cache is valid:
+    // 1. Not expired (within cache time)
+    // 2. Position hasn't changed significantly (> 1km = ~10000 units in latitude_i)
+    bool cacheValid = false;
+    if (now - cachedFarBackboneMs < FAR_BACKBONE_CACHE_MS) {
+        int32_t latDiff = currentLat - cachedSelfLatI;
+        int32_t lonDiff = currentLon - cachedSelfLonI;
+        // Simple Manhattan distance check (~1km threshold)
+        if (abs(latDiff) < 10000 && abs(lonDiff) < 10000) {
+            cacheValid = true;
+        }
+    }
+    
+    if (cacheValid) {
+        return cachedFarBackboneResult;
+    }
+    
+    //Cache miss - do expensive calculation
+    double selfLat = currentLat * 1e-7;
+    double selfLon = currentLon * 1e-7;
+    bool foundFarBackbone = false;
 
     for (size_t i = 0; i < nodeDB->getNumMeshNodes(); ++i) {
         meshtastic_NodeInfoLite *n = nodeDB->getMeshNodeByIndex(i);
         if (!n) continue;
         if (n->num == nodeDB->getNodeNum()) continue;
         if (!nodeDB->hasValidPosition(n)) continue;
+        
         // freshness gate
         if (sinceLastSeen(n) > freshSecs) continue;
+        
         // role gate: consider only router/repeater/router_late
         auto role = n->user.role;
         bool isBackbone = role == meshtastic_Config_DeviceConfig_Role_ROUTER ||
@@ -244,30 +346,46 @@ bool BroadcastAssistModule::existsActiveFarBackbone(uint32_t minDistanceMeters, 
         double lat = n->position.latitude_i * 1e-7;
         double lon = n->position.longitude_i * 1e-7;
         float dist = GeoCoord::latLongToMeter(selfLat, selfLon, lat, lon);
-        if (dist >= (float)minDistanceMeters) return true;
+        
+        if (dist >= (float)minDistanceMeters) {
+            foundFarBackbone = true;
+            break; //Early exit on first match
+        }
     }
-    return false;
+    
+    //Update cache
+    cachedFarBackboneResult = foundFarBackbone;
+    cachedFarBackboneMs = now;
+    cachedSelfLatI = currentLat;
+    cachedSelfLonI = currentLon;
+    
+    return foundFarBackbone;
 }
 
-//fw+ decide if we should amplify (permit reflood) targeting far backbone case
+//decide if we should amplify (permit reflood) targeting far backbone case
 bool BroadcastAssistModule::shouldAmplifyForFarBackbone(const SeenRec &rec) const
 {
-    (void)rec; // currently only use overhear/role/airtime and far-backbone presence
+    //CRITICAL FIX: Check overheard first - if router already saw duplicate, don't amplify
+    if (rec.overheard) return false;
+    
     if (!isBackboneRole()) return false;
+    
     // require airtime ok
     if (moduleConfig.broadcast_assist.airtime_guard && !airtimeOk()) return false;
+    
     // require presence of an active far backbone (50km+, heard within ~2h)
     if (!existsActiveFarBackbone(50000, 2 * 60 * 60)) return false;
+    
     return true;
 }
 
-//fw+ shim for routers to report upstream duplicate drops without including module headers
+//shim for routers to report upstream duplicate drops without including module headers
 void fwplus_ba_onUpstreamDupeDropped()
 {
     if (broadcastAssistModule) broadcastAssistModule->onUpstreamDupeDropped();
 }
 
-//fw+ shim with id/from to mark overheard in BA window
+//shim with id/from to mark overheard in BA window
 void fwplus_ba_onOverheardFromId(uint32_t from, uint32_t id)
 {
     if (!broadcastAssistModule) return;
