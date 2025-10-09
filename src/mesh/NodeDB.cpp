@@ -946,23 +946,24 @@ void NodeDB::installDefaultModuleConfig()
     moduleConfig.detection_sensor.minimum_broadcast_secs = 45;
 
     //fw+ DTN overlay defaults (ensure APK sees post-install defaults)
+    // Synchronized with DtnOverlayModule.cpp fallback values for consistency
     moduleConfig.has_dtn_overlay = true;
     moduleConfig.dtn_overlay.enabled = false; //fw+ default OFF for safe testing
 #if ARCH_PORTDUINO
     //fw+ For native/Portduino simulator builds, force-enable DTN overlay by default for testing
     moduleConfig.dtn_overlay.enabled = true;
 #endif
-    moduleConfig.dtn_overlay.ttl_minutes = 5;
-    moduleConfig.dtn_overlay.initial_delay_base_ms = 8000;
+    moduleConfig.dtn_overlay.ttl_minutes = 4;        // 4 minutes - shorter custody window
+    moduleConfig.dtn_overlay.initial_delay_base_ms = 2000; // 2s - faster first attempt
     //fw+ increase backoff to soften traffic
-    moduleConfig.dtn_overlay.retry_backoff_ms = 120000;
+    moduleConfig.dtn_overlay.retry_backoff_ms = 120000;    // 2 minutes retry
     moduleConfig.dtn_overlay.max_tries = 2;
     moduleConfig.dtn_overlay.late_fallback_enabled = false;
     moduleConfig.dtn_overlay.fallback_tail_percent = 20;
     //fw+ milestones default OFF; user can enable via ModuleConfig
     moduleConfig.dtn_overlay.milestones_enabled = false;
-    //fw+ increase per-destination spacing to reduce burstiness
-        moduleConfig.dtn_overlay.per_dest_min_spacing_ms = 60000U; // 60 seconds - balanced DTN spacing
+    //fw+ per-destination spacing to avoid bursts
+    moduleConfig.dtn_overlay.per_dest_min_spacing_ms = 120000U; // 2 minutes - conservative spacing
     moduleConfig.dtn_overlay.max_active_dm = 1;
     moduleConfig.dtn_overlay.probe_fwplus_near_deadline = false;
 
