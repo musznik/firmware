@@ -63,25 +63,34 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     
     // Check if DTN can help with specific destination - PUBLIC for Router access
     bool shouldInterceptLocalDM(NodeNum dest) const {
-        if (!configEnabled) return false;
+        if (!configEnabled) {
+            LOG_DEBUG("DTN intercept: disabled");
+            return false;
+        }
         
         // Never intercept broadcasts - DTN is for unicast only
         if (dest == NODENUM_BROADCAST || dest == NODENUM_BROADCAST_NO_LORA) {
+            LOG_DEBUG("DTN intercept: broadcast");
             return false;
         }
         
         // No DTN nodes known - use native DM immediately
         if (fwplusVersionByNode.empty()) {
+            LOG_DEBUG("DTN intercept: no FW+ nodes known");
             return false;
         }
         
         // Direct neighbor - native DM is faster, don't use DTN overlay
         if (isDirectNeighbor(dest)) {
+            LOG_INFO("DTN intercept SKIP: dest 0x%x is direct neighbor", (unsigned)dest);
             return false;
         }
         
         // Check if any known DTN node can help reach destination
-        return canDtnHelpWithDestination(dest);
+        bool canHelp = canDtnHelpWithDestination(dest);
+        LOG_INFO("DTN intercept: dest 0x%x canHelp=%d known_fwplus=%u", 
+                 (unsigned)dest, (int)canHelp, (unsigned)fwplusVersionByNode.size());
+        return canHelp;
     }
 
   protected:
@@ -198,7 +207,7 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     // Post-warmup: if still no FW+ nodes known, continue searching
     uint32_t configAdvertiseIntervalUnknownMs = 120UL * 60UL * 1000UL; // 2h (post-warmup cold-start)
     // One-shot early advertise after enable/start
-    uint32_t configFirstAdvertiseDelayMs = 2UL * 60UL * 1000UL;        // 2min (wait for MQTT proxy connection)
+    uint32_t configFirstAdvertiseDelayMs = 2UL * 60UL * 1000UL;        // 2min (wait for MQTT proxy connection) - TEST: przyspieszony dla testów
     uint32_t configFirstAdvertiseRetryMs = 10UL * 1000UL;              // 10s retry interval if first beacon fails
     uint32_t configFarMinTtlFracPercent = 20;      //fw+ reduced wait time for far nodes
     uint32_t configOriginProgressMinIntervalMs = 15000; // per-source min interval for milestone
@@ -211,7 +220,7 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     bool configCaptureForeignText = false;          // capture of foreign TEXT DMs
     
     // Cold start handling
-    uint32_t configColdStartTimeoutMs = 30000;      //fw+ timeout before enabling native DM fallback
+    uint32_t configColdStartTimeoutMs = 30000;      //fw+ timeout before enabling native DM fallback (30s for testing)
     bool configColdStartNativeFallback = true;      //fw+ enable native DM when DTN is cold
     
     // Unresponsive FW+ destination fallback
@@ -355,6 +364,14 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     uint8_t configTelemetryProbeMinRing = 2; // only probe if origin is >= 2 hops away
     uint32_t configTelemetryProbeCooldownMs = 2UL * 60UL * 60UL * 1000UL; // per-origin cooldown 2h
     std::unordered_map<NodeNum, uint32_t> lastTelemetryProbeToNodeMs;
+    
+    // Aggressive discovery throttle (prevent watchdog reset)
+    uint32_t lastAggressiveDiscoveryMs = 0;
+    uint32_t configAggressiveDiscoveryCooldownMs = 60000; // Max once per minute (prevent burst)
+    uint8_t configAggressiveDiscoveryMaxProbes = 3; // Max 3 probes per call (prevent blocking)
+    
+    // Immediate neighbor probing for cold start (test mode)
+    void triggerImmediateNeighborProbing();
 
     // Simple FNV-1a 32-bit
     static uint32_t fnv1a32(uint32_t x) {

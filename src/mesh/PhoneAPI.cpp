@@ -18,6 +18,11 @@
 #include "main.h"
 #include "xmodem.h"
 
+#if __has_include("modules/DtnOverlayModule.h")
+#include "modules/DtnOverlayModule.h"
+extern DtnOverlayModule *dtnOverlayModule;
+#endif
+
 #if FromRadio_size > MAX_TO_FROM_RADIO_SIZE
 #error FromRadio is too big
 #endif
@@ -725,6 +730,46 @@ bool PhoneAPI::handleToRadioPacket(meshtastic_MeshPacket &p)
     }
 
     lastPortNumToRadio[p.decoded.portnum] = millis();
+    
+    //fw+ DTN intercept for TEXT messages from phone API (before encryption)
+#if __has_include("modules/DtnOverlayModule.h")
+    if (dtnOverlayModule && p.decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP) {
+        bool isUnicast = (p.to != NODENUM_BROADCAST && p.to != NODENUM_BROADCAST_NO_LORA);
+        bool shouldIntercept = dtnOverlayModule->shouldInterceptLocalDM(p.to);
+        LOG_DEBUG("DTN PhoneAPI check: to=0x%x unicast=%d shouldIntercept=%d", 
+                  (unsigned)p.to, (int)isUnicast, (int)shouldIntercept);
+        if (isUnicast && shouldIntercept) {
+            uint32_t ttlMinutes = dtnOverlayModule->getTtlMinutes();
+            uint64_t deadline = ((uint64_t)getValidTime(RTCQualityFromNet) * 1000ULL) + 
+                               (ttlMinutes * 60ULL * 1000ULL);
+            dtnOverlayModule->enqueueFromCaptured(p.id,
+                                                  nodeDB->getNodeNum(),
+                                                  p.to,
+                                                  p.channel,
+                                                  deadline,
+                                                  false,
+                                                  p.decoded.payload.bytes,
+                                                  p.decoded.payload.size,
+                                                  true);
+            LOG_INFO("DTN wrap PhoneAPI TEXT id=0x%x to=0x%x ch=%u ttlmin=%u", 
+                     (unsigned)p.id, (unsigned)p.to, (unsigned)p.channel, (unsigned)ttlMinutes);
+            
+            // CRITICAL: Cancel any Router retransmissions for this packet ID
+            // DTN took custody - Router should not retry native DM
+            if (router) {
+                router->cancelSending(nodeDB->getNodeNum(), p.id);
+                LOG_DEBUG("DTN: Cancelled Router retransmission for id=0x%x", (unsigned)p.id);
+            }
+            
+            // Send queue status so phone doesn't show "waiting"
+            meshtastic_QueueStatus qs = router->getQueueStatus();
+            service->sendQueueStatusToPhone(qs, 0, p.id);
+            
+            return true; // Consumed by DTN, don't send native DM
+        }
+    }
+#endif
+    
     service->handleToRadio(p);
     return true;
 }

@@ -258,7 +258,10 @@ void MeshService::handleToRadio(meshtastic_MeshPacket &p)
 
     //fw+ DTN wrap at source when enabled: for unicast TEXT, enqueue overlay instead of sending native DM
 #if __has_include("modules/DtnOverlayModule.h")
-    if (moduleConfig.has_dtn_overlay && moduleConfig.dtn_overlay.enabled) {
+    // Check DTN module directly if moduleConfig not set (e.g., simulator with default-enabled DTN)
+    bool dtnEnabled = (moduleConfig.has_dtn_overlay && moduleConfig.dtn_overlay.enabled) ||
+                     (dtnOverlayModule && dtnOverlayModule->isEnabled());
+    if (dtnEnabled) {
         bool isUnicast = (p.to != NODENUM_BROADCAST && p.to != NODENUM_BROADCAST_NO_LORA);
         bool isText = (p.which_payload_variant == meshtastic_MeshPacket_decoded_tag &&
                        p.decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP);
