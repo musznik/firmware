@@ -259,6 +259,7 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     uint32_t firstAdvertiseRetryMs = 0; //fw+ track retry attempts for first beacon
     uint8_t warmupBeaconsSent = 0; //fw+ track warmup beacons sent (staged discovery)
     uint32_t lastDetailedLogMs = 0;
+    bool immediateNeighborProbingDone = false; //fw+ flag to trigger probing AFTER constructor (prevents ESP32 LoadProhibited panic)
     // Hello-back unicast reply throttling
     bool configHelloBackEnabled = true;
     uint32_t configHelloBackMinIntervalMs = 60UL * 60UL * 1000UL; // per-origin min interval 1h (balanced for network efficiency)

@@ -293,11 +293,10 @@ DtnOverlayModule::DtnOverlayModule()
              configFwplusUnresponsiveFallback ? "enabled" : "disabled",
              (unsigned)configFwplusFailureThreshold, (unsigned)configFwplusResponseTimeoutMs);
 
-    //fw+ TEST: Immediate neighbor probing for faster FW+ discovery during cold start
-    if (configEnabled) {
-        LOG_INFO("DTN: Starting immediate neighbor probing for FW+ discovery");
-        triggerImmediateNeighborProbing();
-    }
+    // fw+ CRITICAL: DO NOT call triggerImmediateNeighborProbing() from constructor!
+    // service/nodeDB/router may not be initialized yet, causing LoadProhibited panic on ESP32.
+    // Instead, we'll trigger it from runOnce() after a short delay.
+    immediateNeighborProbingDone = false; // Will be triggered in runOnce()
 
     moduleStartMs = millis(); //fw+
 }
@@ -309,6 +308,17 @@ int32_t DtnOverlayModule::runOnce()
     if (!configEnabled) return 1000; //disabled: idle
     
     uint32_t now = millis();
+    
+    // CRITICAL: Trigger immediate neighbor probing after safe delay (not from constructor!)
+    // Wait 5 seconds to ensure service/nodeDB/router are initialized
+    // DISABLED: Immediate unicast probing causes packet storms in large networks
+    // Discovery is now handled ONLY by periodic broadcast beacons (passive, safe)
+    // Broadcast beacons propagate naturally and each node replies with their own beacon
+    // This avoids O(N²) unicast probe explosion
+    if (!immediateNeighborProbingDone && (now - moduleStartMs) >= 5000) {
+        LOG_INFO("DTN: Discovery via broadcast beacons (immediate unicast probing disabled for network safety)");
+        immediateNeighborProbingDone = true;
+    }
     
     // Debug: log pending count
     static uint32_t lastDebugMs = 0;
@@ -324,9 +334,16 @@ int32_t DtnOverlayModule::runOnce()
     // CRITICAL: During cold start, periodically re-probe for neighbors
     // NodeDB may be empty at startup but fills as NodeInfo broadcasts arrive
     static uint32_t lastColdStartProbeMs = 0;
-    if (isDtnCold() && (now - lastColdStartProbeMs) > 15000) { // Every 15s during cold start
-        LOG_INFO("DTN: Cold start - re-probing for new neighbors");
-        triggerImmediateNeighborProbing();
+    // DISABLED: Cold start re-probing caused packet storms (O(N) unicast probes every 15s!)
+    // In large networks (50+ nodes) this creates catastrophic bursts
+    // Discovery is now PASSIVE via broadcast beacons only:
+    //   - First beacon @ ~2min
+    //   - Warmup beacons @ 15min intervals (4 total in 1h)
+    //   - Post-warmup @ 2h if no FW+ discovered
+    //   - Normal @ 6h when FW+ nodes known
+    // This is O(1) traffic per node instead of O(N²) probe storm
+    if (isDtnCold() && (now - lastColdStartProbeMs) > 15000) {
+        LOG_DEBUG("DTN: Cold start discovery via broadcast beacons (aggressive probing disabled)");
         lastColdStartProbeMs = now;
     }
     
@@ -2369,46 +2386,38 @@ NodeNum DtnOverlayModule::selectForwardTarget(Pending &p)
 }
 
 // Purpose: immediate neighbor probing for faster FW+ discovery at startup
-// NOTE: At startup, nodeDB may not have neighbors yet (routing table empty)
-// This is called early but will send probes as soon as nodes are discovered via NodeInfo broadcasts
+// DISABLED: This function caused O(N) unicast probe storms in large networks
+// Discovery now relies EXCLUSIVELY on passive broadcast beacons
 void DtnOverlayModule::triggerImmediateNeighborProbing()
 {
     if (!configEnabled) return;
 
-    LOG_INFO("DTN: Starting immediate neighbor probing for FW+ discovery");
+    // DISABLED: Immediate probing was catastrophic in production
+    // Example: Network with 72 nodes → 72 unicast probes in 1 second!
+    // Result: TX queue overflow, channel congestion, watchdog resets
+    //
+    // ROOT CAUSE:
+    //   - Called @ 5s startup
+    //   - Called every 15s during cold start
+    //   - Probes ALL nodes in NodeDB (not just direct neighbors!)
+    //   - No hard limit on probe count
+    //   - In mesh with 50+ nodes = packet storm
+    //
+    // SAFE ALTERNATIVE: Passive broadcast beacon discovery ONLY
+    //   - Node sends 1 broadcast beacon (O(1) traffic)
+    //   - Beacon propagates naturally through mesh
+    //   - Other FW+ nodes hear beacon and reply with their beacons
+    //   - Total network traffic: O(N) not O(N²)
+    //
+    // Discovery timeline (PASSIVE):
+    //   @ 2min:   First broadcast beacon
+    //   @ 15,30,45min: Warmup beacons (4 total in 1h)
+    //   @ 2h intervals: Post-warmup beacons (if no FW+ discovered)
+    //   @ 6h intervals: Normal maintenance beacons
+    //
+    // This ensures gradual, distributed discovery without bursts
 
-    uint32_t nowMs = millis();
-    uint8_t probesSent = 0;
-    int totalNodes = nodeDB->getNumMeshNodes();
-    
-    LOG_DEBUG("DTN: Checking %u nodes for immediate probing", (unsigned)totalNodes);
-
-    for (int i = 0; i < totalNodes; ++i) {
-        meshtastic_NodeInfoLite *ni = nodeDB->getMeshNodeByIndex(i);
-        if (!ni) continue;
-        if (ni->num == nodeDB->getNodeNum()) continue;
-        
-        LOG_DEBUG("DTN: Node 0x%x hops=%u", (unsigned)ni->num, (unsigned)ni->hops_away);
-        
-        // During cold start, probe ALL known nodes (not just hops==0)
-        // Routing table may not be accurate yet
-        if (ni->hops_away > 4) continue; // But skip very far nodes
-
-        // Skip if we already know this node as FW+
-        if (isFwplus(ni->num)) {
-            LOG_DEBUG("DTN: Neighbor 0x%x already known as FW+", (unsigned)ni->num);
-            continue;
-        }
-
-        // Send immediate FW+ probe (no channel util gate for first discovery)
-        LOG_INFO("DTN: Immediately probing node 0x%x for FW+ capability (hops=%u)", 
-                 (unsigned)ni->num, (unsigned)ni->hops_away);
-        maybeProbeFwplus(ni->num);
-        lastTelemetryProbeToNodeMs[ni->num] = nowMs; // Track for cooldown
-        probesSent++;
-    }
-
-    LOG_INFO("DTN: Immediate neighbor probing completed - sent %u probes", (unsigned)probesSent);
+    LOG_DEBUG("DTN: Using passive broadcast beacon discovery only (immediate probing disabled)");
 }
 
 // Purpose: trigger aggressive DTN discovery during cold start
@@ -2416,6 +2425,12 @@ void DtnOverlayModule::triggerImmediateNeighborProbing()
 void DtnOverlayModule::triggerAggressiveDiscovery()
 {
     if (!configEnabled) return;
+    
+    // CRITICAL: Verify service is initialized before sending packets
+    if (!service) {
+        LOG_WARN("DTN: Cannot trigger aggressive discovery - service not initialized yet");
+        return;
+    }
     
     // CRITICAL: Global cooldown to prevent watchdog reset from burst calls
     uint32_t nowMs = millis();
@@ -2434,43 +2449,19 @@ void DtnOverlayModule::triggerAggressiveDiscovery()
     
     lastAggressiveDiscoveryMs = nowMs;
     
-    // Send immediate beacon if channel is clear
-    // Use passive discovery only - no additional broadcast beacons
-    // Discovery happens through: periodic beacons, OnDemand responses, and overheard DTN traffic
+    // DISABLED: Even "aggressive discovery" with limits was too aggressive
+    // In networks with 50+ nodes, even 5 unicast probes per call adds up
+    // Multiple code paths can trigger this → still creates bursts
+    //
+    // PASSIVE DISCOVERY ONLY:
+    //   - Broadcast beacons (scheduled, predictable)
+    //   - Overheard DTN traffic (zero cost observation)
+    //   - OnDemand responses (only when routing actually needs it)
+    //
+    // This ensures ZERO proactive unicast probing
+    // Discovery happens naturally through normal mesh operation
     
-    // CRITICAL: Limit number of probes per call to prevent blocking (watchdog protection)
-    uint8_t probesSent = 0;
-    int totalNodes = nodeDB->getNumMeshNodes();
-    
-    LOG_INFO("DTN: Aggressive discovery triggered (max %u probes, %u total nodes)", 
-             (unsigned)configAggressiveDiscoveryMaxProbes, (unsigned)totalNodes);
-    
-    for (int i = 0; i < totalNodes && probesSent < configAggressiveDiscoveryMaxProbes; ++i) {
-        meshtastic_NodeInfoLite *ni = nodeDB->getMeshNodeByIndex(i);
-        if (!ni) continue;
-        if (ni->num == nodeDB->getNodeNum()) continue;
-        if (ni->hops_away != 0) continue; // Only direct neighbors
-        
-        // Skip if we already know this node
-        if (isFwplus(ni->num)) continue;
-        
-        // Send FW+ probe (rate-limited)
-        auto it = lastTelemetryProbeToNodeMs.find(ni->num);
-        if (it == lastTelemetryProbeToNodeMs.end() || (nowMs - it->second) >= 30000) { // 30s cooldown per node
-            LOG_INFO("DTN: Aggressively probing neighbor 0x%x for FW+ capability (%u/%u)", 
-                    (unsigned)ni->num, (unsigned)(probesSent + 1), 
-                    (unsigned)configAggressiveDiscoveryMaxProbes);
-            maybeProbeFwplus(ni->num);
-            lastTelemetryProbeToNodeMs[ni->num] = nowMs;
-            probesSent++;
-        }
-    }
-    
-    if (probesSent == 0) {
-        LOG_DEBUG("DTN: Aggressive discovery found no unknown neighbors to probe");
-    } else {
-        LOG_INFO("DTN: Aggressive discovery sent %u probes", (unsigned)probesSent);
-    }
+    LOG_DEBUG("DTN: Using passive discovery only (aggressive probing disabled for network health)");
 }
 
 void DtnOverlayModule::triggerTracerouteIfNeededForSource(const Pending &p, bool lowConf)
