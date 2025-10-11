@@ -503,27 +503,27 @@ typedef struct _meshtastic_ModuleConfig_NodeModAdminConfig {
 
 /* fw+ DTN overlay configuration */
 typedef struct _meshtastic_ModuleConfig_DtnOverlayConfig {
-    /* Enable FW+ DTN overlay module */
+    /* Enable FW+ DTN overlay module (default: false) */
     bool enabled;
-    /* Absolute TTL in minutes for DM overlay deliveries (default 5) */
+    /* Absolute TTL in minutes for DM overlay deliveries (default: 4) */
     uint16_t ttl_minutes;
-    /* Initial delay base in milliseconds (default 8000) */
+    /* Initial delay base in milliseconds before first attempt (default: 2000) */
     uint32_t initial_delay_base_ms;
-    /* Retry backoff base in milliseconds (default 60000) */
+    /* Retry backoff base in milliseconds between attempts (default: 120000) */
     uint32_t retry_backoff_ms;
-    /* Maximum tries before declare failed (default 3) */
+    /* Maximum tries before declaring failed (default: 2) */
     uint8_t max_tries;
-    /* Enable late proxy fallback to native DM near deadline */
+    /* Enable late proxy fallback to native DM near deadline (default: false) */
     bool late_fallback_enabled;
-    /* Fallback window portion of TTL (percent of TTL near deadline, default 20) */
+    /* Fallback window portion of TTL in percent near deadline (default: 20) */
     uint8_t fallback_tail_percent;
-    /* Enable milestone progress receipts (rare, for debugging/telemetry) */
+    /* Enable milestone progress receipts for telemetry (default: false) */
     bool milestones_enabled;
-    /* Minimum spacing between attempts to the same destination (ms; default 30000) */
+    /* Minimum spacing between attempts to same destination in ms (default: 120000) */
     uint16_t per_dest_min_spacing_ms;
-    /* Global cap of concurrently active DTN DMs per node (default 2) */
+    /* Global cap of concurrently active DTN DMs per node (default: 1) */
     uint8_t max_active_dm;
-    /* Probe FW+ capability (OnDemand) near deadline if dest capability unknown */
+    /* Probe FW+ capability near deadline if dest capability unknown (default: false) */
     bool probe_fwplus_near_deadline;
 } meshtastic_ModuleConfig_DtnOverlayConfig;
 

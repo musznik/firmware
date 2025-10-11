@@ -963,7 +963,7 @@ void NodeDB::installDefaultModuleConfig()
     //fw+ milestones default OFF; user can enable via ModuleConfig
     moduleConfig.dtn_overlay.milestones_enabled = false;
     //fw+ per-destination spacing to avoid bursts
-    moduleConfig.dtn_overlay.per_dest_min_spacing_ms = 120000U; // 2 minutes - conservative spacing
+    moduleConfig.dtn_overlay.per_dest_min_spacing_ms = 60000U; // 1 minute - conservative spacing (max uint16_t=65535)
     moduleConfig.dtn_overlay.max_active_dm = 1;
     moduleConfig.dtn_overlay.probe_fwplus_near_deadline = false;
 

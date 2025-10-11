@@ -390,12 +390,16 @@ ErrorCode Router::send(meshtastic_MeshPacket *p)
             uint64_t nowSec = getValidTime(RTCQualityFromNet);
             uint64_t deadline = (nowSec * 1000ULL) + (ttlMinutes * 60ULL * 1000ULL);
             //fw+ enqueue plaintext payload for DTN; allow proxy fallback later
-            dtnOverlayModule->enqueueFromCaptured(p->id, getFrom(p), p->to, p->channel, deadline,
-                                                  false, p->decoded.payload.bytes, p->decoded.payload.size, true);
-            //fw+ Don't send ACK here - let DTN module handle ACK after actual delivery
-            // This prevents "queued" status in Android app - DTN will send proper ACK after delivery
-            packetPool.release(p);
-            return meshtastic_Routing_Error_NONE;
+            bool enqueued = dtnOverlayModule->enqueueFromCaptured(p->id, getFrom(p), p->to, p->channel, deadline,
+                                                                  false, p->decoded.payload.bytes, p->decoded.payload.size, true);
+            if (enqueued) {
+                //fw+ Don't send ACK here - let DTN module handle ACK after actual delivery
+                // This prevents "queued" status in Android app - DTN will send proper ACK after delivery
+                packetPool.release(p);
+                return meshtastic_Routing_Error_NONE;
+            }
+            // else: Packet was skipped (tombstone/queue full) - continue with normal routing
+            LOG_DEBUG("DTN: Packet id=0x%x skipped by DTN (tombstone/queue full) - using normal routing", p->id);
         }
 #endif
         ChannelIndex chIndex = p->channel; // keep as a local because we are about to change it

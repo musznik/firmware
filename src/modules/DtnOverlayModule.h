@@ -8,6 +8,10 @@
 #include "mesh/generated/meshtastic/fwplus_dtn.pb.h"
 #include "mesh/generated/meshtastic/portnums.pb.h"
 #include <unordered_map>
+#include <map>
+#include <set>
+#include <vector>
+#include <string>
 
 class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<meshtastic_FwplusDtn>
 {
@@ -21,7 +25,8 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     uint32_t getTtlMinutes() const { return configTtlMinutes; } //fw+
     // Enqueue overlay data created from a captured DM (plaintext or encrypted)
     // deadlineMs uses uint64_t to avoid overflow (epoch*1000 exceeds uint32 in 2025+)
-    void enqueueFromCaptured(uint32_t origId, uint32_t origFrom, uint32_t origTo, uint8_t channel,
+    // Returns: true if packet was enqueued, false if skipped (tombstone, queue full, too large)
+    bool enqueueFromCaptured(uint32_t origId, uint32_t origFrom, uint32_t origTo, uint8_t channel,
                              uint64_t deadlineMs, bool isEncrypted, const uint8_t *bytes, pb_size_t size,
                              bool allowProxyFallback);
     // Expose DTN stats snapshot for diagnostics
@@ -40,6 +45,12 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
         uint32_t lastForwardAgeSecs;
         uint32_t knownNodesCount; //fw+ number of known FW+ nodes
         bool enabled;
+        // Adaptive routing statistics
+        uint32_t adaptiveReroutes;
+        uint32_t linkHealthChecks;
+        uint32_t pathLearningUpdates;
+        uint32_t monitoredLinks;
+        uint32_t monitoredPaths;
     };
     // Fill snapshot with current counters
     void getStatsSnapshot(DtnStatsSnapshot &out) const;
@@ -460,6 +471,157 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     void processMilestoneEmission(const meshtastic_MeshPacket &mp, const meshtastic_FwplusDtnData &data);
     bool processForeignDMCapture(const meshtastic_MeshPacket &mp);
     void processTelemetryProbe(const meshtastic_MeshPacket &mp);
+
+    //==============================================================================
+    // ADAPTIVE PATH SELECTION & FAULT TOLERANCE
+    //==============================================================================
+
+    // Purpose: Track health metrics for a specific neighbor link
+    // Used to: Make intelligent routing decisions and avoid problematic links
+    struct LinkHealth {
+        NodeNum neighbor;                 // Neighbor node ID
+        uint32_t successCount;            // Total successful transmissions
+        uint32_t failureCount;            // Total failed transmissions
+        uint8_t consecutiveFailures;      // Current streak of failures (reset on success)
+        float avgSnr;                     // Average SNR (Exponentially Weighted Moving Average)
+        float avgRssi;                    // Average RSSI (EWMA)
+        uint32_t lastSuccessMs;           // Timestamp of last successful transmission
+        uint32_t lastFailureMs;           // Timestamp of last failure
+        uint32_t lastHealthCheckMs;       // Last time health was evaluated
+        
+        LinkHealth() : neighbor(0), successCount(0), failureCount(0), 
+                       consecutiveFailures(0), avgSnr(0.0f), avgRssi(0.0f),
+                       lastSuccessMs(0), lastFailureMs(0), lastHealthCheckMs(0) {}
+    };
+
+    // Purpose: Track reliability of a specific path (source -> intermediate -> destination)
+    // Used to: Learn from failures and avoid problematic routes for future packets
+    struct PathReliability {
+        NodeNum firstHop;                 // First hop of this path
+        NodeNum destination;              // Final destination
+        uint32_t successCount;            // Packets successfully delivered via this path
+        uint32_t failureCount;            // Packets that failed via this path
+        uint32_t lastAttemptMs;           // Last time we tried this path
+        uint32_t lastSuccessMs;           // Last successful delivery
+        uint32_t lastFailureMs;           // Last failure
+        bool temporarilyBlocked;          // Is this path currently blocked?
+        uint32_t blockExpiryMs;           // When to unblock this path (0 = not blocked)
+        
+        PathReliability() : firstHop(0), destination(0), successCount(0), failureCount(0),
+                            lastAttemptMs(0), lastSuccessMs(0), lastFailureMs(0),
+                            temporarilyBlocked(false), blockExpiryMs(0) {}
+        
+        // Calculate success rate (0.0 to 1.0)
+        float getSuccessRate() const {
+            uint32_t total = successCount + failureCount;
+            return (total > 0) ? (float)successCount / total : 0.5f; // Unknown = neutral
+        }
+        
+        // Check if path should be avoided
+        bool isUnreliable() const {
+            if (temporarilyBlocked && millis() < blockExpiryMs) {
+                return true; // Blocked until expiry
+            }
+            
+            // Consider unreliable if:
+            // - More than 3 consecutive failures
+            // - Success rate below 40%
+            // - No success in last 5 minutes despite attempts
+            bool tooManyFailures = (failureCount > 3 && getSuccessRate() < 0.4f);
+            bool staleFailures = (lastFailureMs > lastSuccessMs && 
+                                  (millis() - lastSuccessMs) > 300000 &&
+                                  failureCount > 0);
+            
+            return tooManyFailures || staleFailures;
+        }
+    };
+
+    // Purpose: Track which paths were attempted for a specific packet
+    // Used to: Avoid retrying same failed path and enable learning
+    struct PacketPathHistory {
+        PacketId packetId;                    // Original packet ID
+        NodeNum destination;                  // Destination of this packet
+        std::vector<NodeNum> attemptedHops;   // First hops we tried
+        uint8_t pathSwitchCount;              // How many times we switched paths
+        uint32_t firstAttemptMs;              // When we first tried
+        uint32_t lastAttemptMs;               // Last attempt timestamp
+        
+        PacketPathHistory() : packetId(0), destination(0), pathSwitchCount(0),
+                              firstAttemptMs(0), lastAttemptMs(0) {}
+        
+        // Check if we already tried this first hop
+        bool hasAttempted(NodeNum hop) const {
+            return std::find(attemptedHops.begin(), attemptedHops.end(), hop) 
+                   != attemptedHops.end();
+        }
+        
+        // Record a new attempt
+        void recordAttempt(NodeNum hop) {
+            if (!hasAttempted(hop)) {
+                attemptedHops.push_back(hop);
+                pathSwitchCount++;
+            }
+            lastAttemptMs = millis();
+            if (firstAttemptMs == 0) firstAttemptMs = millis();
+        }
+    };
+
+    // Helper struct for path candidates
+    struct PathCandidate {
+        NodeNum nextHop;
+        uint8_t hopCount;
+        float cost;
+        float score;
+        
+        PathCandidate() : nextHop(0), hopCount(255), cost(999.0f), score(0.0f) {}
+    };
+
+    // Link health monitoring functions
+    void updateLinkHealth(NodeNum neighbor, bool success, float snr, float rssi);
+    bool isLinkHealthy(NodeNum neighbor) const;
+    float getLinkQualityScore(NodeNum neighbor) const;
+    void maintainLinkHealth();
+
+    // Path reliability learning functions
+    void recordPathAttempt(NodeNum firstHop, NodeNum destination, PacketId packetId);
+    void updatePathReliability(NodeNum firstHop, NodeNum destination, bool success);
+    bool isPathReliable(NodeNum firstHop, NodeNum destination) const;
+    std::set<NodeNum> getUnreliablePaths(NodeNum destination) const;
+    void maintainPathReliability();
+
+    // Adaptive path selection functions
+    NodeNum selectAlternativePathOnFailure(uint32_t id, Pending &p, NodeNum failedHop = 0);
+    float calculatePathScore(NodeNum firstHop, NodeNum dest, float cost, uint8_t hops) const;
+
+    // Maintenance functions
+    void runPeriodicMaintenance();
+    void logAdaptiveRoutingStatistics();
+    std::string formatHopList(const std::vector<NodeNum>& hops) const;
+
+    // Link health monitoring
+    std::map<NodeNum, LinkHealth> linkHealthMap;
+    uint32_t linkHealthUpdateIntervalMs = 30000;  // Update health every 30s
+    
+    // Path reliability learning
+    std::map<std::pair<NodeNum, NodeNum>, PathReliability> pathReliabilityMap;
+    
+    // Per-packet path tracking
+    std::map<PacketId, PacketPathHistory> packetPathHistoryMap;
+    
+    // Configuration
+    bool configEnableAdaptiveRerouting = true;
+    uint8_t configMaxPathSwitches = 2;           // Max reroute attempts per packet
+    uint8_t configLinkFailureThreshold = 3;      // Consecutive fails to mark link bad
+    uint32_t configLinkHealthWindowMs = 300000;  // 5min window for health calc
+    uint32_t configPathBlockDurationMs = 600000; // 10min path block on failure
+    float configMinLinkSnrThreshold = 3.0f;      // Minimum acceptable SNR
+    float configMinPathSuccessRate = 0.3f;       // Minimum acceptable path success rate
+    
+    // Statistics
+    uint32_t ctrAdaptiveReroutes = 0;            // Counter: adaptive path switches
+    uint32_t ctrLinkHealthChecks = 0;            // Counter: link health evaluations
+    uint32_t ctrPathLearningUpdates = 0;         // Counter: path reliability updates
+    uint32_t lastMaintenanceMs = 0;              // Last maintenance timestamp
 };
 
 extern DtnOverlayModule *dtnOverlayModule; //fw+

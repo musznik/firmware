@@ -137,6 +137,10 @@ Key Behaviors in Mixed Networks:
 #include "mqtt/MQTT.h"
 #include <pb_encode.h>
 #include <cstring>
+#include <sstream>
+#include <set>
+#include <algorithm>
+#include <cmath>
 
 DtnOverlayModule *dtnOverlayModule; 
 // Purpose: hot-reload DTN overlay settings from ModuleConfig at runtime.
@@ -221,6 +225,13 @@ void DtnOverlayModule::getStatsSnapshot(DtnStatsSnapshot &out) const
         }
     }
     out.knownNodesCount = knownCount;
+    
+    // Adaptive routing statistics
+    out.adaptiveReroutes = ctrAdaptiveReroutes;
+    out.linkHealthChecks = ctrLinkHealthChecks;
+    out.pathLearningUpdates = ctrPathLearningUpdates;
+    out.monitoredLinks = linkHealthMap.size();
+    out.monitoredPaths = pathReliabilityMap.size();
 }
 
 // Purpose: initialize DTN overlay module with conservative defaults and read ModuleConfig.
@@ -249,7 +260,7 @@ DtnOverlayModule::DtnOverlayModule()
     configFallbackTailPercent = 20; // start fallback in the last X% of TTL [%]
     configMilestonesEnabled = false; // emit sparse PROGRESSED milestones (telemetry); default OFF
     //soften: larger per-destination spacing to avoid bursts
-    configPerDestMinSpacingMs = 120000; // per-destination minimum spacing between attempts [ms]
+    configPerDestMinSpacingMs = 60000; // per-destination minimum spacing between attempts [ms] (1 min, max uint16_t=65535)
     configMaxActiveDm = 1; // global cap of active DTN attempts per scheduler pass
     configProbeFwplusNearDeadline = false; // send lightweight FW+ probe near TTL tail before fallback
     //conservative airtime heuristics
@@ -300,6 +311,12 @@ DtnOverlayModule::DtnOverlayModule()
     LOG_INFO("DTN: FW+ unresponsive fallback: %s, threshold: %u failures, timeout: %u ms",
              configFwplusUnresponsiveFallback ? "enabled" : "disabled",
              (unsigned)configFwplusFailureThreshold, (unsigned)configFwplusResponseTimeoutMs);
+    
+    // Initialize adaptive routing
+    lastMaintenanceMs = millis();
+    LOG_INFO("DTN: Adaptive rerouting: %s, max path switches: %u, link failure threshold: %u",
+             configEnableAdaptiveRerouting ? "enabled" : "disabled",
+             (unsigned)configMaxPathSwitches, (unsigned)configLinkFailureThreshold);
 
     // NOTE: Immediate neighbor probing removed - rely exclusively on passive broadcast beacons
     
@@ -405,6 +422,10 @@ int32_t DtnOverlayModule::runOnce()
         lastPruneMs = millis();
         prunePerDestCache();
     }
+    
+    // Periodic maintenance for adaptive routing (link health, path learning, etc.)
+    runPeriodicMaintenance();
+    
     //clamp next wake between 100..2000 ms to avoid tight/long sleeps
     if (nextWakeMs < 100) nextWakeMs = 100;
     if (nextWakeMs > 2000) nextWakeMs = 2000;
@@ -799,7 +820,7 @@ bool DtnOverlayModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, m
 }
 
 // Purpose: create DTN envelope from a captured DM (plaintext or ciphertext) and schedule forwarding.
-void DtnOverlayModule::enqueueFromCaptured(uint32_t origId, uint32_t origFrom, uint32_t origTo, uint8_t channel,
+bool DtnOverlayModule::enqueueFromCaptured(uint32_t origId, uint32_t origFrom, uint32_t origTo, uint8_t channel,
                                            uint64_t deadlineMs, bool isEncrypted, const uint8_t *bytes, pb_size_t size,
                                            bool allowProxyFallback)
 {
@@ -807,20 +828,20 @@ void DtnOverlayModule::enqueueFromCaptured(uint32_t origId, uint32_t origFrom, u
     auto itTs = tombstoneUntilMs.find(origId);
     if (itTs != tombstoneUntilMs.end() && millis() < itTs->second) {
         LOG_DEBUG("DTN: Skip re-capture of id=0x%x - tombstone active (prevents retrans loop)", origId);
-        return;
+        return false; // Packet skipped (tombstone active)
     }
     
     //guard: if payload won't fit into FW+ DTN container, skip overlay to avoid corrupting DM
     meshtastic_FwplusDtnData d = meshtastic_FwplusDtnData_init_zero;
     if (size > sizeof(d.payload.bytes)) {
         LOG_WARN("DTN skip too-large DM id=0x%x size=%u limit=%u", origId, (unsigned)size, (unsigned)sizeof(d.payload.bytes));
-        return;
+        return false; // Packet too large
     }
 
     //guard: cap queue to avoid memory growth/fragmentation
     if (pendingById.size() >= kMaxPendingEntries) {
         LOG_WARN("DTN queue full (%u), drop id=0x%x", (unsigned)pendingById.size(), origId);
-        return;
+        return false; // Queue full
     }
 
     d.orig_id = origId;
@@ -861,6 +882,8 @@ void DtnOverlayModule::enqueueFromCaptured(uint32_t origId, uint32_t origFrom, u
     LOG_DEBUG("DTN capture id=0x%x src=0x%x dst=0x%x enc=%d ch=%u ttlms=%u", origId, (unsigned)origFrom,
               (unsigned)origTo, (int)isEncrypted, (unsigned)channel, ttlMs);
     scheduleOrUpdate(origId, d);
+    
+    return true; // Packet was successfully enqueued
 }
 
 // Purpose: process received FWPLUS_DTN DATA; deliver locally if destined to us, else schedule and coordinate with peers.
@@ -987,6 +1010,45 @@ void DtnOverlayModule::handleReceipt(const meshtastic_MeshPacket &mp, const mesh
                 LOG_DEBUG("DTN: Clearing stock marking for responsive FW+ dest 0x%x", (unsigned)dest);
                 stockKnownMs.erase(itStock);
             }
+        }
+    }
+    
+    //==============================================================================
+    // ADAPTIVE PATH LEARNING: Update path reliability from RECEIPT
+    //==============================================================================
+    
+    if (itPending != pendingById.end()) {
+        auto& history = packetPathHistoryMap[r.orig_id];
+        
+        if (!history.attemptedHops.empty()) {
+            // We know which path(s) we tried
+            bool success = (r.status == meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_DELIVERED);
+            
+            // Update path reliability for all attempted hops
+            for (NodeNum hop : history.attemptedHops) {
+                updatePathReliability(hop, history.destination, success);
+                
+                // Update link health for the first hop we tried (most recent)
+                if (hop == history.attemptedHops.back()) {
+                    // Estimate signal quality (use last known if available)
+                    auto healthIt = linkHealthMap.find(hop);
+                    float snr = (healthIt != linkHealthMap.end()) ? healthIt->second.avgSnr : 5.0f;
+                    float rssi = (healthIt != linkHealthMap.end()) ? healthIt->second.avgRssi : -80.0f;
+                    
+                    updateLinkHealth(hop, success, snr, rssi);
+                }
+            }
+            
+            if (success) {
+                LOG_INFO("DTN PathLearn: Packet id=0x%x SUCCESS via path(s): %s",
+                         r.orig_id, formatHopList(history.attemptedHops).c_str());
+            } else {
+                LOG_WARN("DTN PathLearn: Packet id=0x%x FAILED via path(s): %s (status=%u)",
+                         r.orig_id, formatHopList(history.attemptedHops).c_str(), r.status);
+            }
+            
+            // Clean up history for completed packet
+            packetPathHistoryMap.erase(r.orig_id);
         }
     }
     
@@ -1277,19 +1339,76 @@ void DtnOverlayModule::tryForward(uint32_t id, Pending &p)
         if (tryFwplusUnresponsiveFallback(id, p)) return;
     }
 
-    // Select forward target and handle traceroute
-    NodeNum target = selectForwardTarget(p);
+    //==============================================================================
+    // ADAPTIVE PATH SELECTION: Check if we should reroute due to path failure
+    //==============================================================================
     
-    //Log handoff decision for debugging
-    if (target != p.data.orig_to) {
-        LOG_INFO("DTN: Handoff custody id=0x%x from dest=0x%x to intermediate=0x%x", 
-                 id, (unsigned)p.data.orig_to, (unsigned)target);
-    } else {
-        uint8_t hopsToDest = getHopsAway(p.data.orig_to);
-        if (hopsToDest == 255) {
-            LOG_INFO("DTN: Unknown route to dest=0x%x - attempting optimistic send/broadcast", 
-                     (unsigned)p.data.orig_to);
+    NodeNum target = 0;
+    bool useAdaptiveReroute = configEnableAdaptiveRerouting;
+    
+    if (useAdaptiveReroute) {
+        // Get default target first
+        NodeNum currentTarget = selectForwardTarget(p);
+        bool shouldReroute = false;
+        
+        // Reroute Trigger 1: Current target link is unhealthy (proactive avoidance)
+        if (currentTarget != 0 && currentTarget != p.data.orig_to && !isLinkHealthy(currentTarget)) {
+            LOG_WARN("DTN: Next hop 0x%x is unhealthy - attempting adaptive reroute", 
+                     currentTarget);
+            shouldReroute = true;
         }
+        
+        // Reroute Trigger 2: Path to destination is known to be unreliable (learned from history)
+        if (currentTarget != 0 && currentTarget != p.data.orig_to && 
+            !isPathReliable(currentTarget, p.data.orig_to)) {
+            LOG_WARN("DTN: Path via 0x%x to 0x%x is unreliable - attempting adaptive reroute",
+                     currentTarget, p.data.orig_to);
+            shouldReroute = true;
+        }
+        
+        // Reroute Trigger 3: Multiple failures on current approach (reactive rerouting)
+        if (p.tries >= 2) {
+            auto& history = packetPathHistoryMap[id];
+            if (history.pathSwitchCount == 0) { // Haven't switched yet
+                LOG_WARN("DTN: Packet id=0x%x failed %u times - attempting adaptive reroute",
+                         id, p.tries);
+                shouldReroute = true;
+            } else if (p.tries >= (history.pathSwitchCount + 1) * 2) {
+                // After switching, still failing - try another path
+                LOG_WARN("DTN: Alternative path also failing (tries=%u switches=%u) - trying another route",
+                         p.tries, history.pathSwitchCount);
+                shouldReroute = true;
+            }
+        }
+        
+        if (shouldReroute) {
+            // Attempt to find alternative path
+            NodeNum altTarget = selectAlternativePathOnFailure(id, p, currentTarget);
+            
+            if (altTarget != 0) {
+                // SUCCESS: Use alternative path
+                target = altTarget;
+                LOG_INFO("DTN: Using adaptive alternative 0x%x (original was 0x%x)",
+                         target, currentTarget);
+            } else {
+                // FAILURE: No alternative found, use original
+                target = currentTarget;
+                LOG_WARN("DTN: No viable alternative for id=0x%x, using original 0x%x",
+                         id, currentTarget);
+            }
+        } else {
+            // No rerouting needed, use default target
+            target = currentTarget;
+        }
+        
+        // Record this path attempt for learning (if not direct delivery)
+        if (target != 0 && target != p.data.orig_to) {
+            recordPathAttempt(target, p.data.orig_to, id);
+        }
+        
+    } else {
+        // Adaptive rerouting disabled, use default selection
+        target = selectForwardTarget(p);
     }
     
     // Only trigger traceroute for intermediate nodes, not source (source already triggered above)
@@ -1375,10 +1494,19 @@ bool DtnOverlayModule::sendProxyFallback(uint32_t id, Pending &p)
     meshtastic_MeshPacket *dm = allocDataPacket();
     if (!dm) { p.nextAttemptMs = millis() + 3000; return true; }
     dm->to = p.data.orig_to;
-    //spoof original sender for proper decryption by stock receiver
-    // Stock nodes need the original sender's key to decrypt the payload
-    dm->from = p.data.orig_from;
     dm->channel = p.data.channel;
+    
+    // CRITICAL: Sender spoofing logic
+    // For INTERMEDIATE node fallback: spoof sender (from=orig_from) for stock node decryption
+    // For SOURCE node fallback: DON'T spoof (from will be set by Router to ourNodeNum)
+    //   - Source doesn't need spoofing (we ARE the original sender)
+    //   - Spoofing causes re-intercept loop (isDtnFallback check fails)
+    bool isSourceFallback = (p.data.orig_from == nodeDB->getNodeNum());
+    if (!isSourceFallback) {
+        // Intermediate node: spoof sender for proper decryption
+        dm->from = p.data.orig_from;
+    }
+    // else: Source node, leave from=0, Router will set it to ourNodeNum
     if (p.data.is_encrypted) {
         dm->which_payload_variant = meshtastic_MeshPacket_encrypted_tag;
         memcpy(dm->encrypted.bytes, p.data.payload.bytes, p.data.payload.size);
@@ -1392,8 +1520,18 @@ bool DtnOverlayModule::sendProxyFallback(uint32_t id, Pending &p)
         memcpy(dm->decoded.payload.bytes, p.data.payload.bytes, dm->decoded.payload.size);
         dm->decoded.want_response = false;
     }
-    //preserve original DM id so that ROUTING_APP ACK maps to sender's pending entry
-    dm->id = p.data.orig_id;
+    
+    // CRITICAL: ID handling for re-intercept prevention
+    // For SOURCE node fallback: use DIFFERENT ID to trigger tombstone check in Router intercept
+    //   - Tombstone exists for orig_id (from initial capture)
+    //   - Router::send() will call enqueueFromCaptured() which checks tombstone
+    //   - Fallback packet will be skipped (tombstone active) → no re-intercept loop!
+    // For INTERMEDIATE node: preserve original ID (ACK mapping + spoofed sender detection)
+    if (isSourceFallback) {
+        dm->id = p.data.orig_id; // Use original ID, tombstone will prevent re-capture
+    } else {
+        dm->id = p.data.orig_id; // Preserve original ID for ACK mapping
+    }
     // CRITICAL: want_ack=false to avoid ReliableRouter tracking conflict with spoofed sender
     // Spoofed sender (from=orig_from) is needed for stock node decryption, but ReliableRouter
     // uses (from, id) as key in pending map, which would conflict with our node's packets.
@@ -1401,15 +1539,18 @@ bool DtnOverlayModule::sendProxyFallback(uint32_t id, Pending &p)
     dm->want_ack = false;
     dm->priority = meshtastic_MeshPacket_Priority_DEFAULT;
     
-    // CRITICAL: Spoofed sender (from != nodeDB->getNodeNum()) signals to Router::send()
-    // that this is DTN fallback and should NOT be re-intercepted by DTN
-    // Router.cpp checks isDtnFallback = (p->from != 0 && p->from != getNodeNum())
     service->sendToMesh(dm, RX_SRC_LOCAL, false);
     
     p.tries++;
     p.nextAttemptMs = millis() + configRetryBackoffMs;
-    LOG_INFO("DTN fallback DM id=0x%x dst=0x%x try=%u (spoofed from=0x%x, want_ack=false to avoid tracking conflict)", 
-             id, (unsigned)p.data.orig_to, (unsigned)p.tries, (unsigned)p.data.orig_from);
+    
+    if (isSourceFallback) {
+        LOG_INFO("DTN fallback DM id=0x%x dst=0x%x try=%u (source fallback, no sender spoofing, want_ack=false)", 
+                 id, (unsigned)p.data.orig_to, (unsigned)p.tries);
+    } else {
+        LOG_INFO("DTN fallback DM id=0x%x dst=0x%x try=%u (intermediate fallback, spoofed from=0x%x, want_ack=false)", 
+                 id, (unsigned)p.data.orig_to, (unsigned)p.tries, (unsigned)p.data.orig_from);
+    }
     ctrFallbacksAttempted++; 
     return true;
 }
@@ -1468,11 +1609,12 @@ void DtnOverlayModule::maybeTriggerTraceroute(NodeNum dest)
                                                   &meshtastic_RouteDiscovery_msg, &req);
     
     // Set hop_limit based on known distance (expanding ring)
+    // CRITICAL: Response needs same hop_limit to return, so double the distance + margin
     meshtastic_NodeInfoLite *ninfo = nodeDB->getMeshNode(dest);
     if (ninfo && ninfo->hops_away > 0) {
-        p->hop_limit = ninfo->hops_away + 1; // Known distance + 1
+        p->hop_limit = (ninfo->hops_away * 2) + 1; // Distance * 2 (out+back) + 1 margin
     } else {
-        p->hop_limit = 3; // Default: try 3 hops for unknown destinations
+        p->hop_limit = 7; // Default: allow 3-hop paths + response (3*2+1=7)
     }
     
     p->priority = meshtastic_MeshPacket_Priority_BACKGROUND; // Background priority to avoid congestion
@@ -2717,4 +2859,621 @@ void DtnOverlayModule::checkPendingMessagesForHandoff(NodeNum newDtnNode)
             }
         }
     }
+}
+
+//==============================================================================
+// ADAPTIVE PATH SELECTION & FAULT TOLERANCE - LINK HEALTH MONITORING
+//==============================================================================
+
+// Purpose: Update link health metrics after a transmission attempt
+// Inputs: neighbor - next hop node, success - transmission result, 
+//         snr/rssi - signal quality metrics
+// Effect: Updates linkHealthMap with EWMA of metrics, tracks failure streaks
+// Called: After each transmission attempt (from Router callback or periodic check)
+void DtnOverlayModule::updateLinkHealth(NodeNum neighbor, bool success, float snr, float rssi)
+{
+    if (neighbor == 0 || neighbor == NODENUM_BROADCAST) {
+        return; // Skip broadcast/invalid
+    }
+    
+    auto& health = linkHealthMap[neighbor];
+    
+    // Initialize if first time
+    if (health.neighbor == 0) {
+        health.neighbor = neighbor;
+        health.avgSnr = snr;
+        health.avgRssi = rssi;
+    }
+    
+    if (success) {
+        health.successCount++;
+        health.consecutiveFailures = 0;  // Reset streak
+        health.lastSuccessMs = millis();
+        
+        // Update signal quality using EWMA (alpha=0.3 for new samples)
+        health.avgSnr = (health.avgSnr * 0.7f) + (snr * 0.3f);
+        health.avgRssi = (health.avgRssi * 0.7f) + (rssi * 0.3f);
+        
+        LOG_DEBUG("DTN LinkHealth: 0x%x SUCCESS (streak reset, snr=%.1f, total=%u)",
+                  neighbor, health.avgSnr, health.successCount);
+    } else {
+        health.failureCount++;
+        health.consecutiveFailures++;
+        health.lastFailureMs = millis();
+        
+        LOG_DEBUG("DTN LinkHealth: 0x%x FAILURE (streak=%u, total=%u)",
+                  neighbor, health.consecutiveFailures, health.failureCount);
+    }
+    
+    health.lastHealthCheckMs = millis();
+    ctrLinkHealthChecks++;
+}
+
+// Purpose: Check if a link to neighbor is healthy enough for routing
+// Inputs: neighbor - node to check
+// Returns: true if link is healthy, false if should be avoided
+// Logic: Evaluates multiple criteria: failure streak, success rate, signal quality, staleness
+bool DtnOverlayModule::isLinkHealthy(NodeNum neighbor) const
+{
+    if (neighbor == 0 || neighbor == NODENUM_BROADCAST) {
+        return true; // Don't filter broadcast/invalid
+    }
+    
+    auto it = linkHealthMap.find(neighbor);
+    if (it == linkHealthMap.end()) {
+        return true; // Unknown = assume healthy (innocent until proven guilty)
+    }
+    
+    const auto& health = it->second;
+    uint32_t now = millis();
+    
+    // Criterion 1: Consecutive failures (most critical)
+    if (health.consecutiveFailures >= configLinkFailureThreshold) {
+        LOG_DEBUG("DTN LinkHealth: 0x%x UNHEALTHY (consecutive failures=%u >= %u)",
+                  neighbor, health.consecutiveFailures, configLinkFailureThreshold);
+        return false;
+    }
+    
+    // Criterion 2: Success rate (only if we have enough samples)
+    uint32_t totalAttempts = health.successCount + health.failureCount;
+    if (totalAttempts >= 5) {
+        float successRate = (float)health.successCount / totalAttempts;
+        if (successRate < configMinPathSuccessRate) {
+            LOG_DEBUG("DTN LinkHealth: 0x%x UNHEALTHY (success rate=%.2f < %.2f)",
+                      neighbor, successRate, configMinPathSuccessRate);
+            return false;
+        }
+    }
+    
+    // Criterion 3: Signal quality (if we have measurements)
+    if (health.avgSnr > 0.0f && health.avgSnr < configMinLinkSnrThreshold) {
+        LOG_DEBUG("DTN LinkHealth: 0x%x UNHEALTHY (SNR=%.1f < %.1f)",
+                  neighbor, health.avgSnr, configMinLinkSnrThreshold);
+        return false;
+    }
+    
+    // Criterion 4: Staleness (no success in last 5 minutes despite failures)
+    bool hasRecentFailures = (now - health.lastFailureMs) < configLinkHealthWindowMs;
+    bool noRecentSuccess = (now - health.lastSuccessMs) > configLinkHealthWindowMs;
+    if (hasRecentFailures && noRecentSuccess && health.failureCount > 0) {
+        LOG_DEBUG("DTN LinkHealth: 0x%x UNHEALTHY (stale: %u sec since last success)",
+                  neighbor, (now - health.lastSuccessMs) / 1000);
+        return false;
+    }
+    
+    // All checks passed
+    return true;
+}
+
+// Purpose: Get link quality score (0.0=worst, 1.0=best)
+// Inputs: neighbor - node to evaluate
+// Returns: Composite score based on success rate and signal quality
+// Used by: Path selection to rank multiple alternatives
+float DtnOverlayModule::getLinkQualityScore(NodeNum neighbor) const
+{
+    auto it = linkHealthMap.find(neighbor);
+    if (it == linkHealthMap.end()) {
+        return 0.5f; // Unknown = neutral score
+    }
+    
+    const auto& health = it->second;
+    
+    // Calculate success rate component (0.0-1.0)
+    float successRate = 0.5f; // Default neutral
+    uint32_t totalAttempts = health.successCount + health.failureCount;
+    if (totalAttempts > 0) {
+        successRate = (float)health.successCount / totalAttempts;
+    }
+    
+    // Calculate signal quality component (0.0-1.0)
+    // SNR: 0dB=bad, 10dB+=excellent, normalize to 0-1
+    float snrScore = 0.5f; // Default neutral
+    if (health.avgSnr > 0.0f) {
+        snrScore = std::min(health.avgSnr / 10.0f, 1.0f);
+    }
+    
+    // Penalty for consecutive failures (reduces score exponentially)
+    float failuresPenalty = 1.0f;
+    if (health.consecutiveFailures > 0) {
+        failuresPenalty = std::pow(0.5f, (float)health.consecutiveFailures); // 0.5^n
+    }
+    
+    // Composite score: 60% success rate, 30% signal, 10% failure penalty
+    float score = (successRate * 0.6f) + (snrScore * 0.3f) + (failuresPenalty * 0.1f);
+    
+    return std::max(0.0f, std::min(1.0f, score)); // Clamp to [0,1]
+}
+
+// Purpose: Periodic maintenance of link health data
+// Effect: Removes stale entries, resets old failure streaks, logs statistics
+// Called: From runPeriodicMaintenance() every 5 minutes
+void DtnOverlayModule::maintainLinkHealth()
+{
+    uint32_t now = millis();
+    uint32_t staleThreshold = 600000; // 10 minutes
+    
+    // Clean up stale entries and log statistics
+    auto it = linkHealthMap.begin();
+    while (it != linkHealthMap.end()) {
+        auto& health = it->second;
+        
+        // Remove very old entries (no activity in 10 minutes)
+        if ((now - health.lastHealthCheckMs) > staleThreshold) {
+            LOG_DEBUG("DTN LinkHealth: Removing stale entry for 0x%x", health.neighbor);
+            it = linkHealthMap.erase(it);
+            continue;
+        }
+        
+        // Reset consecutive failures if we've had success recently
+        if (health.consecutiveFailures > 0 && 
+            health.lastSuccessMs > health.lastFailureMs &&
+            (now - health.lastSuccessMs) < 60000) {
+            health.consecutiveFailures = 0;
+            LOG_DEBUG("DTN LinkHealth: Reset failure streak for 0x%x (recent success)", 
+                      health.neighbor);
+        }
+        
+        ++it;
+    }
+    
+    // Log summary statistics
+    if (!linkHealthMap.empty()) {
+        LOG_INFO("DTN LinkHealth: Monitoring %u links (checks=%u, reroutes=%u)",
+                 (unsigned)linkHealthMap.size(), ctrLinkHealthChecks, ctrAdaptiveReroutes);
+    }
+}
+
+//==============================================================================
+// ADAPTIVE PATH SELECTION & FAULT TOLERANCE - PATH RELIABILITY LEARNING
+//==============================================================================
+
+// Purpose: Record path attempt for learning
+// Inputs: firstHop - first node in path, destination - final dest, packetId - packet ID
+// Effect: Creates/updates path history tracking
+// Called: When forwarding packet via a specific path
+void DtnOverlayModule::recordPathAttempt(NodeNum firstHop, NodeNum destination, PacketId packetId)
+{
+    if (firstHop == 0 || destination == 0) return;
+    
+    // Update packet path history
+    auto& history = packetPathHistoryMap[packetId];
+    history.packetId = packetId;
+    history.destination = destination;
+    history.recordAttempt(firstHop);
+    
+    // Update path reliability attempt timestamp
+    auto key = std::make_pair(firstHop, destination);
+    auto& reliability = pathReliabilityMap[key];
+    reliability.firstHop = firstHop;
+    reliability.destination = destination;
+    reliability.lastAttemptMs = millis();
+    
+    LOG_DEBUG("DTN PathLearn: Recorded attempt id=0x%x via 0x%x->0x%x (switch=%u)",
+              packetId, firstHop, destination, history.pathSwitchCount);
+}
+
+// Purpose: Update path reliability after delivery success/failure
+// Inputs: firstHop - first node in path, destination - final dest, success - result
+// Effect: Updates pathReliabilityMap, may block unreliable paths temporarily
+// Called: When receiving RECEIPT (success) or timeout (failure)
+void DtnOverlayModule::updatePathReliability(NodeNum firstHop, NodeNum destination, bool success)
+{
+    if (firstHop == 0 || destination == 0) return;
+    
+    auto key = std::make_pair(firstHop, destination);
+    auto& reliability = pathReliabilityMap[key];
+    
+    // Initialize if first time
+    if (reliability.firstHop == 0) {
+        reliability.firstHop = firstHop;
+        reliability.destination = destination;
+    }
+    
+    if (success) {
+        reliability.successCount++;
+        reliability.lastSuccessMs = millis();
+        
+        // Unblock if was temporarily blocked
+        if (reliability.temporarilyBlocked && millis() >= reliability.blockExpiryMs) {
+            reliability.temporarilyBlocked = false;
+            LOG_INFO("DTN PathLearn: Path 0x%x->0x%x UNBLOCKED (success after %.1fs)",
+                     firstHop, destination, 
+                     (millis() - reliability.lastFailureMs) / 1000.0f);
+        }
+        
+        LOG_DEBUG("DTN PathLearn: Path 0x%x->0x%x SUCCESS (rate=%.2f, total=%u)",
+                  firstHop, destination, reliability.getSuccessRate(), 
+                  reliability.successCount);
+    } else {
+        reliability.failureCount++;
+        reliability.lastFailureMs = millis();
+        
+        // Temporarily block path if too many failures
+        if (reliability.failureCount >= 3 && reliability.getSuccessRate() < 0.4f) {
+            reliability.temporarilyBlocked = true;
+            reliability.blockExpiryMs = millis() + configPathBlockDurationMs;
+            
+            LOG_WARN("DTN PathLearn: Path 0x%x->0x%x BLOCKED for %u sec (failures=%u, rate=%.2f)",
+                     firstHop, destination, configPathBlockDurationMs / 1000,
+                     reliability.failureCount, reliability.getSuccessRate());
+        } else {
+            LOG_DEBUG("DTN PathLearn: Path 0x%x->0x%x FAILURE (rate=%.2f, failures=%u)",
+                      firstHop, destination, reliability.getSuccessRate(), 
+                      reliability.failureCount);
+        }
+    }
+    
+    ctrPathLearningUpdates++;
+}
+
+// Purpose: Check if a path is reliable based on historical data
+// Inputs: firstHop - first node in path, destination - final dest
+// Returns: true if path is reliable, false if should be avoided
+// Used by: Path selection to filter out known-bad paths
+bool DtnOverlayModule::isPathReliable(NodeNum firstHop, NodeNum destination) const
+{
+    auto key = std::make_pair(firstHop, destination);
+    auto it = pathReliabilityMap.find(key);
+    
+    if (it == pathReliabilityMap.end()) {
+        return true; // Unknown path = assume reliable
+    }
+    
+    const auto& reliability = it->second;
+    
+    // Check if unreliable based on PathReliability::isUnreliable()
+    return !reliability.isUnreliable();
+}
+
+// Purpose: Get all paths that have failed and should be avoided
+// Inputs: destination - target node
+// Returns: Set of first-hop nodes that lead to unreliable paths
+// Used by: selectAlternativePathOnFailure() to exclude bad options
+std::set<NodeNum> DtnOverlayModule::getUnreliablePaths(NodeNum destination) const
+{
+    std::set<NodeNum> unreliableHops;
+    
+    for (const auto& entry : pathReliabilityMap) {
+        const auto& key = entry.first;
+        const auto& reliability = entry.second;
+        
+        // Check if this path's destination matches
+        if (key.second == destination && reliability.isUnreliable()) {
+            unreliableHops.insert(key.first); // Add first hop to blacklist
+        }
+    }
+    
+    return unreliableHops;
+}
+
+// Purpose: Clean up old path learning data
+// Effect: Removes stale entries, unblocks expired blocks
+// Called: Periodically from runPeriodicMaintenance()
+void DtnOverlayModule::maintainPathReliability()
+{
+    uint32_t now = millis();
+    uint32_t staleThreshold = 1800000; // 30 minutes
+    
+    auto it = pathReliabilityMap.begin();
+    while (it != pathReliabilityMap.end()) {
+        auto& reliability = it->second;
+        
+        // Remove very old entries (no activity in 30 minutes)
+        if ((now - reliability.lastAttemptMs) > staleThreshold) {
+            LOG_DEBUG("DTN PathLearn: Removing stale entry 0x%x->0x%x",
+                      reliability.firstHop, reliability.destination);
+            it = pathReliabilityMap.erase(it);
+            continue;
+        }
+        
+        // Unblock expired temporary blocks
+        if (reliability.temporarilyBlocked && now >= reliability.blockExpiryMs) {
+            reliability.temporarilyBlocked = false;
+            LOG_INFO("DTN PathLearn: Path 0x%x->0x%x auto-unblocked (expiry)",
+                     reliability.firstHop, reliability.destination);
+        }
+        
+        ++it;
+    }
+    
+    // Clean up packet path history (keep only recent)
+    auto histIt = packetPathHistoryMap.begin();
+    while (histIt != packetPathHistoryMap.end()) {
+        const auto& history = histIt->second;
+        if ((now - history.lastAttemptMs) > 600000) { // 10 minutes
+            histIt = packetPathHistoryMap.erase(histIt);
+        } else {
+            ++histIt;
+        }
+    }
+}
+
+//==============================================================================
+// ADAPTIVE PATH SELECTION & FAULT TOLERANCE - PATH SELECTION
+//==============================================================================
+
+// Purpose: Calculate composite score for path quality
+// Inputs: firstHop - first node, dest - destination, cost - DV-ETX cost, hops - hop count
+// Returns: Score (0.0=worst, 1.0=best) combining multiple factors
+// Used by: selectAlternativePathOnFailure() to rank paths
+float DtnOverlayModule::calculatePathScore(NodeNum firstHop, NodeNum dest, float cost, uint8_t hops) const
+{
+    // Component 1: Link quality (40%)
+    float linkScore = getLinkQualityScore(firstHop);
+    
+    // Component 2: Path reliability (30%)
+    float pathScore = 0.5f; // Default neutral
+    auto key = std::make_pair(firstHop, dest);
+    auto it = pathReliabilityMap.find(key);
+    if (it != pathReliabilityMap.end()) {
+        pathScore = it->second.getSuccessRate();
+    }
+    
+    // Component 3: DV-ETX cost (20%)
+    // Lower cost = better, normalize to 0-1 (assume max cost ~ 10)
+    float costScore = std::max(0.0f, 1.0f - (cost / 10.0f));
+    
+    // Component 4: Hop count (10%)
+    // Fewer hops = better, normalize (assume max hops ~ 7)
+    float hopScore = std::max(0.0f, 1.0f - ((float)hops / 7.0f));
+    
+    // Weighted composite
+    float composite = (linkScore * 0.4f) + (pathScore * 0.3f) + 
+                      (costScore * 0.2f) + (hopScore * 0.1f);
+    
+    return std::max(0.0f, std::min(1.0f, composite));
+}
+
+// Purpose: Select alternative path when current path fails
+// Inputs: id - packet ID, p - pending packet, failedHop - failed hop (0=unknown)
+// Returns: Alternative first hop node, or 0 if no alternative available
+// Logic: Filters unhealthy links, unreliable paths, already-attempted hops
+// Called by: tryForward() when detecting path failure
+NodeNum DtnOverlayModule::selectAlternativePathOnFailure(uint32_t id, Pending &p, NodeNum failedHop)
+{
+    NodeNum dest = p.data.orig_to;
+    
+    // Get packet history to avoid retrying same paths
+    auto& history = packetPathHistoryMap[id];
+    history.packetId = id;
+    history.destination = dest;
+    
+    // Mark failed hop
+    if (failedHop != 0 && !history.hasAttempted(failedHop)) {
+        history.recordAttempt(failedHop);
+    }
+    
+    // Check if we've exhausted maximum path switches
+    if (history.pathSwitchCount >= configMaxPathSwitches) {
+        LOG_WARN("DTN AdaptiveReroute: Max path switches reached (%u) for id=0x%x",
+                 configMaxPathSwitches, id);
+        return 0;
+    }
+    
+    // Discover all possible paths to destination
+    std::vector<PathCandidate> candidates;
+    
+    // Candidate 1: Direct neighbor (if dest is neighbor)
+    if (isDirectNeighbor(dest)) {
+        PathCandidate direct;
+        direct.nextHop = dest;
+        direct.hopCount = 1;
+        direct.cost = 1.0f;
+        direct.score = 1.0f; // Best possible
+        candidates.push_back(direct);
+    }
+    
+    // Candidate 2: NextHopRouter paths (DV-ETX routing)
+    if (router) {
+        auto nh = static_cast<NextHopRouter *>(router);
+        auto snap = nh->getRouteSnapshot(false);
+        
+        for (const auto &e : snap) {
+            if (e.dest == dest) {
+                // Map next_hop (0-based index) to NodeNum
+                meshtastic_NodeInfoLite *node = nodeDB->getMeshNodeByIndex(e.next_hop);
+                if (!node || node->num == 0 || node->num == failedHop) continue;
+                
+                NodeNum mapped = node->num;
+                
+                PathCandidate dvEtx;
+                dvEtx.nextHop = mapped;
+                dvEtx.hopCount = getHopsAway(dest);
+                dvEtx.cost = e.aggregated_cost;
+                dvEtx.score = calculatePathScore(mapped, dest, dvEtx.cost, dvEtx.hopCount);
+                candidates.push_back(dvEtx);
+                break; // Found route for this destination
+            }
+        }
+    }
+    
+    // Candidate 3: Alternative paths via FW+ neighbors
+    for (const auto& entry : fwplusVersionByNode) {
+        NodeNum neighbor = entry.first;
+        
+        // Skip if not a direct neighbor
+        if (!isDirectNeighbor(neighbor)) continue;
+        
+        // Skip if same as failed hop or already attempted
+        if (neighbor == failedHop || history.hasAttempted(neighbor)) {
+            continue;
+        }
+        
+        // Check if this neighbor might know route to destination
+        // (We can't directly query their routing table, so use heuristics)
+        uint8_t hopsToNbr = 1; // Direct neighbor
+        uint8_t hopsFromNbrToDest = getHopsAway(dest); // Our estimate
+        
+        if (hopsFromNbrToDest != 255) { // We know path from here
+            PathCandidate alt;
+            alt.nextHop = neighbor;
+            alt.hopCount = hopsToNbr + hopsFromNbrToDest;
+            alt.cost = 1.0f + hopsFromNbrToDest; // Simple estimate
+            alt.score = calculatePathScore(neighbor, dest, alt.cost, alt.hopCount);
+            candidates.push_back(alt);
+        }
+    }
+    
+    if (candidates.empty()) {
+        LOG_WARN("DTN AdaptiveReroute: No alternative paths found for dest 0x%x", dest);
+        return 0;
+    }
+    
+    // Filter candidates based on health and reliability
+    std::vector<PathCandidate> viableCandidates;
+    for (const auto& candidate : candidates) {
+        NodeNum hop = candidate.nextHop;
+        
+        // Filter 1: Skip already-attempted hops
+        if (history.hasAttempted(hop)) {
+            LOG_DEBUG("DTN AdaptiveReroute: Skip already-attempted 0x%x", hop);
+            continue;
+        }
+        
+        // Filter 2: Skip unhealthy links
+        if (!isLinkHealthy(hop)) {
+            LOG_DEBUG("DTN AdaptiveReroute: Skip unhealthy link 0x%x", hop);
+            continue;
+        }
+        
+        // Filter 3: Skip unreliable paths (from historical data)
+        if (!isPathReliable(hop, dest)) {
+            LOG_DEBUG("DTN AdaptiveReroute: Skip unreliable path via 0x%x", hop);
+            continue;
+        }
+        
+        viableCandidates.push_back(candidate);
+    }
+    
+    if (viableCandidates.empty()) {
+        LOG_WARN("DTN AdaptiveReroute: All candidate paths filtered out for dest 0x%x", dest);
+        return 0; // No viable alternative
+    }
+    
+    // Sort by score (best first)
+    std::sort(viableCandidates.begin(), viableCandidates.end(),
+              [](const PathCandidate& a, const PathCandidate& b) {
+                  return a.score > b.score; // Higher score = better
+              });
+    
+    // Select best viable candidate
+    NodeNum altHop = viableCandidates[0].nextHop;
+    history.recordAttempt(altHop);
+    
+    LOG_INFO("DTN AdaptiveReroute: Selected alternative 0x%x for dest 0x%x (score=%.2f hops=%u cost=%.2f)",
+             altHop, dest, viableCandidates[0].score, 
+             viableCandidates[0].hopCount, viableCandidates[0].cost);
+    
+    ctrAdaptiveReroutes++;
+    return altHop;
+}
+
+//==============================================================================
+// ADAPTIVE PATH SELECTION & FAULT TOLERANCE - MAINTENANCE
+//==============================================================================
+
+// Purpose: Periodic maintenance in runOnce() main loop
+// Effect: Cleans up stale data, logs statistics, updates health metrics
+// Called: Every 5 minutes from runOnce()
+void DtnOverlayModule::runPeriodicMaintenance()
+{
+    uint32_t now = millis();
+    uint32_t maintenanceIntervalMs = 300000; // 5 minutes
+    
+    if ((now - lastMaintenanceMs) < maintenanceIntervalMs) {
+        return; // Not time yet
+    }
+    
+    lastMaintenanceMs = now;
+    
+    LOG_INFO("DTN: Running periodic maintenance...");
+    
+    // Maintain link health data
+    maintainLinkHealth();
+    
+    // Maintain path reliability data
+    maintainPathReliability();
+    
+    // Log comprehensive statistics
+    logAdaptiveRoutingStatistics();
+}
+
+// Purpose: Log detailed statistics about adaptive routing
+// Effect: Outputs comprehensive stats to help debug and monitor system
+void DtnOverlayModule::logAdaptiveRoutingStatistics()
+{
+    LOG_INFO("=== DTN ADAPTIVE ROUTING STATISTICS ===");
+    
+    // Link health summary
+    uint32_t healthyLinks = 0;
+    uint32_t unhealthyLinks = 0;
+    for (const auto& entry : linkHealthMap) {
+        if (isLinkHealthy(entry.first)) {
+            healthyLinks++;
+        } else {
+            unhealthyLinks++;
+        }
+    }
+    LOG_INFO("Links: %u total (%u healthy, %u unhealthy)",
+             (unsigned)linkHealthMap.size(), healthyLinks, unhealthyLinks);
+    
+    // Path reliability summary
+    uint32_t reliablePaths = 0;
+    uint32_t unreliablePaths = 0;
+    uint32_t blockedPaths = 0;
+    for (const auto& entry : pathReliabilityMap) {
+        const auto& rel = entry.second;
+        if (rel.temporarilyBlocked) {
+            blockedPaths++;
+        } else if (rel.isUnreliable()) {
+            unreliablePaths++;
+        } else {
+            reliablePaths++;
+        }
+    }
+    LOG_INFO("Paths: %u total (%u reliable, %u unreliable, %u blocked)",
+             (unsigned)pathReliabilityMap.size(), reliablePaths, 
+             unreliablePaths, blockedPaths);
+    
+    // Adaptive rerouting counters
+    LOG_INFO("Adaptive reroutes: %u total, Link checks: %u, Path updates: %u",
+             ctrAdaptiveReroutes, ctrLinkHealthChecks, ctrPathLearningUpdates);
+    
+    LOG_INFO("=======================================");
+}
+
+// Purpose: Format hop list for logging
+// Inputs: hops - vector of node numbers
+// Returns: Formatted string like "0x11, 0x12, 0x13"
+// Used by: Logging functions to display path history
+std::string DtnOverlayModule::formatHopList(const std::vector<NodeNum>& hops) const
+{
+    if (hops.empty()) return "none";
+    
+    std::ostringstream oss;
+    for (size_t i = 0; i < hops.size(); ++i) {
+        oss << "0x" << std::hex << hops[i];
+        if (i < hops.size() - 1) oss << ", ";
+    }
+    return oss.str();
 }
