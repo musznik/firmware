@@ -207,7 +207,7 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     // Post-warmup: if still no FW+ nodes known, continue searching
     uint32_t configAdvertiseIntervalUnknownMs = 120UL * 60UL * 1000UL; // 2h (post-warmup cold-start)
     // One-shot early advertise after enable/start
-    uint32_t configFirstAdvertiseDelayMs = 2UL * 60UL * 1000UL;        // 2min (wait for MQTT proxy connection) - TEST: przyspieszony dla testów
+    uint32_t configFirstAdvertiseDelayMs = 2UL * 60UL * 1000UL;        // 2min base + 0-60s random jitter (prevents sync burst after power outage)
     uint32_t configFirstAdvertiseRetryMs = 10UL * 1000UL;              // 10s retry interval if first beacon fails
     uint32_t configFarMinTtlFracPercent = 20;      //fw+ reduced wait time for far nodes
     uint32_t configOriginProgressMinIntervalMs = 15000; // per-source min interval for milestone
@@ -259,7 +259,7 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     uint32_t firstAdvertiseRetryMs = 0; //fw+ track retry attempts for first beacon
     uint8_t warmupBeaconsSent = 0; //fw+ track warmup beacons sent (staged discovery)
     uint32_t lastDetailedLogMs = 0;
-    bool immediateNeighborProbingDone = false; //fw+ flag to trigger probing AFTER constructor (prevents ESP32 LoadProhibited panic)
+    // NOTE: immediateNeighborProbingDone removed - no longer using immediate probing
     // Hello-back unicast reply throttling
     bool configHelloBackEnabled = true;
     uint32_t configHelloBackMinIntervalMs = 60UL * 60UL * 1000UL; // per-origin min interval 1h (balanced for network efficiency)
@@ -366,13 +366,39 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     uint32_t configTelemetryProbeCooldownMs = 2UL * 60UL * 60UL * 1000UL; // per-origin cooldown 2h
     std::unordered_map<NodeNum, uint32_t> lastTelemetryProbeToNodeMs;
     
-    // Aggressive discovery throttle (prevent watchdog reset)
-    uint32_t lastAggressiveDiscoveryMs = 0;
-    uint32_t configAggressiveDiscoveryCooldownMs = 60000; // Max once per minute (prevent burst)
-    uint8_t configAggressiveDiscoveryMaxProbes = 3; // Max 3 probes per call (prevent blocking)
+    // NOTE: Aggressive discovery removed - rely exclusively on passive broadcast beacons
     
-    // Immediate neighbor probing for cold start (test mode)
-    void triggerImmediateNeighborProbing();
+    // CRITICAL: Global probe rate limiter to prevent bursts
+    // Ensures MINIMUM 90 seconds between ANY probes (not just per-node)
+    uint32_t lastGlobalProbeMs = 0;
+    uint32_t configGlobalProbeMinIntervalMs = 90000; // Absolute minimum 90s between probes
+    uint32_t configMaxNodeAgeSec = 24UL * 60UL * 60UL; // Only probe nodes seen within 24h (not dead nodes)
+    
+    // NOTE: Immediate neighbor probing removed - rely exclusively on passive broadcast beacons
+    
+    // CRITICAL: Global probe rate limiter helpers
+    bool isGlobalProbeCooldownActive() const {
+        if (lastGlobalProbeMs == 0) return false;
+        uint32_t nowMs = millis();
+        return (nowMs > lastGlobalProbeMs) && ((nowMs - lastGlobalProbeMs) < configGlobalProbeMinIntervalMs);
+    }
+    
+    void updateGlobalProbeTimestamp() {
+        lastGlobalProbeMs = millis();
+    }
+    
+    uint32_t getGlobalProbeCooldownRemainingSec() const {
+        if (!isGlobalProbeCooldownActive()) return 0;
+        uint32_t nowMs = millis();
+        uint32_t elapsedMs = nowMs - lastGlobalProbeMs;
+        return (configGlobalProbeMinIntervalMs - elapsedMs) / 1000;
+    }
+    
+    // Check if node is "alive" (seen recently via last_heard)
+    bool isNodeAlive(NodeNum node) const;
+    
+    // Get node age in seconds (time since last_heard)
+    uint32_t getNodeAgeSec(NodeNum node) const;
 
     // Simple FNV-1a 32-bit
     static uint32_t fnv1a32(uint32_t x) {
@@ -399,8 +425,7 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     // OnDemand response observation for DTN discovery
     void observeOnDemandResponse(const meshtastic_MeshPacket &mp);
     
-    // Cold start aggressive discovery
-    void triggerAggressiveDiscovery();
+    // NOTE: Aggressive discovery removed - rely exclusively on passive broadcast beacons
     
     // Check if DTN nodes can help reach destination (proximity analysis)
     bool canDtnHelpWithDestination(NodeNum dest) const;

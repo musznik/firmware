@@ -346,7 +346,10 @@ ErrorCode Router::send(meshtastic_MeshPacket *p)
 
     // Up until this point we might have been using 0 for the from address (if it started with the phone), but when we send over
     // the lora we need to make sure we have replaced it with our local address
-    p->from = getFrom(p);
+    //fw+ CRITICAL: Don't overwrite if from is already set (e.g., DTN fallback with spoofed sender for decryption)
+    if (p->from == 0) {
+        p->from = getFrom(p);
+    }
 
     p->relay_node = nodeDB->getLastByteOfNodeNum(getNodeNum()); // set the relayer to us
     // fw+ sniffer: forward our own TX to phone (originator only), but not for broadcasts (broadcasts są dostarczane lokalnie)
@@ -375,7 +378,12 @@ ErrorCode Router::send(meshtastic_MeshPacket *p)
     if (p->which_payload_variant == meshtastic_MeshPacket_decoded_tag) {
         //fw+ DTN-first: intercept private TEXT unicasts when DTN overlay is enabled and can help
 #if __has_include("mesh/generated/meshtastic/fwplus_dtn.pb.h")
-        if (dtnOverlayModule && dtnOverlayModule->shouldInterceptLocalDM(p->to) &&
+        // CRITICAL: Don't re-intercept DTN fallback packets (spoofed sender = from != our node)
+        // DTN fallback uses sender spoofing for proper decryption, but this would create infinite loop
+        // if we intercept again: DTN fallback → Router intercept → DTN → fallback → ...
+        bool isDtnFallback = (p->from != 0 && p->from != getNodeNum());
+        
+        if (dtnOverlayModule && !isDtnFallback && dtnOverlayModule->shouldInterceptLocalDM(p->to) &&
             p->decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP && !isBroadcast(p->to)) {
             uint32_t ttlMinutes = dtnOverlayModule->getTtlMinutes();
             //fw+ Fix overflow: use 64-bit arithmetic for deadline calculation

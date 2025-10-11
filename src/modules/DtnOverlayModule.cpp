@@ -132,7 +132,8 @@ Key Behaviors in Mixed Networks:
 #include "modules/RoutingModule.h"
 #include "mesh/NextHopRouter.h"
 #include "FwPlusVersion.h"
-#include "mesh/generated/meshtastic/ondemand.pb.h" 
+#include "mesh/generated/meshtastic/ondemand.pb.h"
+#include "mesh/generated/meshtastic/mesh.pb.h"
 #include "mqtt/MQTT.h"
 #include <pb_encode.h>
 #include <cstring>
@@ -285,7 +286,14 @@ DtnOverlayModule::DtnOverlayModule()
              (int)configSuppressIfDestNeighbor, (int)configPreferBestRouteSlotting,
              (unsigned)configMaxRingsToAct, (unsigned)configMilestoneMaxRing, (unsigned)configTailEscalateMaxRing,
              (unsigned)configFarMinTtlFracPercent);
-    LOG_INFO("DTN: Module created, first beacon in %u ms", (unsigned)configFirstAdvertiseDelayMs);
+    
+    // Add random jitter 0-60s to first beacon to prevent synchronization when multiple nodes start simultaneously
+    // (e.g., after power outage) - this spreads discovery traffic across time
+    uint32_t firstBeaconJitter = (uint32_t)random(60001); // 0-60000ms (0-60s)
+    configFirstAdvertiseDelayMs += firstBeaconJitter;
+    
+    LOG_INFO("DTN: Module created, first beacon in %u ms (base 2min + random %u sec jitter)", 
+             (unsigned)configFirstAdvertiseDelayMs, (unsigned)(firstBeaconJitter / 1000));
     LOG_INFO("DTN: FW_PLUS_VERSION=%d", FW_PLUS_VERSION);
     LOG_INFO("DTN: Cold start timeout: %u ms, native fallback: %s",
              (unsigned)configColdStartTimeoutMs, configColdStartNativeFallback ? "enabled" : "disabled");
@@ -293,11 +301,8 @@ DtnOverlayModule::DtnOverlayModule()
              configFwplusUnresponsiveFallback ? "enabled" : "disabled",
              (unsigned)configFwplusFailureThreshold, (unsigned)configFwplusResponseTimeoutMs);
 
-    // fw+ CRITICAL: DO NOT call triggerImmediateNeighborProbing() from constructor!
-    // service/nodeDB/router may not be initialized yet, causing LoadProhibited panic on ESP32.
-    // Instead, we'll trigger it from runOnce() after a short delay.
-    immediateNeighborProbingDone = false; // Will be triggered in runOnce()
-
+    // NOTE: Immediate neighbor probing removed - rely exclusively on passive broadcast beacons
+    
     moduleStartMs = millis(); //fw+
 }
 
@@ -309,16 +314,7 @@ int32_t DtnOverlayModule::runOnce()
     
     uint32_t now = millis();
     
-    // CRITICAL: Trigger immediate neighbor probing after safe delay (not from constructor!)
-    // Wait 5 seconds to ensure service/nodeDB/router are initialized
-    // DISABLED: Immediate unicast probing causes packet storms in large networks
-    // Discovery is now handled ONLY by periodic broadcast beacons (passive, safe)
-    // Broadcast beacons propagate naturally and each node replies with their own beacon
-    // This avoids O(N²) unicast probe explosion
-    if (!immediateNeighborProbingDone && (now - moduleStartMs) >= 5000) {
-        LOG_INFO("DTN: Discovery via broadcast beacons (immediate unicast probing disabled for network safety)");
-        immediateNeighborProbingDone = true;
-    }
+    // NOTE: Immediate neighbor probing removed - discovery via passive broadcast beacons only
     
     // Debug: log pending count
     static uint32_t lastDebugMs = 0;
@@ -331,21 +327,12 @@ int32_t DtnOverlayModule::runOnce()
         lastDebugMs = now;
     }
     
-    // CRITICAL: During cold start, periodically re-probe for neighbors
-    // NodeDB may be empty at startup but fills as NodeInfo broadcasts arrive
-    static uint32_t lastColdStartProbeMs = 0;
-    // DISABLED: Cold start re-probing caused packet storms (O(N) unicast probes every 15s!)
-    // In large networks (50+ nodes) this creates catastrophic bursts
-    // Discovery is now PASSIVE via broadcast beacons only:
+    // NOTE: Cold start re-probing removed - rely exclusively on passive broadcast beacons
+    // Discovery timeline:
     //   - First beacon @ ~2min
     //   - Warmup beacons @ 15min intervals (4 total in 1h)
     //   - Post-warmup @ 2h if no FW+ discovered
     //   - Normal @ 6h when FW+ nodes known
-    // This is O(1) traffic per node instead of O(N²) probe storm
-    if (isDtnCold() && (now - lastColdStartProbeMs) > 15000) {
-        LOG_DEBUG("DTN: Cold start discovery via broadcast beacons (aggressive probing disabled)");
-        lastColdStartProbeMs = now;
-    }
     
     //periodically advertise our FW+ version for passive discovery
     maybeAdvertiseFwplusVersion();
@@ -437,6 +424,34 @@ void DtnOverlayModule::prunePerDestCache()
         }
         lastDestTxMs.erase(oldest);
     }
+}
+
+// Purpose: check if node is "alive" (seen recently via last_heard)
+// Returns: true if node was seen within configMaxNodeAgeSec (24h default)
+bool DtnOverlayModule::isNodeAlive(NodeNum node) const
+{
+    meshtastic_NodeInfoLite *nodeInfo = nodeDB->getMeshNode(node);
+    if (!nodeInfo) return false;
+    
+    uint32_t nowEpoch = getValidTime(RTCQualityFromNet);
+    uint32_t lastSeenEpoch = nodeInfo->last_heard;
+    
+    if (nowEpoch == 0 || lastSeenEpoch == 0) return false;
+    return (nowEpoch - lastSeenEpoch) <= configMaxNodeAgeSec;
+}
+
+// Purpose: get node age in seconds (time since last_heard)
+// Returns: age in seconds, or 0xFFFFFFFF if unknown
+uint32_t DtnOverlayModule::getNodeAgeSec(NodeNum node) const
+{
+    meshtastic_NodeInfoLite *nodeInfo = nodeDB->getMeshNode(node);
+    if (!nodeInfo) return 0xFFFFFFFF;
+    
+    uint32_t nowEpoch = getValidTime(RTCQualityFromNet);
+    uint32_t lastSeenEpoch = nodeInfo->last_heard;
+    
+    if (nowEpoch == 0 || lastSeenEpoch == 0) return 0xFFFFFFFF;
+    return (nowEpoch - lastSeenEpoch);
 }
 
 
@@ -647,11 +662,25 @@ void DtnOverlayModule::processTelemetryProbe(const meshtastic_MeshPacket &mp)
         return;
     }
     
+    // CRITICAL: Global rate limiter check
+    if (isGlobalProbeCooldownActive()) {
+        LOG_DEBUG("DTN: Telemetry probe blocked by global rate limiter (need %u sec)", 
+                 getGlobalProbeCooldownRemainingSec());
+        return;
+    }
+    
+    // CRITICAL: Only probe LIVE nodes (seen within 24h)
+    if (!isNodeAlive(origin)) {
+        LOG_DEBUG("DTN: Telemetry probe blocked - node 0x%x is stale/dead (last_heard=%u sec ago)", 
+                 (unsigned)origin, getNodeAgeSec(origin));
+        return;
+    }
+    
     uint32_t nowMs = millis();
     auto it = lastTelemetryProbeToNodeMs.find(origin);
     
     if (it != lastTelemetryProbeToNodeMs.end() && (nowMs - it->second) < configTelemetryProbeCooldownMs) {
-        return; // Cooldown active
+        return; // Per-node cooldown active
     }
     
     if (airTime && !airTime->isTxAllowedChannelUtil(true)) {
@@ -661,6 +690,7 @@ void DtnOverlayModule::processTelemetryProbe(const meshtastic_MeshPacket &mp)
     // Send minimal FW+ probe (receipt PROGRESSED, reason=0) to origin
     maybeProbeFwplus(origin);
     lastTelemetryProbeToNodeMs[origin] = nowMs;
+    updateGlobalProbeTimestamp();
 }
 
 // Purpose: handle incoming FW+ DTN protobuf packets (DATA/RECEIPT) and conservative foreign capture.
@@ -887,8 +917,7 @@ void DtnOverlayModule::handleData(const meshtastic_MeshPacket &mp, const meshtas
             LOG_INFO("DTN: Intermediate cold start - using native DM fallback for id=0x%x dest=0x%x", 
                      d.orig_id, (unsigned)d.orig_to);
             
-            // Trigger discovery and send native DM fallback
-            triggerAggressiveDiscovery();
+            // NOTE: Aggressive discovery removed - rely on broadcast beacons only
             
             // Create a temporary pending entry just for fallback
             Pending tempPending;
@@ -907,8 +936,11 @@ void DtnOverlayModule::handleData(const meshtastic_MeshPacket &mp, const meshtas
         auto &p = pendingById[d.orig_id];
         trackCarrier(p, getFrom(&mp));
         
-        // If the packet we saw is already overlay DATA from someone else, apply initial suppression window 
-        if (configSuppressMsAfterForeign && getFrom(&mp) != nodeDB->getNodeNum()) {
+        // CRITICAL FIX: Only apply suppression if we overheard the DATA (not unicast to us)
+        // If mp.to == us, this is a handoff/custody transfer - we MUST act, not suppress!
+        // Suppression is only for coordination when multiple nodes overhear broadcast/relay
+        bool isUnicastToUs = (mp.to == nodeDB->getNodeNum());
+        if (configSuppressMsAfterForeign && getFrom(&mp) != nodeDB->getNodeNum() && !isUnicastToUs) {
             applyForeignCarrySuppression(d.orig_id, p);
         }
     } else {
@@ -916,7 +948,10 @@ void DtnOverlayModule::handleData(const meshtastic_MeshPacket &mp, const meshtas
         // Track this carrier for loop detection
         trackCarrier(it->second, getFrom(&mp));
         
-        if (configSuppressMsAfterForeign) {
+        // CRITICAL FIX: Only apply suppression if we overheard (not unicast to us)
+        // Unicast to us = handoff/custody transfer, we must act!
+        bool isUnicastToUs = (mp.to == nodeDB->getNodeNum());
+        if (configSuppressMsAfterForeign && !isUnicastToUs) {
             applyForeignCarrySuppression(d.orig_id, it->second);
             applyNearDestExtraSuppression(it->second, d.orig_to);
         }
@@ -972,19 +1007,26 @@ void DtnOverlayModule::handleReceipt(const meshtastic_MeshPacket &mp, const mesh
 
         //fw+ TEST: Immediate version response for faster discovery
         if (!hadVer && ver > 0) {
-            LOG_INFO("DTN: New FW+ node 0x%x discovered with version %u - triggering immediate response",
+            LOG_INFO("DTN: New FW+ node 0x%x discovered with version %u - checking if response needed",
                      (unsigned)origin, (unsigned)ver);
 
             // Send immediate hello-back response with our version
             if (configHelloBackEnabled) {
-                uint32_t nowMs = millis();
-                auto it = lastHelloBackToNodeMs.find(origin);
-                if (it == lastHelloBackToNodeMs.end() || (nowMs - it->second) >= 10000) { // 10s cooldown for new discoveries
-                    if (!(airTime && !airTime->isTxAllowedChannelUtil(true))) {
-                        uint32_t reason = (uint32_t)FW_PLUS_VERSION;
-                        emitReceipt(origin, 0, meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_PROGRESSED, reason);
-                        lastHelloBackToNodeMs[origin] = nowMs;
-                        LOG_INFO("DTN: Immediate hello-back sent to new FW+ node 0x%x", (unsigned)origin);
+                // CRITICAL: Global rate limiter check
+                if (isGlobalProbeCooldownActive()) {
+                    LOG_DEBUG("DTN: Hello-back blocked by global rate limiter (need %u sec)",
+                             getGlobalProbeCooldownRemainingSec());
+                } else {
+                    uint32_t nowMs = millis();
+                    auto it = lastHelloBackToNodeMs.find(origin);
+                    if (it == lastHelloBackToNodeMs.end() || (nowMs - it->second) >= 10000) { // 10s cooldown for new discoveries
+                        if (!(airTime && !airTime->isTxAllowedChannelUtil(true))) {
+                            uint32_t reason = (uint32_t)FW_PLUS_VERSION;
+                            emitReceipt(origin, 0, meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_PROGRESSED, reason);
+                            lastHelloBackToNodeMs[origin] = nowMs;
+                            updateGlobalProbeTimestamp();
+                            LOG_INFO("DTN: Immediate hello-back sent to new FW+ node 0x%x", (unsigned)origin);
+                        }
                     }
                 }
             }
@@ -1005,17 +1047,24 @@ void DtnOverlayModule::handleReceipt(const meshtastic_MeshPacket &mp, const mesh
                          it == lastHelloBackToNodeMs.end() ? 0 : (unsigned)(nowMs - it->second), 
                          (unsigned)requiredInterval, (int)rateOk);
                 if (rateOk) {
-                    // channel utilization gate
-                    bool channelOk = !(airTime && !airTime->isTxAllowedChannelUtil(true));
-                    LOG_DEBUG("DTN: Channel check: channelOk=%d", (int)channelOk);
-                    if (channelOk) {
-                        // reason carries version; use full FW_PLUS_VERSION (lower 16 bits are used on RX)
-                        uint32_t reason = (uint32_t)FW_PLUS_VERSION;
-                        emitReceipt(origin, 0, meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_PROGRESSED, reason);
-                        lastHelloBackToNodeMs[origin] = nowMs;
-                        LOG_INFO("DTN: Hello-back sent to origin=0x%x", (unsigned)origin);
+                    // CRITICAL: Global rate limiter check
+                    if (isGlobalProbeCooldownActive()) {
+                        LOG_DEBUG("DTN: Hello-back blocked by global rate limiter (need %u sec)",
+                                 getGlobalProbeCooldownRemainingSec());
                     } else {
-                        LOG_DEBUG("DTN: Channel busy, hello-back blocked");
+                        // channel utilization gate
+                        bool channelOk = !(airTime && !airTime->isTxAllowedChannelUtil(true));
+                        LOG_DEBUG("DTN: Channel check: channelOk=%d", (int)channelOk);
+                        if (channelOk) {
+                            // reason carries version; use full FW_PLUS_VERSION (lower 16 bits are used on RX)
+                            uint32_t reason = (uint32_t)FW_PLUS_VERSION;
+                            emitReceipt(origin, 0, meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_PROGRESSED, reason);
+                            lastHelloBackToNodeMs[origin] = nowMs;
+                            updateGlobalProbeTimestamp();
+                            LOG_INFO("DTN: Hello-back sent to origin=0x%x", (unsigned)origin);
+                        } else {
+                            LOG_DEBUG("DTN: Channel busy, hello-back blocked");
+                        }
                     }
                 } else {
                     LOG_DEBUG("DTN: Rate limited, hello-back blocked");
@@ -1102,6 +1151,20 @@ void DtnOverlayModule::scheduleOrUpdate(uint32_t id, const meshtastic_FwplusDtnD
     uint32_t topologyDelay = calculateTopologyDelay(d);
     uint32_t mobilitySlot = calculateMobilitySlot(id, d, p);
     
+    // CRITICAL: For source node's first attempt, add initial delay if no routing confidence
+    // This gives routing time to learn path via traceroute/beacons before we choose handoff target
+    // Without this, tie-breaker picks wrong neighbor (lower NodeNum instead of correct direction)
+    // Routing needs ~15-20s to build confidence=2 for stable route via DV-ETX
+    bool isFromSource = (d.orig_from == nodeDB->getNodeNum());
+    uint32_t routingWaitDelay = 0;
+    if (isFromSource && p.tries == 0 && !hasSufficientRouteConfidence(d.orig_to)) {
+        // Wait 15-20s for routing to learn path via traceroute/passive discovery
+        // This is acceptable for DTN (opportunistic, non-realtime)
+        routingWaitDelay = 15000 + (uint32_t)random(5001);
+        LOG_INFO("DTN: Source without routing confidence - adding %u ms wait for route discovery (DV-ETX needs ~15-20s)", 
+                 routingWaitDelay);
+    }
+    
     // Apply early bonus for confident routes
     uint32_t earlyBonus = 0;
     if (configPreferBestRouteSlotting && hasSufficientRouteConfidence(d.orig_to)) {
@@ -1109,7 +1172,7 @@ void DtnOverlayModule::scheduleOrUpdate(uint32_t id, const meshtastic_FwplusDtnD
     }
     
     // Calculate target time
-    uint32_t target = millis() + base + topologyDelay + mobilitySlot;
+    uint32_t target = millis() + base + topologyDelay + mobilitySlot + routingWaitDelay;
     if (target > millis() + earlyBonus) target -= earlyBonus;
     
     // Apply per-destination spacing
@@ -1156,6 +1219,31 @@ void DtnOverlayModule::tryForward(uint32_t id, Pending &p)
     bool lowConf = !hasSufficientRouteConfidence(p.data.orig_to);
     bool isFromSource = (p.data.orig_from == nodeDB->getNodeNum());
     
+    // CRITICAL: For source node without routing confidence, trigger traceroute for route discovery
+    // Traceroute builds routing confidence (1 ACK = confidence 1 = NextHop ready)
+    // This helps DTN choose correct handoff direction in subsequent attempts
+    if (lowConf && isFromSource && p.tries == 0) {
+        // First attempt: trigger traceroute to build routing table
+        maybeTriggerTraceroute(p.data.orig_to);
+        LOG_INFO("DTN: Source without routing confidence - triggered traceroute to 0x%x (try=%u)",
+                 (unsigned)p.data.orig_to, (unsigned)p.tries);
+    }
+    
+    // CRITICAL: No routing confidence fallback for source node
+    // DTN custody requires routing hints to avoid wrong-direction handoff.
+    // Without routing confidence, we CANNOT reliably choose handoff target.
+    // Strategy: Use native DM fallback for reliability (mesh routing handles it).
+    // Note: We do NOT assume routing will "warm up" - in large/sparse meshes (200 nodes, 300km)
+    //       ACKs may never return, and routing may remain empty for hours or days.
+    if (lowConf && isFromSource && p.data.allow_proxy_fallback) {
+        LOG_WARN("DTN: No routing confidence to dest 0x%x - using native DM fallback (uptime=%us)",
+                 (unsigned)p.data.orig_to, (unsigned)((millis() - moduleStartMs) / 1000));
+        if (sendProxyFallback(id, p)) {
+            ctrFallbacksAttempted++;
+            return; // Fallback sent successfully
+        }
+    }
+    
     //Intermediate nodes with low confidence: defer to allow route discovery
     if (lowConf && !isDirectNeighbor(p.data.orig_to) && !isFromSource) {
         float mobility = fwplus_getMobilityFactor01();
@@ -1172,10 +1260,9 @@ void DtnOverlayModule::tryForward(uint32_t id, Pending &p)
         LOG_DEBUG("DTN: Fast path for direct neighbor 0x%x", (unsigned)p.data.orig_to);
         // Continue to DTN forwarding below
     } else {
-        // For source node: immediate attempt with traceroute hint if needed
-        // (reuse isFromSource from line 801 - no redeclaration needed)
+        // For source and intermediate nodes: try various fallback mechanisms
+        // Note: traceroute is already triggered above (line 1226) for source without confidence
         if (isFromSource) {
-            triggerTracerouteIfNeededForSource(p, lowConf);
             // fw+ Allow broadcast fallback for source in TTL tail as last resort
             if (tryIntelligentFallback(id, p)) return;
         } else {
@@ -1231,8 +1318,15 @@ void DtnOverlayModule::tryForward(uint32_t id, Pending &p)
     setPriorityForTailAndSource(mp, p, isFromSource);
 
     // Check if we should back off (favor closer relayers)
-    // EXCEPTION: source node should always attempt (hopsToSrc=0 would block everything!)
+    // CRITICAL: This check is for OVERHEARD packets (foreign capture), not for custody transfers!
+    // If we received unicast handoff (mp.to == us), we MUST forward - that's the point of custody transfer
+    // Only defer if we're NOT closer to destination than source (passive observation optimization)
     if (!isFromSource) {
+        // DISABLED: This check blocks valid custody transfers from intermediate nodes
+        // Example: Node1→Node2 handoff, Node2 is 0 hops from Node1, 2 hops from Node6
+        //          Check: 2 > 0 → defer ← WRONG! Node2 should forward!
+        // TODO: Re-enable only for foreign (overheard) capture, not unicast custody transfers
+        /*
         uint8_t hopsToDest = getHopsAway(p.data.orig_to);
         uint8_t hopsToSrc = getHopsAway(p.data.orig_from);
         if (hopsToSrc != 255 && hopsToDest != 255 && hopsToDest > hopsToSrc) {
@@ -1241,6 +1335,7 @@ void DtnOverlayModule::tryForward(uint32_t id, Pending &p)
                      (unsigned)hopsToDest, (unsigned)hopsToSrc);
             return;
         }
+        */
     }
 
     // Send the packet
@@ -1299,12 +1394,22 @@ bool DtnOverlayModule::sendProxyFallback(uint32_t id, Pending &p)
     }
     //preserve original DM id so that ROUTING_APP ACK maps to sender's pending entry
     dm->id = p.data.orig_id;
-    dm->want_ack = true; // try to get radio ACK 
+    // CRITICAL: want_ack=false to avoid ReliableRouter tracking conflict with spoofed sender
+    // Spoofed sender (from=orig_from) is needed for stock node decryption, but ReliableRouter
+    // uses (from, id) as key in pending map, which would conflict with our node's packets.
+    // Mesh routing will use flooding which provides natural retries without need for ACK.
+    dm->want_ack = false;
     dm->priority = meshtastic_MeshPacket_Priority_DEFAULT;
+    
+    // CRITICAL: Spoofed sender (from != nodeDB->getNodeNum()) signals to Router::send()
+    // that this is DTN fallback and should NOT be re-intercepted by DTN
+    // Router.cpp checks isDtnFallback = (p->from != 0 && p->from != getNodeNum())
     service->sendToMesh(dm, RX_SRC_LOCAL, false);
+    
     p.tries++;
     p.nextAttemptMs = millis() + configRetryBackoffMs;
-    LOG_INFO("DTN fallback DM id=0x%x dst=0x%x try=%u", id, (unsigned)p.data.orig_to, (unsigned)p.tries);
+    LOG_INFO("DTN fallback DM id=0x%x dst=0x%x try=%u (spoofed from=0x%x, want_ack=false to avoid tracking conflict)", 
+             id, (unsigned)p.data.orig_to, (unsigned)p.tries, (unsigned)p.data.orig_from);
     ctrFallbacksAttempted++; 
     return true;
 }
@@ -1337,11 +1442,46 @@ void DtnOverlayModule::maybeTriggerTraceroute(NodeNum dest)
     uint32_t now = millis();
     auto it = lastRouteProbeMs.find(dest);
     if (it != lastRouteProbeMs.end() && (now - it->second) < configRouteProbeCooldownMs) return;
+    
+    // CRITICAL: Global rate limiter check
+    if (isGlobalProbeCooldownActive()) {
+        LOG_DEBUG("DTN: Traceroute probe blocked by global rate limiter (need %u sec)", 
+                 getGlobalProbeCooldownRemainingSec());
+        return;
+    }
+    
     lastRouteProbeMs[dest] = now;
     if (!router) return;
-    // Fall back to emitting a lightweight FW+ probe; actual traceroute scheduling is internal to NextHopRouter
-    // and not accessible here due to access controls.
-    maybeProbeFwplus(dest);
+    
+    // Send actual TRACEROUTE_APP packet (not just FW+ probe)
+    // This builds routing confidence: 1 successful reply = confidence 1 = NextHop ready
+    meshtastic_MeshPacket *p = router->allocForSending();
+    if (!p) return;
+    
+    p->to = dest;
+    p->decoded.portnum = meshtastic_PortNum_TRACEROUTE_APP;
+    p->decoded.want_response = true;
+    p->want_ack = false; // CRITICAL: No radio ACK! We want the traceroute REPLY, not hop-by-hop ACKs
+    
+    meshtastic_RouteDiscovery req = meshtastic_RouteDiscovery_init_zero;
+    p->decoded.payload.size = pb_encode_to_bytes(p->decoded.payload.bytes, sizeof(p->decoded.payload.bytes), 
+                                                  &meshtastic_RouteDiscovery_msg, &req);
+    
+    // Set hop_limit based on known distance (expanding ring)
+    meshtastic_NodeInfoLite *ninfo = nodeDB->getMeshNode(dest);
+    if (ninfo && ninfo->hops_away > 0) {
+        p->hop_limit = ninfo->hops_away + 1; // Known distance + 1
+    } else {
+        p->hop_limit = 3; // Default: try 3 hops for unknown destinations
+    }
+    
+    p->priority = meshtastic_MeshPacket_Priority_BACKGROUND; // Background priority to avoid congestion
+    
+    service->sendToMesh(p, RX_SRC_LOCAL, false);
+    updateGlobalProbeTimestamp();
+    
+    LOG_INFO("DTN: Sent traceroute to 0x%x (hop_limit=%u, want_ack=false) to build routing confidence", 
+             (unsigned)dest, (unsigned)p->hop_limit);
 }
 
 // Purpose: send a compact DTN receipt (status/milestone/expire) back to the source or peer.
@@ -1525,64 +1665,15 @@ void DtnOverlayModule::maybeAdvertiseFwplusVersion()
             LOG_INFO("DTN: Broadcast beacon sent (cold start mode, next periodic in ~%u min)", 
                      (unsigned)(interval / 60000));
         }
-    } else {
-        // NORMAL MODE: Send targeted unicast probes to unknown nodes
-        int totalNodes = nodeDB->getNumMeshNodes();
-        int probesSent = 0;
-        int maxProbesPerRound = 5; // Limit to prevent burst
-        
-        LOG_INFO("DTN: Periodic discovery - checking %u known nodes", (unsigned)totalNodes);
-        
-        for (int i = 0; i < totalNodes && probesSent < maxProbesPerRound; ++i) {
-            meshtastic_NodeInfoLite *ni = nodeDB->getMeshNodeByIndex(i);
-            if (!ni) continue;
-            if (ni->num == nodeDB->getNodeNum()) continue;
-            
-            // Skip if we already know this node as FW+ (redundant)
-            if (isFwplus(ni->num)) {
-                LOG_DEBUG("DTN: Skip node 0x%x - already known as FW+", (unsigned)ni->num);
-                continue;
-            }
-            
-            // Skip very far nodes (>4 hops) to reduce traffic
-            if (ni->hops_away > 4) continue;
-            
-            // Per-node cooldown (avoid spam)
-            auto it = lastTelemetryProbeToNodeMs.find(ni->num);
-            uint32_t cooldown = configHelloBackMinIntervalMs; // 1h for known neighbors
-            if (it != lastTelemetryProbeToNodeMs.end() && (now - it->second) < cooldown) {
-                continue; // Cooldown active
-            }
-            
-            // Send unicast FW+ probe (version advertisement)
-            uint32_t reason = (uint32_t)FW_PLUS_VERSION;
-            
-            meshtastic_FwplusDtn msg = meshtastic_FwplusDtn_init_zero;
-            msg.which_variant = meshtastic_FwplusDtn_receipt_tag;
-            msg.variant.receipt.orig_id = 0;
-            msg.variant.receipt.status = meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_PROGRESSED;
-            msg.variant.receipt.reason = reason;
-            
-            meshtastic_MeshPacket *p = allocDataProtobuf(msg);
-            if (!p) continue;
-            
-            p->to = ni->num; // UNICAST to specific unknown node
-            p->decoded.portnum = meshtastic_PortNum_FWPLUS_DTN_APP;
-            p->want_ack = false;
-            p->decoded.want_response = false;
-            p->priority = meshtastic_MeshPacket_Priority_BACKGROUND;
-            
-            service->sendToMesh(p, RX_SRC_LOCAL, false);
-            lastTelemetryProbeToNodeMs[ni->num] = now;
-            probesSent++;
-            
-            LOG_INFO("DTN: Sent unicast version probe to node 0x%x (hops=%u)", 
-                     (unsigned)ni->num, (unsigned)ni->hops_away);
-        }
-        
-        LOG_INFO("DTN: Periodic discovery sent %u unicast probes (interval: %u min)", 
-                 (unsigned)probesSent, (unsigned)(interval / 60000));
     }
+    // NOTE: Unicast probing to unknown nodes has been removed.
+    // RATIONALE: Wasteful and unnecessary - stock nodes ignore FW+ probes, 
+    //            FW+ nodes will respond to broadcast beacons anyway.
+    // STRATEGY: Rely exclusively on:
+    //   1. Broadcast beacons (staged: 2min, 15min warmup, 2h/6h periodic)
+    //   2. Hello-back unicast responses (reactive, rate-limited)
+    //   3. Passive observation (OnDemand, overheard DTN traffic)
+    // This provides O(1) discovery traffic instead of O(N) unicast probing.
     
     lastAdvertiseMs = now;
     
@@ -1801,10 +1892,11 @@ void DtnOverlayModule::logDetailedStats()
               (unsigned)ctrHandoffsAttempted, (unsigned)ctrHandoffCacheHits, (unsigned)ctrLoopsDetected,
               (unsigned)ctrDeliveredLocal, (unsigned)ctrDuplicatesSuppressed);
 
-    LOG_INFO("DTN FW+ Discovery: %u known nodes, cold_start=%s, last_beacon=%u ms ago",
+    LOG_INFO("DTN FW+ Discovery: %u known nodes, cold_start=%s, last_beacon=%u sec ago, probe_cooldown=%u sec",
               (unsigned)fwplusVersionByNode.size(),
               isDtnCold() ? "YES" : "NO",
-              (unsigned)(lastAdvertiseMs == 0 ? 0 : (now - lastAdvertiseMs)));
+              (unsigned)((lastAdvertiseMs == 0 || now < lastAdvertiseMs) ? 0 : (now - lastAdvertiseMs) / 1000),
+              getGlobalProbeCooldownRemainingSec());
 
     //fw+ TEST: Enhanced FW+ discovery diagnostics
     if (fwplusVersionByNode.empty()) {
@@ -1869,7 +1961,8 @@ NodeNum DtnOverlayModule::chooseHandoffTarget(NodeNum dest, uint32_t origId, Pen
         }
     }
 
-    // 2) If NextHopRouter has a next_hop that is FW+, pick that first (safely map low-byte to direct neighbor)
+    // 2) PRIORITY: If NextHopRouter has a next_hop that is FW+, use it FIRST (before building shortlist)
+    //    This ensures we follow routing table when it has learned the path
     if (router) {
         auto nh = static_cast<NextHopRouter *>(router);
         auto snap = nh->getRouteSnapshot(false);
@@ -1898,8 +1991,8 @@ NodeNum DtnOverlayModule::chooseHandoffTarget(NodeNum dest, uint32_t origId, Pen
                 if (itVer != fwplusVersionByNode.end() && 
                     itVer->second >= configMinFwplusVersionForHandoff &&
                     isNodeReachable(mapped)) {
-                    LOG_DEBUG("DTN: Using NextHopRouter suggested FW+ node 0x%x for dest 0x%x", 
-                             (unsigned)mapped, (unsigned)dest);
+                    LOG_INFO("DTN: Using NextHopRouter suggested FW+ node 0x%x for dest 0x%x (next_hop=%u)", 
+                             (unsigned)mapped, (unsigned)dest, (unsigned)e.next_hop);
                     return mapped;
                 }
             }
@@ -1962,9 +2055,13 @@ NodeNum DtnOverlayModule::chooseHandoffTarget(NodeNum dest, uint32_t origId, Pen
             }
             
             auto better = [](uint8_t au1, uint8_t ad1, uint8_t au2, uint8_t ad2, NodeNum n1, NodeNum n2) {
-                if (au1 != au2) return au1 < au2;
-                if (ad1 != ad2) return ad1 < ad2;
-                return n1 < n2;
+                if (au1 != au2) return au1 < au2; // Prefer closer to us
+                if (ad1 != ad2) return ad1 < ad2; // Prefer closer to destination
+                // TIE-BREAKER: For equal metrics, use hash instead of NodeNum to avoid bias
+                // This prevents always picking lower NodeNum when both neighbors have same distance
+                uint32_t h1 = fnv1a32(n1);
+                uint32_t h2 = fnv1a32(n2);
+                return h1 < h2; // Pseudo-random but deterministic tie-breaker
             };
             // insert into best1..best3
             if (best1 == 0 || better(au, ad, best1_au, best1_ad, ni->num, best1)) {
@@ -2091,8 +2188,10 @@ bool DtnOverlayModule::hasSufficientRouteConfidence(NodeNum dest) const
     // fw+ more permissive: allow attempts even with low confidence for mobile nodes
     float mobility = fwplus_getMobilityFactor01();
     if (mobility > 0.5f) return true; // Mobile nodes: always try
-    // minimal confidence 1 like S&F for stationary nodes
-    return router->hasRouteConfidence(dest, 1);
+    // DTN uses minimal confidence 0 (any routing hint is better than nothing)
+    // This is more permissive than strict routing (confidence=1) because DTN has custody transfer
+    // Even weak routing hints help avoid wrong-direction handoff
+    return router->hasRouteConfidence(dest, 0);
 }
 
 // Purpose: observe OnDemand responses to discover DTN-enabled nodes
@@ -2136,14 +2235,22 @@ void DtnOverlayModule::observeOnDemandResponse(const meshtastic_MeshPacket &mp)
             
             // fw+ Proactively probe this DTN-enabled node to get its actual FW+ version
             // This helps us learn the real version instead of using placeholder
-            uint32_t nowMs = millis();
-            auto it = lastTelemetryProbeToNodeMs.find(origin);
-            if (it == lastTelemetryProbeToNodeMs.end() || (nowMs - it->second) >= configTelemetryProbeCooldownMs) {
-                if (!(airTime && !airTime->isTxAllowedChannelUtil(true))) {
-                    LOG_DEBUG("DTN: Proactively probing DTN-enabled node 0x%x for FW+ version", (unsigned)origin);
-                    maybeProbeFwplus(origin);
-                    lastTelemetryProbeToNodeMs[origin] = nowMs;
+            
+            // CRITICAL: Global rate limiter check
+            if (!isGlobalProbeCooldownActive()) {
+                uint32_t nowMs = millis();
+                auto it = lastTelemetryProbeToNodeMs.find(origin);
+                if (it == lastTelemetryProbeToNodeMs.end() || (nowMs - it->second) >= configTelemetryProbeCooldownMs) {
+                    if (!(airTime && !airTime->isTxAllowedChannelUtil(true))) {
+                        LOG_DEBUG("DTN: Proactively probing DTN-enabled node 0x%x for FW+ version", (unsigned)origin);
+                        maybeProbeFwplus(origin);
+                        lastTelemetryProbeToNodeMs[origin] = nowMs;
+                        updateGlobalProbeTimestamp();
+                    }
                 }
+            } else {
+                LOG_DEBUG("DTN: OnDemand probe blocked by global rate limiter (need %u sec)", 
+                         getGlobalProbeCooldownRemainingSec());
             }
             
             // fw+ NEW: If this is a newly discovered DTN node, check if any pending messages can benefit
@@ -2307,7 +2414,14 @@ bool DtnOverlayModule::tryKnownStockFallback(uint32_t id, Pending &p)
     
     if ((destKnownStock || inTail) && shouldUseFallback(p)) {
         if (inTail && configProbeFwplusNearDeadline) {
-            maybeProbeFwplus(p.data.orig_to);
+            // CRITICAL: Global rate limiter check
+            if (!isGlobalProbeCooldownActive()) {
+                maybeProbeFwplus(p.data.orig_to);
+                updateGlobalProbeTimestamp();
+            } else {
+                LOG_DEBUG("DTN: TTL tail probe blocked by global rate limiter (need %u sec)", 
+                         getGlobalProbeCooldownRemainingSec());
+            }
         }
         if (sendProxyFallback(id, p)) return true;
     }
@@ -2385,91 +2499,11 @@ NodeNum DtnOverlayModule::selectForwardTarget(Pending &p)
     return target;
 }
 
-// Purpose: immediate neighbor probing for faster FW+ discovery at startup
-// DISABLED: This function caused O(N) unicast probe storms in large networks
-// Discovery now relies EXCLUSIVELY on passive broadcast beacons
-void DtnOverlayModule::triggerImmediateNeighborProbing()
-{
-    if (!configEnabled) return;
+// NOTE: triggerImmediateNeighborProbing() removed - rely exclusively on passive broadcast beacons
 
-    // DISABLED: Immediate probing was catastrophic in production
-    // Example: Network with 72 nodes → 72 unicast probes in 1 second!
-    // Result: TX queue overflow, channel congestion, watchdog resets
-    //
-    // ROOT CAUSE:
-    //   - Called @ 5s startup
-    //   - Called every 15s during cold start
-    //   - Probes ALL nodes in NodeDB (not just direct neighbors!)
-    //   - No hard limit on probe count
-    //   - In mesh with 50+ nodes = packet storm
-    //
-    // SAFE ALTERNATIVE: Passive broadcast beacon discovery ONLY
-    //   - Node sends 1 broadcast beacon (O(1) traffic)
-    //   - Beacon propagates naturally through mesh
-    //   - Other FW+ nodes hear beacon and reply with their beacons
-    //   - Total network traffic: O(N) not O(N²)
-    //
-    // Discovery timeline (PASSIVE):
-    //   @ 2min:   First broadcast beacon
-    //   @ 15,30,45min: Warmup beacons (4 total in 1h)
-    //   @ 2h intervals: Post-warmup beacons (if no FW+ discovered)
-    //   @ 6h intervals: Normal maintenance beacons
-    //
-    // This ensures gradual, distributed discovery without bursts
+// NOTE: triggerAggressiveDiscovery() removed - rely exclusively on passive broadcast beacons
 
-    LOG_DEBUG("DTN: Using passive broadcast beacon discovery only (immediate probing disabled)");
-}
-
-// Purpose: trigger aggressive DTN discovery during cold start
-// Effect: sends limited probes to unknown neighbors (rate-limited to prevent watchdog reset)
-void DtnOverlayModule::triggerAggressiveDiscovery()
-{
-    if (!configEnabled) return;
-    
-    // CRITICAL: Verify service is initialized before sending packets
-    if (!service) {
-        LOG_WARN("DTN: Cannot trigger aggressive discovery - service not initialized yet");
-        return;
-    }
-    
-    // CRITICAL: Global cooldown to prevent watchdog reset from burst calls
-    uint32_t nowMs = millis();
-    if (nowMs - lastAggressiveDiscoveryMs < configAggressiveDiscoveryCooldownMs) {
-        LOG_DEBUG("DTN: Aggressive discovery on cooldown (last %u ms ago)", 
-                 (unsigned)(nowMs - lastAggressiveDiscoveryMs));
-        return;
-    }
-    
-    // CRITICAL: Channel utilization gate - don't probe if channel is busy
-    if (airTime && airTime->channelUtilizationPercent() > 50) {
-        LOG_DEBUG("DTN: Skipping aggressive discovery - channel too busy (%u%%)", 
-                 airTime->channelUtilizationPercent());
-        return;
-    }
-    
-    lastAggressiveDiscoveryMs = nowMs;
-    
-    // DISABLED: Even "aggressive discovery" with limits was too aggressive
-    // In networks with 50+ nodes, even 5 unicast probes per call adds up
-    // Multiple code paths can trigger this → still creates bursts
-    //
-    // PASSIVE DISCOVERY ONLY:
-    //   - Broadcast beacons (scheduled, predictable)
-    //   - Overheard DTN traffic (zero cost observation)
-    //   - OnDemand responses (only when routing actually needs it)
-    //
-    // This ensures ZERO proactive unicast probing
-    // Discovery happens naturally through normal mesh operation
-    
-    LOG_DEBUG("DTN: Using passive discovery only (aggressive probing disabled for network health)");
-}
-
-void DtnOverlayModule::triggerTracerouteIfNeededForSource(const Pending &p, bool lowConf)
-{
-    if (!lowConf) return;
-    maybeTriggerTraceroute(p.data.orig_to);
-    LOG_DEBUG("DTN: Source with low confidence, triggering traceroute to 0x%x", (unsigned)p.data.orig_to);
-}
+// NOTE: triggerTracerouteIfNeededForSource() removed - traceroute now triggered inline in tryForward()
 
 void DtnOverlayModule::setPriorityForTailAndSource(meshtastic_MeshPacket *mp, const Pending &p, bool isFromSource)
 {
