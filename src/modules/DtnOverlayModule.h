@@ -51,6 +51,9 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
         uint32_t pathLearningUpdates;
         uint32_t monitoredLinks;
         uint32_t monitoredPaths;
+        // Progressive relay statistics
+        uint32_t progressiveRelays;
+        uint32_t progressiveRelayLoops;
     };
     // Fill snapshot with current counters
     void getStatsSnapshot(DtnStatsSnapshot &out) const;
@@ -144,6 +147,9 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
         uint8_t dtnFailedAttempts = 0; // consecutive failed DTN overlay attempts
         uint32_t lastDtnAttemptMs = 0; // timestamp of last DTN attempt
         bool fallbackTriggered = false; // flag to avoid re-triggering fallback
+        // Progressive relay tracking (for unknown/distant destinations)
+        NodeNum progressiveRelays[3] = {0, 0, 0}; // Track relay nodes used (loop prevention)
+        uint8_t progressiveRelayCount = 0; // Number of progressive relay hops taken
     };
     std::unordered_map<uint32_t, Pending> pendingById; // key: orig_id
     // Process received FW+ DTN DATA; deliver locally or schedule and coordinate with peers
@@ -164,6 +170,8 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     void maybeTriggerTraceroute(NodeNum dest);
     // Select next hop FW+ neighbor for custody handoff (or return dest if none)
     NodeNum chooseHandoffTarget(NodeNum dest, uint32_t origId, Pending &p);
+    // Select furthest known FW+ node for progressive relay (unknown/distant destinations)
+    NodeNum chooseProgressiveRelay(NodeNum dest, Pending &p);
     // Housekeeping: prune per-destination cache
     void prunePerDestCache();
     // Perform late native DM fallback (encrypted)
@@ -261,6 +269,8 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     uint32_t ctrLoopsDetected = 0;           // carrier loop detected and avoided
     uint32_t ctrDeliveredLocal = 0;          // messages delivered to us as destination
     uint32_t ctrDuplicatesSuppressed = 0;    // duplicate deliveries prevented by tombstone
+    uint32_t ctrProgressiveRelays = 0;       // progressive relay to edge nodes (unknown/distant dest)
+    uint32_t ctrProgressiveRelayLoops = 0;   // progressive relay loops detected and prevented
     uint32_t lastForwardMs = 0;
     // Runtime state
     bool runtimeMilestonesSuppressed = false;
