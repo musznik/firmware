@@ -890,6 +890,13 @@ void Router::perhapsHandleReceived(meshtastic_MeshPacket *p)
         return;
     }
 
+    // fw+ CRITICAL: Update NodeDB BEFORE shouldFilterReceived() to ensure hops_away is set for all packets
+    // Even duplicates/filtered packets provide valuable topology info (hop_start/hop_limit)
+    // This is essential for NextHopRouter to recognize direct neighbors (isDirectNeighborLastByte requires hops=0)
+    if (nodeDB) {
+        nodeDB->updateFrom(*p);
+    }
+
     if (shouldFilterReceived(p)) {
         LOG_DEBUG("Incoming msg was filtered from 0x%x", p->from);
         packetPool.release(p);

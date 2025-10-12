@@ -960,8 +960,12 @@ void NodeDB::installDefaultModuleConfig()
     moduleConfig.dtn_overlay.max_tries = 2;
     moduleConfig.dtn_overlay.late_fallback_enabled = false;
     moduleConfig.dtn_overlay.fallback_tail_percent = 20;
-    //fw+ milestones default OFF; user can enable via ModuleConfig
-    moduleConfig.dtn_overlay.milestones_enabled = false;
+    //fw+ milestones default ON for development/testing; disable for production builds
+    #ifdef PORTDUINO
+    moduleConfig.dtn_overlay.milestones_enabled = true;  // ON for simulator testing (full visibility)
+    #else
+    moduleConfig.dtn_overlay.milestones_enabled = false; // OFF for Arduino/T-Beam (save airtime)
+    #endif
     //fw+ per-destination spacing to avoid bursts
     moduleConfig.dtn_overlay.per_dest_min_spacing_ms = 60000U; // 1 minute - conservative spacing (max uint16_t=65535)
     moduleConfig.dtn_overlay.max_active_dm = 1;
@@ -2005,7 +2009,11 @@ void NodeDB::updateFrom(const meshtastic_MeshPacket &mp)
         LOG_DEBUG("Ignore update from self");
         return;
     }
-    if (mp.which_payload_variant == meshtastic_MeshPacket_decoded_tag && mp.from) {
+    // fw+ CRITICAL: Accept both encrypted and decoded packets for topology info (hop_start/hop_limit)
+    // This is essential when updateFrom() is called BEFORE decoding (to set hops_away for all packets)
+    // Original check: mp.which_payload_variant == meshtastic_MeshPacket_decoded_tag
+    // New: Accept any packet with valid from field
+    if (mp.from) {
         LOG_DEBUG("Update DB node 0x%x, rx_time=%u", mp.from, mp.rx_time);
 
         meshtastic_NodeInfoLite *info = getOrCreateMeshNode(getFrom(&mp));
@@ -2021,10 +2029,15 @@ void NodeDB::updateFrom(const meshtastic_MeshPacket &mp)
 
         info->via_mqtt = mp.via_mqtt; // Store if we received this packet via MQTT
 
-        // If hopStart was set and there wasn't someone messing with the limit in the middle, add hopsAway
+        // fw+ CRITICAL: Prefer MINIMUM hops (closest path) - don't overwrite with larger values
+        // Without this, hops_away oscillates between direct (0) and relayed (1+) packets
+        // causing isDirectNeighborLastByte() to intermittently fail for actual neighbors
         if (mp.hop_start != 0 && mp.hop_limit <= mp.hop_start) {
-            info->has_hops_away = true;
-            info->hops_away = mp.hop_start - mp.hop_limit;
+            uint8_t newHops = mp.hop_start - mp.hop_limit;
+            if (!info->has_hops_away || newHops < info->hops_away) {
+                info->has_hops_away = true;
+                info->hops_away = newHops;
+            }
         }
         sortMeshDB();
     }
