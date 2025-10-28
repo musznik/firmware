@@ -953,22 +953,24 @@ void NodeDB::installDefaultModuleConfig()
     //fw+ For native/Portduino simulator builds, force-enable DTN overlay by default for testing
     moduleConfig.dtn_overlay.enabled = true;
 #endif
-    moduleConfig.dtn_overlay.ttl_minutes = 4;        // 4 minutes - shorter custody window
+
+    moduleConfig.dtn_overlay.ttl_minutes = 10;        // 10 minutes - realistic for multi-hop custody
     moduleConfig.dtn_overlay.initial_delay_base_ms = 2000; // 2s - faster first attempt
-    //fw+ increase backoff to soften traffic
-    moduleConfig.dtn_overlay.retry_backoff_ms = 120000;    // 2 minutes retry
-    moduleConfig.dtn_overlay.max_tries = 2;
+    //Fast custody chain forwarding (was 120000ms = 2min causing deadlocks)
+    moduleConfig.dtn_overlay.retry_backoff_ms = 5000;    // 5s - enables fluid multi-hop DTN delivery
+    moduleConfig.dtn_overlay.max_tries = 3;
     moduleConfig.dtn_overlay.late_fallback_enabled = false;
     moduleConfig.dtn_overlay.fallback_tail_percent = 20;
     //fw+ milestones default ON for development/testing; disable for production builds
-    #ifdef PORTDUINO
-    moduleConfig.dtn_overlay.milestones_enabled = true;  // ON for simulator testing (full visibility)
+    #ifdef ARCH_PORTDUINO
+    moduleConfig.dtn_overlay.milestones_enabled = true;  // ON for simulator testing (implicit ACK for custody chain)
     #else
     moduleConfig.dtn_overlay.milestones_enabled = false; // OFF for Arduino/T-Beam (save airtime)
     #endif
-    //fw+ per-destination spacing to avoid bursts
-    moduleConfig.dtn_overlay.per_dest_min_spacing_ms = 60000U; // 1 minute - conservative spacing (max uint16_t=65535)
-    moduleConfig.dtn_overlay.max_active_dm = 1;
+    // Reduce per-dest spacing for concurrent custody transfers (was 60000ms = 1min)
+    moduleConfig.dtn_overlay.per_dest_min_spacing_ms = 10000; // 10s - allows multiple custody packets in flight
+    // CIncrease concurrent custody transfers for network throughput (was 1 = severe bottleneck)
+    moduleConfig.dtn_overlay.max_active_dm = 3; // allows multiple concurrent custody chains
     moduleConfig.dtn_overlay.probe_fwplus_near_deadline = false;
 
     // fw+ Broadcast Assist defaults
@@ -1415,13 +1417,13 @@ void NodeDB::loadFromDisk()
         bool mutated = false;
         moduleConfig.has_dtn_overlay = true; // ensure section is marked present
         auto &dtn = moduleConfig.dtn_overlay;
-        if (dtn.ttl_minutes == 0) { dtn.ttl_minutes = 5; mutated = true; }
+        if (dtn.ttl_minutes == 0) { dtn.ttl_minutes = 15; mutated = true; }
         if (dtn.initial_delay_base_ms == 0) { dtn.initial_delay_base_ms = 8000; mutated = true; }
-        if (dtn.retry_backoff_ms == 0) { dtn.retry_backoff_ms = 60000; mutated = true; }
+        if (dtn.retry_backoff_ms == 0) { dtn.retry_backoff_ms = 5000; mutated = true; }
         if (dtn.max_tries == 0) { dtn.max_tries = 3; mutated = true; }
         if (dtn.fallback_tail_percent == 0) { dtn.fallback_tail_percent = 20; mutated = true; }
-        if (dtn.per_dest_min_spacing_ms == 0) { dtn.per_dest_min_spacing_ms = 30000; mutated = true; }
-        if (dtn.max_active_dm == 0) { dtn.max_active_dm = 2; mutated = true; }
+        if (dtn.per_dest_min_spacing_ms == 0) { dtn.per_dest_min_spacing_ms = 10000; mutated = true; }
+        if (dtn.max_active_dm == 0) { dtn.max_active_dm = 3; mutated = true; }
         // Booleans: do not force-enable module by default; respect existing setting
         // If field is absent/zero on upgrade, keep default OFF for safety; enable only by user action
         // Do backfill milestones default to true only when module is enabled explicitly later.
@@ -2014,32 +2016,67 @@ void NodeDB::updateFrom(const meshtastic_MeshPacket &mp)
     // Original check: mp.which_payload_variant == meshtastic_MeshPacket_decoded_tag
     // New: Accept any packet with valid from field
     if (mp.from) {
-        LOG_DEBUG("Update DB node 0x%x, rx_time=%u", mp.from, mp.rx_time);
+        //fw+ SIMULATOR WORKAROUND: Handle rx_time=0 (simulator bug)
+        // Analysis: Simulator doesn't set rx_time in packets → all nodes appear "stale"
+        // This breaks isNodeAlive(), isNodeReachable(), link health checks
+        // Workaround: If rx_time=0, use current time as fallback
+        uint32_t effectiveRxTime = mp.rx_time;
+        #ifdef ARCH_PORTDUINO
+        if (effectiveRxTime == 0) {
+            effectiveRxTime = getTime();
+            // Only log warning once per 60s to avoid spam
+            static uint32_t lastWarnMs = 0;
+            if (millis() - lastWarnMs > 60000) {
+                LOG_WARN("NodeDB: rx_time=0 for node 0x%x - using current time (simulator bug)", mp.from);
+                lastWarnMs = millis();
+            }
+        }
+        #endif
+        
+        //fw+ FIX #136: Check for synthetic packets BEFORE updating NodeDB (fixes FIX #104 regression)
+        // PROBLEM: FIX #104 only guarded hops_away update, but synthetic packets (rx_snr=-128)
+        //          still updated last_heard and snr → NodeDB triggered "Heard new node" event
+        //          Result: Node marked as recently heard → getHopsAway() returns 0 (protobuf default)
+        //                  → DTN skips intercept ("dest is direct neighbor") → Stock DM fails!
+        // ROOT CAUSE: deliverLocal() packet with from=0x1d, rx_snr=-128, hopLimit=0 processed as:
+        //             1. last_heard updated → "new node" event triggered
+        //             2. snr=-128 stored (corrupted metric)
+        //             3. hops_away NOT updated (FIX #104 guard works)
+        //             BUT: getHopsAway() checks has_hops_away flag - if false, returns 0 (protobuf default)!
+        //             Timing: 15s after deliverLocal, new message sees hops=0 → "direct neighbor" → SKIP DTN!
+        // SOLUTION: Check isSyntheticPacket FIRST, skip ALL NodeDB updates for synthetic packets
+        // BENEFIT: Synthetic packets (deliverLocal, local ACK) completely invisible to NodeDB routing logic
+        bool isSyntheticPacket = (mp.rx_snr <= -127.0f);
+        
+        if (isSyntheticPacket) {
+            LOG_DEBUG("NodeDB: Ignoring synthetic packet (rx_snr=%.1f) from 0x%x (FIX #136)", mp.rx_snr, mp.from);
+            return; // Skip all NodeDB updates for synthetic packets
+        }
+        
+        LOG_DEBUG("Update DB node 0x%x, rx_time=%u", mp.from, effectiveRxTime);
 
         meshtastic_NodeInfoLite *info = getOrCreateMeshNode(getFrom(&mp));
         if (!info) {
             return;
         }
 
-        if (mp.rx_time) // if the packet has a valid timestamp use it to update our last_heard
-            info->last_heard = mp.rx_time;
+        if (effectiveRxTime) // if the packet has a valid timestamp use it to update our last_heard
+            info->last_heard = effectiveRxTime;
 
         if (mp.rx_snr)
             info->snr = mp.rx_snr; // keep the most recent SNR we received for this node.
 
         info->via_mqtt = mp.via_mqtt; // Store if we received this packet via MQTT
-
-        // fw+ CRITICAL: Prefer MINIMUM hops (closest path) - don't overwrite with larger values
-        // Without this, hops_away oscillates between direct (0) and relayed (1+) packets
-        // causing isDirectNeighborLastByte() to intermittently fail for actual neighbors
+        
+        // If hopStart was set and there wasn't someone messing with the limit in the middle, add hopsAway
         if (mp.hop_start != 0 && mp.hop_limit <= mp.hop_start) {
-            uint8_t newHops = mp.hop_start - mp.hop_limit;
-            if (!info->has_hops_away || newHops < info->hops_away) {
-                info->has_hops_away = true;
-                info->hops_away = newHops;
-            }
+            info->has_hops_away = true;
+            info->hops_away = mp.hop_start - mp.hop_limit;
         }
         sortMeshDB();
+        LOG_DEBUG("NodeDB::updateFrom() EXIT (normal path, NodeDB updated)");
+    } else {
+        LOG_DEBUG("NodeDB::updateFrom() EXIT (mp.from=0, no update)");
     }
 }
 
