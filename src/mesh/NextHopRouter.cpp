@@ -16,49 +16,116 @@ extern BroadcastAssistModule *broadcastAssistModule;
 
 NextHopRouter::NextHopRouter() {}
 //fw++
+// Purpose: DV-ETX route learning from traceroute paths
+// Supports both ACTIVE learning (we're in path) and PASSIVE learning (we relay foreign traceroute)
+// This enables faster routing table buildup in large networks (100-200 nodes)
 void NextHopRouter::processPathAndLearn(const uint32_t *path, size_t maxHops,
                                         const int8_t *snrList, size_t maxSnr,
                                         const meshtastic_MeshPacket *p)
 {
-    if (!path || maxHops < 2) return;
+    if (!path || maxHops < 2) {
+        LOG_DEBUG("NextHop: processPathAndLearn guard: path=%p maxHops=%u", path, (unsigned)maxHops);
+        return;
+    }
     uint32_t selfNum = getNodeNum();
     int selfIdx = -1;
     for (size_t i = 0; i < maxHops; ++i) {
         if (path[i] == selfNum) { selfIdx = (int)i; break; }
     }
-    if (selfIdx < 0 || (selfIdx + 1) >= (int)maxHops) return;
+    
+    // ═══════════════════════════════════════════════════════════════════
+    // DV-ETX ACTIVE LEARNING: We are in path (high confidence)
+    // ═══════════════════════════════════════════════════════════════════
+    if (selfIdx >= 0 && (selfIdx + 1) < (int)maxHops) {
+        uint32_t dest = path[maxHops - 1];
+        uint8_t nextHop = (uint8_t)(path[selfIdx + 1] & 0xFF);
 
-    uint32_t dest = path[maxHops - 1];
-    uint8_t nextHop = (uint8_t)(path[selfIdx + 1] & 0xFF);
+        // Gate on direct neighbor presence for the candidate last byte
+        if (!isDirectNeighborLastByte(nextHop)) {
+            LOG_DEBUG("NextHop: Skip ACTIVE learn: nextHop 0x%x is not a direct neighbor", nextHop);
+            return;  // Can't learn if next hop isn't our direct neighbor
+        }
 
-    // Gate on direct neighbor presence for the candidate last byte
-    if (!isDirectNeighborLastByte(nextHop)) {
-        LOG_DEBUG("Skip learnRoute: nextHop 0x%x is not a direct neighbor", nextHop);
-        return;
+        float linkEtx = 2.0f;
+        if (snrList && maxSnr > (size_t)selfIdx) {
+            float snr = (float)snrList[selfIdx] / 4.0f;
+            linkEtx = estimateEtxFromSnr(snr);
+        } else {
+            linkEtx = estimateEtxFromSnr(p->rx_snr);
+        }
+        int remainingHops = (int)maxHops - selfIdx - 1;
+        float observedCost = linkEtx + (remainingHops > 1 ? (remainingHops - 1) * 1.0f : 0.0f);
+        learnRoute(dest, nextHop, observedCost);
+        LOG_INFO("NextHop: ACTIVE LEARN dest=0x%x via=0x%x cost=%.1f SNR=%.1f pathlen=%u pos=%d [IN-PATH TRACEROUTE]", 
+                 dest, nextHop, observedCost, linkEtx, (unsigned)maxHops, selfIdx);
     }
-
-    float linkEtx = 2.0f;
-    if (snrList && maxSnr > (size_t)selfIdx) {
-        float snr = (float)snrList[selfIdx] / 4.0f;
-        linkEtx = estimateEtxFromSnr(snr);
-    } else {
-        linkEtx = estimateEtxFromSnr(p->rx_snr);
+    // ═══════════════════════════════════════════════════════════════════
+    // DV-ETX PASSIVE LEARNING: We relay foreign traceroute (opportunistic)
+    // ═══════════════════════════════════════════════════════════════════
+    // If we're NOT in path but relaying this traceroute, we can infer:
+    // "destination is reachable via the neighbor who sent us this traceroute"
+    // This dramatically speeds up route discovery in large networks (100-200 nodes)
+    else if (selfIdx < 0 && maxHops >= 2) {
+        uint32_t dest = path[maxHops - 1];  // Final destination
+        uint32_t receivedFrom = getFrom(p);  // Who sent us this packet
+        uint8_t viaHop = (uint8_t)(receivedFrom & 0xFF);
+        
+        LOG_DEBUG("NextHop: PASSIVE candidate: dest=0x%x via=0x%x (from=0x%x) selfIdx=%d", 
+                  dest, viaHop, receivedFrom, selfIdx);
+        
+        // CRITICAL: Only learn if receivedFrom is our direct neighbor
+        if (!isDirectNeighborLastByte(viaHop)) {
+            LOG_DEBUG("NextHop: Skip PASSIVE learn: viaHop 0x%x is not a direct neighbor", viaHop);
+            return;  // Can't use as next hop if not direct neighbor
+        }
+        
+        // ETX calculation for our link to the neighbor (same as active)
+        float linkEtx = estimateEtxFromSnr(p->rx_snr);
+        
+        // DV cost estimation: link ETX + conservative path estimate
+        // We use path length + small penalty for uncertainty
+        float estimatedCost = linkEtx + (float)(maxHops - 1) * 1.1f;
+        
+        // Update DV-ETX routing table with passive observation
+        // Note: learnRoute() internally uses EMA smoothing and confidence tracking
+        learnRoute(dest, viaHop, estimatedCost);
+        LOG_INFO("NextHop: PASSIVE LEARN dest=0x%x via=0x%x cost=%.1f SNR=%.1f pathlen=%u [RELAY DISCOVERY]", 
+                 dest, viaHop, estimatedCost, p->rx_snr, (unsigned)maxHops);
     }
-    int remainingHops = (int)maxHops - selfIdx - 1;
-    float observedCost = linkEtx + (remainingHops > 1 ? (remainingHops - 1) * 1.0f : 0.0f);
-    learnRoute(dest, nextHop, observedCost);
 }
 //fw+
 void NextHopRouter::learnFromRouteDiscoveryPayload(const meshtastic_MeshPacket *p)
 {
+    if (!p) {
+        LOG_WARN("NextHop: learnFromRouteDiscoveryPayload called with NULL packet");
+        return;
+    }
+    
     meshtastic_RouteDiscovery rd = meshtastic_RouteDiscovery_init_zero;
-    if (!pb_decode_from_bytes(p->decoded.payload.bytes, p->decoded.payload.size, &meshtastic_RouteDiscovery_msg, &rd)) return;
+    if (!pb_decode_from_bytes(p->decoded.payload.bytes, p->decoded.payload.size, &meshtastic_RouteDiscovery_msg, &rd)) {
+        LOG_WARN("NextHop: Failed to decode RouteDiscovery from packet id=0x%x", p->id);
+        return;
+    }
 
     const size_t maxHops = rd.route_back_count ? rd.route_back_count : rd.route_count;
     const uint32_t *path = rd.route_back_count ? rd.route_back : rd.route;
     const size_t maxSnr = rd.snr_back_count ? rd.snr_back_count : rd.snr_towards_count;
     const int8_t *snrList = rd.snr_back_count ? rd.snr_back : rd.snr_towards;
-    processPathAndLearn(path, maxHops, snrList, maxSnr, p);
+    
+    LOG_DEBUG("NextHop: learnFromRouteDiscoveryPayload id=0x%x hops=%u path_type=%s", 
+              p->id, (unsigned)maxHops, rd.route_back_count ? "back" : "forward");
+    
+    //fw+ FIX: Skip passive learning for traceroute responses (isToUs) to avoid reversed path bug
+    // Problem: Passive learning uses route_back for responses, causing incorrect routing hints
+    // Example: Node1 receives response from Node16 with path [0x16,0x15,0x13,0x12,0x11]
+    //          Passive learning tries: "to reach 0x12 (last in path), go via 0x16 (sender)" ❌
+    //          But 0x12 is a direct neighbor (1 hop), not 0x16 (4 hops)!
+    // Solution: Only process passive learning for requests/relays, not responses
+    //          Responses are already handled correctly below (lines 118-131) using forward path
+    if (!isToUs(p)) {
+        processPathAndLearn(path, maxHops, snrList, maxSnr, p);
+    }
+    
     if (isToUs(p) && rd.route_count > 0) {
         uint8_t firstHop = (uint8_t)(rd.route[0] & 0xFF);
         if (isDirectNeighborLastByte(firstHop)) {

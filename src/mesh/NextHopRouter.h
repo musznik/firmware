@@ -96,6 +96,10 @@ class NextHopRouter : public FloodingRouter
     void rewardRouteOnDelivered(PacketId originalId, NodeNum sourceNode, uint8_t viaHopLastByte, int8_t rxSnr) override;
     void penalizeRouteOnFailed(PacketId originalId, NodeNum sourceNode, uint8_t viaHopLastByte, uint32_t reasonCode) override;
 
+    //fw+ PUBLIC API for route learning from traceroute packets (called by TraceRouteModule)
+    // This enables ACTIVE and PASSIVE DV-ETX learning from traceroute responses
+    void learnFromRouteDiscoveryPayload(const meshtastic_MeshPacket *p);
+
   protected:
     /**
      * Pending retransmissions
@@ -154,8 +158,7 @@ class NextHopRouter : public FloodingRouter
     void learnRoute(uint32_t dest, uint8_t viaHop, float observedCost);
     void invalidateRoute(uint32_t dest, float penalty = 1.0f);
     float estimateEtxFromSnr(float snr) const;
-    // fw+ nexthop snif
-    void learnFromRouteDiscoveryPayload(const meshtastic_MeshPacket *p);
+    // fw+ nexthop snif (learnFromRouteDiscoveryPayload now in public section above)
     void learnFromRoutingPayload(const meshtastic_MeshPacket *p);
     void processPathAndLearn(const uint32_t *path, size_t maxHops,
                              const int8_t *snrList, size_t maxSnr,
