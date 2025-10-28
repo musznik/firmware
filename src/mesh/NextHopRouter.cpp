@@ -73,7 +73,7 @@ void NextHopRouter::processPathAndLearn(const uint32_t *path, size_t maxHops,
         LOG_DEBUG("NextHop: PASSIVE candidate: dest=0x%x via=0x%x (from=0x%x) selfIdx=%d", 
                   dest, viaHop, receivedFrom, selfIdx);
         
-        // CRITICAL: Only learn if receivedFrom is our direct neighbor
+        // Only learn if receivedFrom is our direct neighbor
         if (!isDirectNeighborLastByte(viaHop)) {
             LOG_DEBUG("NextHop: Skip PASSIVE learn: viaHop 0x%x is not a direct neighbor", viaHop);
             return;  // Can't use as next hop if not direct neighbor
@@ -115,13 +115,7 @@ void NextHopRouter::learnFromRouteDiscoveryPayload(const meshtastic_MeshPacket *
     LOG_DEBUG("NextHop: learnFromRouteDiscoveryPayload id=0x%x hops=%u path_type=%s", 
               p->id, (unsigned)maxHops, rd.route_back_count ? "back" : "forward");
     
-    //fw+ FIX: Skip passive learning for traceroute responses (isToUs) to avoid reversed path bug
-    // Problem: Passive learning uses route_back for responses, causing incorrect routing hints
-    // Example: Node1 receives response from Node16 with path [0x16,0x15,0x13,0x12,0x11]
-    //          Passive learning tries: "to reach 0x12 (last in path), go via 0x16 (sender)" ❌
-    //          But 0x12 is a direct neighbor (1 hop), not 0x16 (4 hops)!
-    // Solution: Only process passive learning for requests/relays, not responses
-    //          Responses are already handled correctly below (lines 118-131) using forward path
+    //fw+ Skip passive learning for traceroute responses (isToUs) to avoid reversed path bug
     if (!isToUs(p)) {
         processPathAndLearn(path, maxHops, snrList, maxSnr, p);
     }
