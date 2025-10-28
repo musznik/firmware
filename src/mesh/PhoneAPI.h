@@ -8,6 +8,10 @@
 #include <unordered_map>
 #include <vector>
 
+//fw+ FIX #108: Forward declarations for PacketId and ChannelIndex
+typedef uint32_t PacketId;
+typedef uint8_t ChannelIndex;
+
 // Make sure that we never let our packets grow too large for one BLE packet
 #define MAX_TO_FROM_RADIO_SIZE 512
 
@@ -169,6 +173,9 @@ class PhoneAPI
      * @return true true if a packet was queued for sending
      */
     bool handleToRadioPacket(meshtastic_MeshPacket &p);
+    
+    //fw+ FIX #108a: Send DTN ACCEPTED receipt to APK after intercept
+    void sendDtnAcceptedReceipt(PacketId origId, ChannelIndex channel);
 
     /// If the mesh service tells us fromNum has changed, tell the phone
     virtual int onNotify(uint32_t newValue) override;

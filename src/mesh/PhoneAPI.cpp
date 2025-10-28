@@ -23,6 +23,8 @@
 extern DtnOverlayModule *dtnOverlayModule;
 #endif
 
+#include "modules/RoutingModule.h"
+
 #if FromRadio_size > MAX_TO_FROM_RADIO_SIZE
 #error FromRadio is too big
 #endif
@@ -48,6 +50,29 @@ PhoneAPI::PhoneAPI()
 PhoneAPI::~PhoneAPI()
 {
     close();
+}
+
+//fw+ FIX #108a: Helper function to send DTN ACCEPTED receipt to APK
+// Purpose: Inform APK that DTN has accepted custody of the message
+// Called: Immediately after DTN intercept in PhoneAPI
+// Result: APK shows "DTN processing" status
+void PhoneAPI::sendDtnAcceptedReceipt(PacketId origId, ChannelIndex channel)
+{
+#if __has_include("modules/DtnOverlayModule.h")
+    if (!dtnOverlayModule) {
+        return; // DTN not available
+    }
+    
+    // Send PROGRESSED receipt with reason=self (DTN accepted)
+    dtnOverlayModule->emitReceipt(
+        nodeDB->getNodeNum(),                                    // to (self)
+        origId,                                                  // orig_id
+        meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_PROGRESSED, // status
+        nodeDB->getNodeNum()                                     // reason (self = DTN accepted)
+    );
+    
+    LOG_INFO("DTN: Sent ACCEPTED receipt to APK for id=0x%x (UX: 'DTN custody')", (unsigned)origId);
+#endif
 }
 
 void PhoneAPI::handleStartConfig()
@@ -735,18 +760,28 @@ bool PhoneAPI::handleToRadioPacket(meshtastic_MeshPacket &p)
 #if __has_include("modules/DtnOverlayModule.h")
     if (dtnOverlayModule && p.decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP) {
         bool isUnicast = (p.to != NODENUM_BROADCAST && p.to != NODENUM_BROADCAST_NO_LORA);
-        bool shouldIntercept = dtnOverlayModule->shouldInterceptLocalDM(p.to);
+        //fw+ Pass channel (should be 0 here, before encryption)
+        bool shouldIntercept = dtnOverlayModule->shouldInterceptLocalDM(p.to, p.channel);
         LOG_DEBUG("DTN PhoneAPI check: to=0x%x unicast=%d shouldIntercept=%d", 
                   (unsigned)p.to, (int)isUnicast, (int)shouldIntercept);
         if (isUnicast && shouldIntercept) {
-            uint32_t ttlMinutes = dtnOverlayModule->getTtlMinutes();
-            uint64_t deadline = ((uint64_t)getValidTime(RTCQualityFromNet) * 1000ULL) + 
-                               (ttlMinutes * 60ULL * 1000ULL);
+            //fw+ FIX #109: Unified TTL = 6 min for all destinations
+            // PROBLEM: 30min TTL was excessive (15min base + 15min extension)
+            //          Real delivery time for 7 hops ≈ 1.5 min → 6 min gives 4x margin
+            //          Long TTL wastes resources and delays EXPIRED receipts to User
+            // SOLUTION: Single TTL = 6 min for all destinations (simple, effective)
+            // NOTE: baseTtlMin from config still used for foreign capture (default 15min)
+            uint32_t ttlMinutes = 6;  // 6 min for all (1.5min delivery + 4.5min margin)
+            
+            LOG_DEBUG("DTN: Unified TTL for dest 0x%x - ttl=%umin",
+                      (unsigned)p.to, ttlMinutes);
+            
+            //fw+ Pass TTL directly in minutes (no deadline calculation needed)
             dtnOverlayModule->enqueueFromCaptured(p.id,
                                                   nodeDB->getNodeNum(),
                                                   p.to,
                                                   p.channel,
-                                                  deadline,
+                                                  ttlMinutes,
                                                   false,
                                                   p.decoded.payload.bytes,
                                                   p.decoded.payload.size,
@@ -760,6 +795,27 @@ bool PhoneAPI::handleToRadioPacket(meshtastic_MeshPacket &p)
                 router->cancelSending(nodeDB->getNodeNum(), p.id);
                 LOG_DEBUG("DTN: Cancelled Router retransmission for id=0x%x", (unsigned)p.id);
             }
+            
+            //fw+ FIX #102f: Send implicit ACK when DTN intercepts PhoneAPI message
+            // PROBLEM: Android app expects 2 ACKs for DTN delivery:
+            //   1. Implicit ACK (from=self) → MessageStatus.DELIVERED → "Forwarded by other node" ✓
+            //   2. Final ACK (from=dest) → MessageStatus.RECEIVED → "Delivery confirmed" ✓✓
+            // SOLUTION: Send implicit ACK immediately after DTN intercept
+            // NOTE: hopLimit=0 ensures ACK is LOCAL only (guarded by Router.cpp FIX #102d)
+            if (routingModule) {
+                routingModule->sendAckNak(meshtastic_Routing_Error_NONE, nodeDB->getNodeNum(), p.id, p.channel, 0, false);
+                LOG_INFO("DTN: Sent implicit ACK for PhoneAPI intercept id=0x%x (UX: 'Forwarded by other node')",
+                         (unsigned)p.id);
+            }
+            
+            //fw+ FIX #108a: Send DTN ACCEPTED receipt to APK
+            // PROBLEM: APK shows "sent" but user doesn't know DTN accepted custody
+            //          15-20s delay for route discovery → user confused ("did it send?")
+            // SOLUTION: Send PROGRESSED receipt immediately after DTN intercept
+            //           UX: "DTN custody accepted" (loading animation)
+            // NOTE: This informs APK that DTN started processing (not just queued)
+            sendDtnAcceptedReceipt(p.id, p.channel);
+
             
             // Send queue status so phone doesn't show "waiting"
             meshtastic_QueueStatus qs = router->getQueueStatus();
