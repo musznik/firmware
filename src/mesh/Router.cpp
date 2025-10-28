@@ -27,8 +27,27 @@
 #include "serialization/MeshPacketSerializer.h"
 #endif
 
-#define MAX_RX_FROMRADIO                                                                                                         \
-    4 // max number of packets destined to our queue, we dispatch packets quickly so it doesn't need to be big
+//fw+ CRITICAL FIX: Increase fromRadio queue size for large networks (100-200 nodes)
+// In dense networks, telemetry + position + DTN custody packets can saturate the small queue (4 slots)
+// causing DTN custody packets (priority=10) to be dropped → DTN delivery failure
+// RAM cost: (size - 4) * sizeof(MeshPacket) ≈ (size - 4) * 512 bytes
+#ifdef ARCH_PORTDUINO
+// Portduino (simulator): Large queue for testing large networks (18+ nodes)
+// RAM: 32 * 512 = 16KB (acceptable for native/PC)
+#define MAX_RX_FROMRADIO 32
+#elif defined(ARCH_ESP32)
+// ESP32: Moderate increase for production networks (50-100 nodes)
+// RAM: 16 * 512 = 8KB (ESP32 has ~520KB RAM, safe)
+#define MAX_RX_FROMRADIO 16
+#elif defined(ARCH_NRF52)
+// NRF52: Conservative increase (limited RAM: 64-256KB depending on variant)
+// RAM: 8 * 512 = 4KB (safe for NRF52840 with 256KB, marginal for NRF52832 with 64KB)
+#define MAX_RX_FROMRADIO 4
+#else
+// Other platforms (STM32, RP2040, etc): Moderate increase
+// RAM: 12 * 512 = 6KB
+#define MAX_RX_FROMRADIO 12
+#endif
 
 // I think this is right, one packet for each of the three fifos + one packet being currently assembled for TX or RX
 // And every TX packet might have a retransmission packet or an ack alive at any moment
@@ -47,7 +66,11 @@ Allocator<meshtastic_MeshPacket> &retransPacketPool = dynamicPool;
 // Embedded targets use static memory pools with compile-time constants
 //fw+ provide extra headroom for reliable-copy bursts
 #ifndef MAX_RELIABLE_HEADROOM
+#if defined(ARCH_NRF52)
+#define MAX_RELIABLE_HEADROOM 4  //fw+ Reduced from 6 to save RAM on NRF52
+#else
 #define MAX_RELIABLE_HEADROOM 6
+#endif
 #endif
 #define MAX_PACKETS_STATIC                                                                                                       \
     (MAX_RX_TOPHONE + MAX_RX_FROMRADIO + 2 * MAX_TX_QUEUE + MAX_RELIABLE_HEADROOM) // max number of packets which can be in flight
@@ -378,23 +401,61 @@ ErrorCode Router::send(meshtastic_MeshPacket *p)
     if (p->which_payload_variant == meshtastic_MeshPacket_decoded_tag) {
         //fw+ DTN-first: intercept private TEXT unicasts when DTN overlay is enabled and can help
 #if __has_include("mesh/generated/meshtastic/fwplus_dtn.pb.h")
-        // CRITICAL: Don't re-intercept DTN fallback packets (spoofed sender = from != our node)
+        // Don't re-intercept DTN fallback packets (spoofed sender = from != our node)
         // DTN fallback uses sender spoofing for proper decryption, but this would create infinite loop
         // if we intercept again: DTN fallback → Router intercept → DTN → fallback → ...
         bool isDtnFallback = (p->from != 0 && p->from != getNodeNum());
         
-        if (dtnOverlayModule && !isDtnFallback && dtnOverlayModule->shouldInterceptLocalDM(p->to) &&
+        //fw+ FIX #85: Don't re-intercept deliverLocal() packets (marked with rx_snr = -128.0f)
+        // PROBLEM: deliverLocal() → sendToMesh() → Router intercept → DTN → circular loop!
+        // OLD FIX #64: Used hop_start=0 marker, but prevented NodeDB hops_away update!
+        //              Result: New nodes got hops_away=0 → false "direct neighbor" detection
+        //              Symptom: Asymmetric delivery (B→N ✅ via DTN, N→B ❌ thought B direct!)
+        // SOLUTION: deliverLocal() marks packets with rx_snr = -128.0f (impossible LoRa value)
+        //           Use realistic hop_start from custody chain for correct NodeDB routing
+        LOG_DEBUG("DTN: Router check rx_snr=%.1f for id=0x%x", p->rx_snr, (unsigned)p->id);
+        bool isDeliverLocalPacket = (p->rx_snr <= -127.0f);  // -128.0f or lower
+        if (isDeliverLocalPacket) {
+            LOG_INFO("DTN: Skip intercept for deliverLocal() packet id=0x%x (circular loop prevention, snr=%.1f)", 
+                     p->id, p->rx_snr);
+        }
+        
+        //fw+ Skip DTN intercept for DTN DATA packets (prevent recursive intercept!)
+        // PROBLEM: custody send to edge → Router intercepts → DTN intercepts → infinite loop!
+        bool isDtnDataPacket = (p->decoded.portnum == meshtastic_PortNum_FWPLUS_DTN_APP);
+        
+        //fw+ FIX #13: Pass channel to shouldInterceptLocalDM to skip encrypted packets (channel=0x1f)
+        //fw+ FIX #102d: Skip LOCAL packets (hopLimit=0) - these are internal ACKs and should NEVER go through DTN!
+        // PROBLEM: DTN DELIVERED receipt triggers sendAckNak(to=dest, hopLimit=0) for local app notification
+        //          But Router::send() intercepted it because to=dest (distant node) → infinite loop!
+        // SOLUTION: hopLimit=0 means LOCAL delivery only (app notifications, local ACKs) - bypass DTN
+        bool isLocalPacket = (p->hop_limit == 0);
+        
+        //fw+ REMOVED FIX #105c: Tombstone check was ineffective (fallback DM re-captured before Router::send)
+        // PROBLEM: Fallback DM → sendToMesh → enqueueFromCaptured (DTN intercept) → Router::send
+        //          Tombstone check happens too late, packet already re-captured!
+        // SOLUTION: FIX #106b - erase pending BEFORE sendToMesh (no re-capture possible)
+        
+        if (dtnOverlayModule && !isDtnFallback && !isDeliverLocalPacket && !isDtnDataPacket && !isLocalPacket &&
+            dtnOverlayModule->shouldInterceptLocalDM(p->to, p->channel) &&
             p->decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP && !isBroadcast(p->to)) {
             uint32_t ttlMinutes = dtnOverlayModule->getTtlMinutes();
-            //fw+ Fix overflow: use 64-bit arithmetic for deadline calculation
-            uint64_t nowSec = getValidTime(RTCQualityFromNet);
-            uint64_t deadline = (nowSec * 1000ULL) + (ttlMinutes * 60ULL * 1000ULL);
-            //fw+ enqueue plaintext payload for DTN; allow proxy fallback later
-            bool enqueued = dtnOverlayModule->enqueueFromCaptured(p->id, getFrom(p), p->to, p->channel, deadline,
+            //fw+ Pass TTL directly in minutes (no deadline calculation needed)
+            bool enqueued = dtnOverlayModule->enqueueFromCaptured(p->id, getFrom(p), p->to, p->channel, ttlMinutes,
                                                                   false, p->decoded.payload.bytes, p->decoded.payload.size, true);
             if (enqueued) {
-                //fw+ Don't send ACK here - let DTN module handle ACK after actual delivery
-                // This prevents "queued" status in Android app - DTN will send proper ACK after delivery
+                //fw+ FIX #102f: Send implicit ACK when DTN intercepts message (UX: "Forwarded by other node")
+                // PROBLEM: Android app expects 2 ACKs for DTN delivery:
+                //   1. Implicit ACK (from=self) → MessageStatus.DELIVERED → "Forwarded by other node"
+                //   2. Final ACK (from=dest) → MessageStatus.RECEIVED → "Delivery confirmed"
+                // SOLUTION: Send implicit ACK here, DTN will send final ACK when DELIVERED receipt arrives
+                // NOTE: hopLimit=0 ensures ACK is LOCAL only (guarded by FIX #102d)
+                
+                // Send implicit ACK to source app (from=self, so Kotlin shows DELIVERED not RECEIVED)
+                routingModule->sendAckNak(meshtastic_Routing_Error_NONE, getFrom(p), p->id, p->channel, 0, false);
+                LOG_INFO("DTN: Sent implicit ACK for intercepted message id=0x%x (UX: 'Forwarded by other node')",
+                         (unsigned)p->id);
+                
                 packetPool.release(p);
                 return meshtastic_Routing_Error_NONE;
             }
@@ -894,7 +955,9 @@ void Router::perhapsHandleReceived(meshtastic_MeshPacket *p)
     // Even duplicates/filtered packets provide valuable topology info (hop_start/hop_limit)
     // This is essential for NextHopRouter to recognize direct neighbors (isDirectNeighborLastByte requires hops=0)
     if (nodeDB) {
+        LOG_DEBUG("Router: About to call NodeDB::updateFrom() for id=0x%x from=0x%x", p->id, p->from);
         nodeDB->updateFrom(*p);
+        LOG_DEBUG("Router: NodeDB::updateFrom() completed for id=0x%x from=0x%x", p->id, p->from);
     }
 
     if (shouldFilterReceived(p)) {
@@ -907,4 +970,10 @@ void Router::perhapsHandleReceived(meshtastic_MeshPacket *p)
     // cache/learn of the existence of nodes (i.e. FloodRouter) that they should not
     handleReceived(p);
     packetPool.release(p);
+}
+
+ //fw+ FIX #21: Clear packet history for specific ID (for DTN local delivery to avoid duplicate suppression)
+void Router::clearPacketHistory(PacketId id)
+{
+    clearEntry(id); // Call inherited PacketHistory method
 }

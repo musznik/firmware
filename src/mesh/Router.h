@@ -75,6 +75,9 @@ class Router : protected concurrency::OSThread, protected PacketHistory
     virtual void rewardRouteOnDelivered(PacketId /*originalId*/, NodeNum /*sourceNode*/, uint8_t /*viaHopLastByte*/, int8_t /*rxSnr*/) {}
     virtual void penalizeRouteOnFailed(PacketId /*originalId*/, NodeNum /*sourceNode*/, uint8_t /*viaHopLastByte*/, uint32_t /*reasonCode*/) {}
 
+    //fw+ FIX #21: Clear packet history for specific ID (for DTN local delivery to avoid duplicate suppression)
+    void clearPacketHistory(PacketId id);
+
     /**
      * RadioInterface calls this to queue up packets that have been received from the radio.  The router is now responsible for
      * freeing the packet
