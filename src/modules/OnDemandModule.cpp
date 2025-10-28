@@ -366,6 +366,7 @@ meshtastic_OnDemand OnDemandModule::prepareDtnOverlayStats()
     if (dtnOverlayModule) {
         DtnOverlayModule::DtnStatsSnapshot s{};
         dtnOverlayModule->getStatsSnapshot(s);
+        // Basic stats
         if (s.pendingCount > 0) { dst.has_pending_count = true; dst.pending_count = (uint32_t)s.pendingCount; }
         if (s.forwardsAttempted > 0) { dst.has_forwards_attempted = true; dst.forwards_attempted = s.forwardsAttempted; }
         if (s.fallbacksAttempted > 0) { dst.has_fallbacks_attempted = true; dst.fallbacks_attempted = s.fallbacksAttempted; }
@@ -377,27 +378,73 @@ meshtastic_OnDemand OnDemandModule::prepareDtnOverlayStats()
         if (s.probesSent > 0) { dst.has_probes_sent = true; dst.probes_sent = s.probesSent; }
         if (s.lastForwardAgeSecs > 0) { dst.has_last_forward_age_secs = true; dst.last_forward_age_secs = s.lastForwardAgeSecs; }
         if (s.knownNodesCount > 0) { dst.has_known_nodes_count = true; dst.known_nodes_count = s.knownNodesCount; }
+        // Custody & handoff stats
+        if (s.handoffsAttempted > 0) { dst.has_handoffs_attempted = true; dst.handoffs_attempted = s.handoffsAttempted; }
+        if (s.handoffCacheHits > 0) { dst.has_handoff_cache_hits = true; dst.handoff_cache_hits = s.handoffCacheHits; }
+        if (s.loopsDetected > 0) { dst.has_loops_detected = true; dst.loops_detected = s.loopsDetected; }
+        // Local delivery stats
+        if (s.deliveredLocal > 0) { dst.has_delivered_local = true; dst.delivered_local = s.deliveredLocal; }
+        if (s.duplicatesSuppressed > 0) { dst.has_duplicates_suppressed = true; dst.duplicates_suppressed = s.duplicatesSuppressed; }
+        // Progressive relay stats
+        if (s.progressiveRelays > 0) { dst.has_progressive_relays = true; dst.progressive_relays = s.progressiveRelays; }
+        if (s.progressiveRelayLoops > 0) { dst.has_progressive_relay_loops = true; dst.progressive_relay_loops = s.progressiveRelayLoops; }
+        // Adaptive routing stats
+        if (s.adaptiveReroutes > 0) { dst.has_adaptive_reroutes = true; dst.adaptive_reroutes = s.adaptiveReroutes; }
+        if (s.linkHealthChecks > 0) { dst.has_link_health_checks = true; dst.link_health_checks = s.linkHealthChecks; }
+        if (s.pathLearningUpdates > 0) { dst.has_path_learning_updates = true; dst.path_learning_updates = s.pathLearningUpdates; }
+        if (s.monitoredLinks > 0) { dst.has_monitored_links = true; dst.monitored_links = s.monitoredLinks; }
+        if (s.monitoredPaths > 0) { dst.has_monitored_paths = true; dst.monitored_paths = s.monitoredPaths; }
+        // Fallback stats
+        if (s.fwplusUnresponsiveFallbacks > 0) { dst.has_fwplus_unresponsive_fallbacks = true; dst.fwplus_unresponsive_fallbacks = s.fwplusUnresponsiveFallbacks; }
     }
 
-    //guard against radio MTU: trim least critical fields 
+    //guard against radio MTU: trim least critical fields by priority
+    // Priority 1: Drop detailed routing stats (lowest priority)
+    if (!fitsInPacket(onDemand, MAX_PACKET_SIZE)) {
+        dst.has_monitored_links = false;
+        dst.has_monitored_paths = false;
+        dst.has_handoff_cache_hits = false;
+    }
+    // Priority 2: Drop advanced stats
+    if (!fitsInPacket(onDemand, MAX_PACKET_SIZE)) {
+        dst.has_link_health_checks = false;
+        dst.has_path_learning_updates = false;
+        dst.has_progressive_relay_loops = false;
+        dst.has_duplicates_suppressed = false;
+    }
+    // Priority 3: Drop telemetry stats
     if (!fitsInPacket(onDemand, MAX_PACKET_SIZE)) {
         dst.has_known_nodes_count = false;
-    }
-    if (!fitsInPacket(onDemand, MAX_PACKET_SIZE)) {
         dst.has_milestones_sent = false;
         dst.has_probes_sent = false;
     }
+    // Priority 4: Drop timing stats
     if (!fitsInPacket(onDemand, MAX_PACKET_SIZE)) {
         dst.has_last_forward_age_secs = false;
     }
+    // Priority 5: Drop advanced delivery stats
+    if (!fitsInPacket(onDemand, MAX_PACKET_SIZE)) {
+        dst.has_adaptive_reroutes = false;
+        dst.has_progressive_relays = false;
+        dst.has_loops_detected = false;
+        dst.has_delivered_local = false;
+    }
+    // Priority 6: Drop receipt stats
     if (!fitsInPacket(onDemand, MAX_PACKET_SIZE)) {
         dst.has_receipts_received = false;
         dst.has_receipts_emitted = false;
     }
+    // Priority 7: Drop custody stats
+    if (!fitsInPacket(onDemand, MAX_PACKET_SIZE)) {
+        dst.has_handoffs_attempted = false;
+        dst.has_fwplus_unresponsive_fallbacks = false;
+    }
+    // Priority 8: Drop forwarding stats
     if (!fitsInPacket(onDemand, MAX_PACKET_SIZE)) {
         dst.has_fallbacks_attempted = false;
         dst.has_forwards_attempted = false;
     }
+    // Priority 9: Keep only critical error stats (highest priority)
     if (!fitsInPacket(onDemand, MAX_PACKET_SIZE)) {
         dst.has_give_ups = false;
         dst.has_expired = false;
