@@ -8,6 +8,7 @@
 #include "mesh/generated/meshtastic/fwplus_dtn.pb.h"
 #include "mesh/generated/meshtastic/portnums.pb.h"
 #include <unordered_map>
+#include <unordered_set>
 #include <map>
 #include <set>
 #include <vector>
@@ -24,14 +25,16 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     bool isEnabled() const { return configEnabled; } //fw+
     uint32_t getTtlMinutes() const { return configTtlMinutes; } //fw+
     // Enqueue overlay data created from a captured DM (plaintext or encrypted)
-    // deadlineMs uses uint64_t to avoid overflow (epoch*1000 exceeds uint32 in 2025+)
+    //fw+ Create DTN envelope from captured DM using relative TTL
+    // ttlMinutes: Time-to-live in minutes (converted to ms internally)
     // Returns: true if packet was enqueued, false if skipped (tombstone, queue full, too large)
     bool enqueueFromCaptured(uint32_t origId, uint32_t origFrom, uint32_t origTo, uint8_t channel,
-                             uint64_t deadlineMs, bool isEncrypted, const uint8_t *bytes, pb_size_t size,
+                             uint32_t ttlMinutes, bool isEncrypted, const uint8_t *bytes, pb_size_t size,
                              bool allowProxyFallback);
     // Expose DTN stats snapshot for diagnostics
     size_t getPendingCount() const { return pendingById.size(); }
     struct DtnStatsSnapshot {
+        // Basic stats
         size_t pendingCount;
         uint32_t forwardsAttempted;
         uint32_t fallbacksAttempted;
@@ -41,19 +44,27 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
         uint32_t giveUps;
         uint32_t milestonesSent;
         uint32_t probesSent;
-        uint32_t fwplusUnresponsiveFallbacks; //fw+ count of fallbacks to unresponsive FW+ nodes
         uint32_t lastForwardAgeSecs;
         uint32_t knownNodesCount; //fw+ number of known FW+ nodes
         bool enabled;
+        // Custody & handoff statistics
+        uint32_t handoffsAttempted;
+        uint32_t handoffCacheHits;
+        uint32_t loopsDetected;
+        // Local delivery statistics
+        uint32_t deliveredLocal;
+        uint32_t duplicatesSuppressed;
+        // Progressive relay statistics
+        uint32_t progressiveRelays;
+        uint32_t progressiveRelayLoops;
         // Adaptive routing statistics
         uint32_t adaptiveReroutes;
         uint32_t linkHealthChecks;
         uint32_t pathLearningUpdates;
         uint32_t monitoredLinks;
         uint32_t monitoredPaths;
-        // Progressive relay statistics
-        uint32_t progressiveRelays;
-        uint32_t progressiveRelayLoops;
+        // Fallback statistics
+        uint32_t fwplusUnresponsiveFallbacks; //fw+ count of fallbacks to unresponsive FW+ nodes
     };
     // Fill snapshot with current counters
     void getStatsSnapshot(DtnStatsSnapshot &out) const;
@@ -76,9 +87,16 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     }
     
     // Check if DTN can help with specific destination - PUBLIC for Router access
-    bool shouldInterceptLocalDM(NodeNum dest) const {
+    // NOTE: Router calls with channel parameter, must validate!
+    bool shouldInterceptLocalDM(NodeNum dest, uint8_t channel = 0) const {
         if (!configEnabled) {
             LOG_DEBUG("DTN intercept: disabled");
+            return false;
+        }
+        
+        //fw+ Skip encrypted packets (channel=0x1f) - Router may call before decryption
+        if (channel == 0x1f || channel > MAX_NUM_CHANNELS) {
+            LOG_DEBUG("DTN intercept SKIP: encrypted/invalid channel=%u", channel);
             return false;
         }
         
@@ -100,12 +118,28 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
             return false;
         }
         
+        //fw+ CRITICAL: Skip DTN for known stock destinations (avoid useless intercept + fallback)
+        // After first fallback to stock dest, future messages skip DTN entirely
+        if (isDestKnownStock(dest)) {
+            LOG_INFO("DTN intercept SKIP: dest 0x%x is known stock (use native DM)", (unsigned)dest);
+            return false;
+        }
+        
         // Check if any known DTN node can help reach destination
         bool canHelp = canDtnHelpWithDestination(dest);
         LOG_INFO("DTN intercept: dest 0x%x canHelp=%d known_fwplus=%u", 
                  (unsigned)dest, (int)canHelp, (unsigned)fwplusVersionByNode.size());
         return canHelp;
     }
+    
+    //fw+ REMOVED FIX #105c: checkTombstone() was unused (FIX #106b handles re-capture)
+    
+    //fw+ FIX #108: Make emitReceipt public for PhoneAPI access
+    // Purpose: Allow PhoneAPI to send DTN ACCEPTED receipt after intercept
+    // Usage: PhoneAPI calls this after DTN intercepts a message from phone
+    //fw+ FIX #116: Added custodyPath parameter for return path optimization
+    void emitReceipt(uint32_t to, uint32_t origId, meshtastic_FwplusDtnStatus status, uint32_t reason = 0, 
+                     uint8_t custodyPathCount = 0, const uint8_t *custodyPath = nullptr);
 
   protected:
     // Scheduler tick
@@ -135,6 +169,8 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
         meshtastic_FwplusDtnData data;
         uint32_t nextAttemptMs = 0;
         uint8_t tries = 0;
+        uint32_t lastAttemptMs = 0; //fw+ Track last forward time for TTL decrement
+        uint32_t captureTimeMs = 0; //fw+ Track capture time for absolute timeout
         //fw+ Loop detection: track recent carriers (circular buffer)
         uint32_t lastCarrier = 0; // node num of last hop we heard from (backward compat)
         NodeNum recentCarriers[3] = {0, 0, 0}; // last 3 carriers for loop detection
@@ -147,11 +183,26 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
         uint8_t dtnFailedAttempts = 0; // consecutive failed DTN overlay attempts
         uint32_t lastDtnAttemptMs = 0; // timestamp of last DTN attempt
         bool fallbackTriggered = false; // flag to avoid re-triggering fallback
+        //fw+ REMOVED FIX #105 (fallbackPacketId) - caused re-capture loop
         // Progressive relay tracking (for unknown/distant destinations)
-        NodeNum progressiveRelays[3] = {0, 0, 0}; // Track relay nodes used (loop prevention)
+        //fw+ FIX #86: Increase progressive relay chain limit from 3 to 5 (matches FIX #84 max_tries)
+        // PROBLEM: FIX #84 allowed 5 attempts but progressiveRelays[3] only tracked 3 edge nodes
+        //          Result: Attempts 4-5 had no edge nodes available → fallback triggered prematurely
+        // SOLUTION: Match array size to extended max_tries for full edge node rotation
+        NodeNum progressiveRelays[5] = {0, 0, 0, 0, 0}; // Track relay nodes used (loop prevention)
         uint8_t progressiveRelayCount = 0; // Number of progressive relay hops taken
+        //fw+ FIX #116: Force specific edge for return path optimization
+        // PROBLEM: DELIVERED receipts use forward path logic → wrong route → dropped
+        // SOLUTION: For receipts, use reverse custody_path as edge (return via same route)
+        NodeNum forceEdge = 0; // If non-zero, selectForwardTarget uses this edge
     };
     std::unordered_map<uint32_t, Pending> pendingById; // key: orig_id
+    
+    //fw+ FIX #115: Track DELIVERED receipt custody IDs for single-attempt erase
+    // PROBLEM: DELIVERED receipts retry indefinitely → broadcast storm → re-capture loop
+    // SOLUTION: Erase DELIVERED receipt pending after FIRST custody send (no retries)
+    std::unordered_set<uint32_t> deliveredReceiptIds; // DELIVERED receipt custody_ids (single attempt)
+    
     // Process received FW+ DTN DATA; deliver locally or schedule and coordinate with peers
     void handleData(const meshtastic_MeshPacket &mp, const meshtastic_FwplusDtnData &d);
     // Process received FW+ DTN RECEIPT; clear pending, tombstone, interpret reason codes
@@ -160,8 +211,7 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     void scheduleOrUpdate(uint32_t id, const meshtastic_FwplusDtnData &d);
     // Perform one forwarding decision for a pending DTN item
     void tryForward(uint32_t id, Pending &p);
-    // Send compact receipt (status/milestone/expire)
-    void emitReceipt(uint32_t to, uint32_t origId, meshtastic_FwplusDtnStatus status, uint32_t reason = 0);
+    // emitReceipt() moved to public section (FIX #108)
     // Lightweight FW+ presence probe
     void maybeProbeFwplus(NodeNum dest);
     // Unwrap payload for local delivery
@@ -172,6 +222,7 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     NodeNum chooseHandoffTarget(NodeNum dest, uint32_t origId, Pending &p);
     // Select furthest known FW+ node for progressive relay (unknown/distant destinations)
     NodeNum chooseProgressiveRelay(NodeNum dest, Pending &p);
+    NodeNum findDirectFwplusNeighbor(const Pending &p);  //fw+ FIX #96: Last resort fallback
     // Housekeeping: prune per-destination cache
     void prunePerDestCache();
     // Perform late native DM fallback (encrypted)
@@ -181,10 +232,8 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     void trackCarrier(Pending &p, NodeNum carrier);
     
     // Time calculation helpers (avoid code duplication and overflow bugs)
-    // Implementations in .cpp to avoid header include dependencies
-    uint64_t getEpochMs() const;
-    uint64_t calculateTtl(const meshtastic_FwplusDtnData &d) const;
-    uint64_t calculateTailStart(const meshtastic_FwplusDtnData &d, uint32_t tailPercent) const;
+    //fw+ TTL helpers
+    uint64_t getEpochMs() const; // Legacy - kept for compatibility
     bool isInTtlTail(const meshtastic_FwplusDtnData &d, uint32_t tailPercent) const;
 
     // Config snapshot
@@ -219,14 +268,18 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     // Periodic FW+ version advertisement with staged warmup
     uint32_t configAdvertiseIntervalMs = 6UL * 60UL * 60UL * 1000UL;  // 6h (normal operation)
     uint32_t configAdvertiseJitterMs = 5UL * 60UL * 1000UL;           // ±5 min
-    // Staged warmup: aggressive discovery in first hour, then progressive backoff
-    uint32_t configAdvertiseWarmupIntervalMs = 15UL * 60UL * 1000UL;   // 15min (first hour warmup)
-    uint32_t configAdvertiseWarmupDurationMs = 60UL * 60UL * 1000UL;   // 1h (warmup phase duration)
-    uint8_t configAdvertiseWarmupCount = 4;                            // 4 beacons in warmup (15min × 4 = 60min)
+    // Staged warmup: aggressive discovery in first 70min (4 beacons guaranteed), then progressive backoff
+    uint32_t configAdvertiseWarmupIntervalMs = 15UL * 60UL * 1000UL;   // 15min (warmup interval)
+    uint32_t configAdvertiseWarmupDurationMs = 70UL * 60UL * 1000UL;   // 70min (warmup phase duration - extended to guarantee 4 beacons with max jitter)
+    uint8_t configAdvertiseWarmupCount = 4;                            // 4 beacons in warmup (15min × 4 + jitter margin)
     // Post-warmup: if still no FW+ nodes known, continue searching
     uint32_t configAdvertiseIntervalUnknownMs = 120UL * 60UL * 1000UL; // 2h (post-warmup cold-start)
     // One-shot early advertise after enable/start
+    #ifdef ARCH_PORTDUINO
+    uint32_t configFirstAdvertiseDelayMs = 10UL * 1000UL;              // 10s for simulator (fast discovery)
+    #else
     uint32_t configFirstAdvertiseDelayMs = 2UL * 60UL * 1000UL;        // 2min base + 0-60s random jitter (prevents sync burst after power outage)
+    #endif
     uint32_t configFirstAdvertiseRetryMs = 10UL * 1000UL;              // 10s retry interval if first beacon fails
     uint32_t configFarMinTtlFracPercent = 20;      //fw+ reduced wait time for far nodes
     uint32_t configOriginProgressMinIntervalMs = 15000; // per-source min interval for milestone
@@ -245,7 +298,7 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     // Unresponsive FW+ destination fallback
     bool configFwplusUnresponsiveFallback = true;   //fw+ enable fallback when FW+ dest doesn't respond
     uint8_t configFwplusFailureThreshold = 2;       //fw+ consecutive failures before fallback (default 2)
-    uint32_t configFwplusResponseTimeoutMs = 180000; //fw+ timeout to expect receipt (3 min)
+    uint32_t configFwplusResponseTimeoutMs = 300000; //fw+ timeout to expect receipt (5 min for distant multi-hop chains)
     // Adaptive milestone limiter
     bool configMilestoneAutoLimiterEnabled = true;       // enable adaptive suppression
     uint8_t configMilestoneAutoSuppressHighChUtil = 55;  // suppress when >= this
@@ -294,6 +347,8 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     std::unordered_map<NodeNum, uint32_t> lastRouteProbeMs; // last proactive traceroute per dest
     // Per-origin hello-back rate limit state
     std::unordered_map<NodeNum, uint32_t> lastHelloBackToNodeMs;
+    //fw+ FIX #127: Scheduled hello-backs with random delay (RF storm prevention)
+    std::unordered_map<NodeNum, uint32_t> scheduledHelloBackMs; // NodeNum -> scheduled send time (millis)
     // Anti-burst tracking for broadcast fallbacks
     std::unordered_map<uint32_t, uint32_t> lastBroadcastSentMs; // orig_id -> last broadcast time
     //fw+ cache of destinations confirmed as stock (via native ROUTING ACK/NAK), with age
@@ -303,6 +358,21 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
         if (it == stockKnownMs.end()) return false;
         return (millis() - it->second) <= (24UL * 60UL * 60UL * 1000UL);
     }
+    
+    //fw+ FIX #123: Direction hints from relay_node (beacon routing intelligence)
+    // Maps destination NodeNum to relay_node that forwarded beacon from that destination
+    // This tells us which neighbor is "in the direction" of a distant FW+ node
+    std::unordered_map<NodeNum, NodeNum> relayHintsByDest; // dest -> relay_node (direction hint)
+    
+    //fw+ Adaptive routing: cache successful custody chains per destination
+    // Stores the first-hop relay that led to successful delivery
+    struct SuccessfulChain {
+        NodeNum firstHop;      // First relay node in successful chain
+        uint32_t learnedMs;    // When we learned this chain
+        uint8_t chainLength;   // Total hops in chain (for metrics)
+    };
+    std::unordered_map<NodeNum, SuccessfulChain> learnedChainsByDest; // dest -> chain
+    uint32_t configChainCacheTtlMs = 6 * 60 * 60 * 1000UL; // 6h TTL for learned chains
     void markFwplusSeen(NodeNum n) { fwplusSeenMs[n] = millis(); }
     bool isFwplus(NodeNum n) const {
         auto it = fwplusSeenMs.find(n);
@@ -342,6 +412,17 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
             if (ni->num == n) return ni->hops_away;
         }
         return 255; // unknown
+    }
+
+    //fw+ FIX #88: Check if Router has reliable routing to destination
+    // PROBLEM: NodeDB has hops_away but Router may have no next_hop (routing table mismatch)
+    // SOLUTION: Use route confidence as proxy for Router routing availability
+    //           Low confidence indicates Router has no reliable path despite NodeDB distance info
+    bool hasRouterNextHop(NodeNum dest) const
+    {
+        // If we have sufficient route confidence, Router has reliable next_hop
+        // Low confidence (despite known hops) indicates NodeDB/Router mismatch
+        return hasSufficientRouteConfidence(dest);
     }
 
 
@@ -602,10 +683,13 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     // Adaptive path selection functions
     NodeNum selectAlternativePathOnFailure(uint32_t id, Pending &p, NodeNum failedHop = 0);
     float calculatePathScore(NodeNum firstHop, NodeNum dest, float cost, uint8_t hops) const;
+    
 
     // Maintenance functions
     void runPeriodicMaintenance();
     void logAdaptiveRoutingStatistics();
+    //fw+ FIX #127: Process scheduled hello-backs with random delay
+    void processScheduledHellobacks();
     std::string formatHopList(const std::vector<NodeNum>& hops) const;
 
     // Link health monitoring
