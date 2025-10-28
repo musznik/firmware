@@ -73,6 +73,9 @@ class PacketHistory
     // Remove a relayer from the list of relayers of a packet in the history given an ID and sender
     void removeRelayer(const uint8_t relayer, const uint32_t id, const NodeNum sender);
 
+    //fw+ FIX #21: Clear specific entry by ID (for DTN local delivery to avoid duplicate suppression)
+    void clearEntry(PacketId id);
+
     // To check if the PacketHistory was initialized correctly by constructor
     bool initOk(void) { return recentPackets != NULL && recentPacketsCapacity != 0; }
 };
