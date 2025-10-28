@@ -30,16 +30,25 @@ typedef struct _meshtastic_FwplusDtnData {
     uint32_t orig_to;
     /* Channel index the original packet used */
     uint8_t channel;
-    /* Original receive time at the carrier (seconds since epoch or mesh time) */
-    uint32_t orig_rx_time;
-    /* Absolute deadline (millis since boot or epoch depending on firmware timebase) */
-    uint32_t deadline_ms;
     /* Whether payload is encrypted ciphertext (true) or plaintext (false) */
     bool is_encrypted;
     /* Allows late proxy fallback to native DM near deadline */
     bool allow_proxy_fallback;
     /* Payload bytes: plaintext or ciphertext 1:1 from original */
     meshtastic_FwplusDtnData_payload_t payload;
+    /* fw+ CRITICAL FIX #4: Custody loop prevention - track custody chain
+ List of nodes (last byte only) that have held custody (in order: source → relay1 → relay2 → ...)
+ Each intermediate node MUST check if its chosen next hop is already in this list
+ to prevent custody loops (e.g., A→B→C→B would create infinite loop)
+ Max 16 hops in custody chain (increased from 8 for larger networks)
+ Uses uint32 low byte (NodeNum & 0xFF) for compact encoding - saves 48 bytes vs full uint32! */
+    pb_size_t custody_path_count;
+    uint8_t custody_path[16];
+    /* fw+ Relative TTL: Time-to-live in milliseconds (simple and universal)
+ Source initializes: ttl_minutes * 60 * 1000
+ Each hop checks: if (ttl_remaining_ms == 0) → EXPIRED
+ Works in ALL scenarios (GPS/no-GPS, mixed network, different uptimes) */
+    uint32_t ttl_remaining_ms;
 } meshtastic_FwplusDtnData;
 
 typedef struct _meshtastic_FwplusDtnReceipt {
@@ -73,10 +82,10 @@ extern "C" {
 
 
 /* Initializer values for message structs */
-#define meshtastic_FwplusDtnData_init_default    {0, 0, 0, 0, 0, 0, 0, 0, {0, {0}}}
+#define meshtastic_FwplusDtnData_init_default    {0, 0, 0, 0, 0, 0, {0, {0}}, 0, {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 0}
 #define meshtastic_FwplusDtnReceipt_init_default {0, _meshtastic_FwplusDtnStatus_MIN, 0}
 #define meshtastic_FwplusDtn_init_default        {0, {meshtastic_FwplusDtnData_init_default}}
-#define meshtastic_FwplusDtnData_init_zero       {0, 0, 0, 0, 0, 0, 0, 0, {0, {0}}}
+#define meshtastic_FwplusDtnData_init_zero       {0, 0, 0, 0, 0, 0, {0, {0}}, 0, {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 0}
 #define meshtastic_FwplusDtnReceipt_init_zero    {0, _meshtastic_FwplusDtnStatus_MIN, 0}
 #define meshtastic_FwplusDtn_init_zero           {0, {meshtastic_FwplusDtnData_init_zero}}
 
@@ -85,11 +94,11 @@ extern "C" {
 #define meshtastic_FwplusDtnData_orig_from_tag   2
 #define meshtastic_FwplusDtnData_orig_to_tag     3
 #define meshtastic_FwplusDtnData_channel_tag     4
-#define meshtastic_FwplusDtnData_orig_rx_time_tag 5
-#define meshtastic_FwplusDtnData_deadline_ms_tag 6
-#define meshtastic_FwplusDtnData_is_encrypted_tag 7
-#define meshtastic_FwplusDtnData_allow_proxy_fallback_tag 8
-#define meshtastic_FwplusDtnData_payload_tag     9
+#define meshtastic_FwplusDtnData_is_encrypted_tag 5
+#define meshtastic_FwplusDtnData_allow_proxy_fallback_tag 6
+#define meshtastic_FwplusDtnData_payload_tag     7
+#define meshtastic_FwplusDtnData_custody_path_tag 8
+#define meshtastic_FwplusDtnData_ttl_remaining_ms_tag 9
 #define meshtastic_FwplusDtnReceipt_orig_id_tag  1
 #define meshtastic_FwplusDtnReceipt_status_tag   2
 #define meshtastic_FwplusDtnReceipt_reason_tag   3
@@ -102,11 +111,11 @@ X(a, STATIC,   SINGULAR, UINT32,   orig_id,           1) \
 X(a, STATIC,   SINGULAR, UINT32,   orig_from,         2) \
 X(a, STATIC,   SINGULAR, UINT32,   orig_to,           3) \
 X(a, STATIC,   SINGULAR, UINT32,   channel,           4) \
-X(a, STATIC,   SINGULAR, UINT32,   orig_rx_time,      5) \
-X(a, STATIC,   SINGULAR, UINT32,   deadline_ms,       6) \
-X(a, STATIC,   SINGULAR, BOOL,     is_encrypted,      7) \
-X(a, STATIC,   SINGULAR, BOOL,     allow_proxy_fallback,   8) \
-X(a, STATIC,   SINGULAR, BYTES,    payload,           9)
+X(a, STATIC,   SINGULAR, BOOL,     is_encrypted,      5) \
+X(a, STATIC,   SINGULAR, BOOL,     allow_proxy_fallback,   6) \
+X(a, STATIC,   SINGULAR, BYTES,    payload,           7) \
+X(a, STATIC,   REPEATED, UINT32,   custody_path,      8) \
+X(a, STATIC,   SINGULAR, UINT32,   ttl_remaining_ms,   9)
 #define meshtastic_FwplusDtnData_CALLBACK NULL
 #define meshtastic_FwplusDtnData_DEFAULT NULL
 
@@ -136,9 +145,9 @@ extern const pb_msgdesc_t meshtastic_FwplusDtn_msg;
 
 /* Maximum encoded size of messages (where known) */
 #define MESHTASTIC_MESHTASTIC_FWPLUS_DTN_PB_H_MAX_SIZE meshtastic_FwplusDtn_size
-#define meshtastic_FwplusDtnData_size            280
+#define meshtastic_FwplusDtnData_size            322
 #define meshtastic_FwplusDtnReceipt_size         12
-#define meshtastic_FwplusDtn_size                283
+#define meshtastic_FwplusDtn_size                325
 
 #ifdef __cplusplus
 } /* extern "C" */

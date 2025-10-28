@@ -505,13 +505,13 @@ typedef struct _meshtastic_ModuleConfig_NodeModAdminConfig {
 typedef struct _meshtastic_ModuleConfig_DtnOverlayConfig {
     /* Enable FW+ DTN overlay module (default: false) */
     bool enabled;
-    /* Absolute TTL in minutes for DM overlay deliveries (default: 4) */
+    /* Absolute TTL in minutes for DM overlay deliveries (default: 6) */
     uint16_t ttl_minutes;
     /* Initial delay base in milliseconds before first attempt (default: 2000) */
-    uint32_t initial_delay_base_ms;
-    /* Retry backoff base in milliseconds between attempts (default: 120000) */
+    uint16_t initial_delay_base_ms;
+    /* Retry backoff base in milliseconds between attempts (default: 40000 = 40s) */
     uint32_t retry_backoff_ms;
-    /* Maximum tries before declaring failed (default: 2) */
+    /* Maximum tries before declaring failed (default: 3) */
     uint8_t max_tries;
     /* Enable late proxy fallback to native DM near deadline (default: false) */
     bool late_fallback_enabled;
@@ -519,7 +519,7 @@ typedef struct _meshtastic_ModuleConfig_DtnOverlayConfig {
     uint8_t fallback_tail_percent;
     /* Enable milestone progress receipts for telemetry (default: false) */
     bool milestones_enabled;
-    /* Minimum spacing between attempts to same destination in ms (default: 120000) */
+    /* Minimum spacing between attempts to same destination in ms (default: 60000 = 1min) */
     uint16_t per_dest_min_spacing_ms;
     /* Global cap of concurrently active DTN DMs per node (default: 1) */
     uint8_t max_active_dm;
@@ -1417,7 +1417,7 @@ extern const pb_msgdesc_t meshtastic_RemoteHardwarePin_msg;
 #define meshtastic_ModuleConfig_BroadcastAssistConfig_size 69
 #define meshtastic_ModuleConfig_CannedMessageConfig_size 49
 #define meshtastic_ModuleConfig_DetectionSensorConfig_size 44
-#define meshtastic_ModuleConfig_DtnOverlayConfig_size 37
+#define meshtastic_ModuleConfig_DtnOverlayConfig_size 35
 #define meshtastic_ModuleConfig_ExternalNotificationConfig_size 42
 #define meshtastic_ModuleConfig_IdleGameAction_size 11
 #define meshtastic_ModuleConfig_IdleGameAlliance_size 9

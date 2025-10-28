@@ -265,6 +265,50 @@ typedef struct _meshtastic_DtnOverlayStats {
     /* Number of known FW+ nodes (DTN-capable nodes) */
     bool has_known_nodes_count;
     uint16_t known_nodes_count;
+    /* Custody & handoff statistics
+ Custody handoff attempts to other FW+ nodes */
+    bool has_handoffs_attempted;
+    uint16_t handoffs_attempted;
+    /* Handoff target cache hits (avoided recomputation) */
+    bool has_handoff_cache_hits;
+    uint16_t handoff_cache_hits;
+    /* Carrier loops detected and prevented */
+    bool has_loops_detected;
+    uint16_t loops_detected;
+    /* Local delivery statistics
+ Messages successfully delivered to this node */
+    bool has_delivered_local;
+    uint16_t delivered_local;
+    /* Duplicate deliveries prevented by tombstone */
+    bool has_duplicates_suppressed;
+    uint16_t duplicates_suppressed;
+    /* Progressive relay statistics
+ Progressive relay attempts to edge nodes (unknown/distant dest) */
+    bool has_progressive_relays;
+    uint16_t progressive_relays;
+    /* Progressive relay loops detected and prevented */
+    bool has_progressive_relay_loops;
+    uint16_t progressive_relay_loops;
+    /* Adaptive routing statistics
+ Adaptive path switches due to failures */
+    bool has_adaptive_reroutes;
+    uint16_t adaptive_reroutes;
+    /* Link health evaluation count */
+    bool has_link_health_checks;
+    uint16_t link_health_checks;
+    /* Path reliability learning updates */
+    bool has_path_learning_updates;
+    uint16_t path_learning_updates;
+    /* Number of actively monitored links */
+    bool has_monitored_links;
+    uint8_t monitored_links;
+    /* Number of actively monitored paths */
+    bool has_monitored_paths;
+    uint8_t monitored_paths;
+    /* Fallback statistics
+ Fallbacks to native DM for unresponsive FW+ destinations */
+    bool has_fwplus_unresponsive_fallbacks;
+    uint16_t fwplus_unresponsive_fallbacks;
 } meshtastic_DtnOverlayStats;
 
 /* fw+ Broadcast Assist statistics for UI/diagnostics */
@@ -382,7 +426,7 @@ extern "C" {
 #define meshtastic_OnDemand_init_default         {false, 0, false, 0, 0, {meshtastic_OnDemandRequest_init_default}}
 #define meshtastic_RoutingTableEntry_init_default {0, 0, 0, 0, 0}
 #define meshtastic_RoutingTable_init_default     {0, {meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default, meshtastic_RoutingTableEntry_init_default}}
-#define meshtastic_DtnOverlayStats_init_default  {false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0}
+#define meshtastic_DtnOverlayStats_init_default  {false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0}
 #define meshtastic_BroadcastAssistStats_init_default {false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0}
 #define meshtastic_FwPlusVersion_init_zero       {0}
 #define meshtastic_NodeStats_init_zero           {false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, "", false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0}
@@ -404,7 +448,7 @@ extern "C" {
 #define meshtastic_OnDemand_init_zero            {false, 0, false, 0, 0, {meshtastic_OnDemandRequest_init_zero}}
 #define meshtastic_RoutingTableEntry_init_zero   {0, 0, 0, 0, 0}
 #define meshtastic_RoutingTable_init_zero        {0, {meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero, meshtastic_RoutingTableEntry_init_zero}}
-#define meshtastic_DtnOverlayStats_init_zero     {false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0}
+#define meshtastic_DtnOverlayStats_init_zero     {false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0}
 #define meshtastic_BroadcastAssistStats_init_zero {false, 0, false, 0, false, 0, false, 0, false, 0, false, 0, false, 0}
 
 /* Field tags (for use in manual encoding/decoding) */
@@ -495,6 +539,19 @@ extern "C" {
 #define meshtastic_DtnOverlayStats_enabled_tag   10
 #define meshtastic_DtnOverlayStats_last_forward_age_secs_tag 11
 #define meshtastic_DtnOverlayStats_known_nodes_count_tag 12
+#define meshtastic_DtnOverlayStats_handoffs_attempted_tag 13
+#define meshtastic_DtnOverlayStats_handoff_cache_hits_tag 14
+#define meshtastic_DtnOverlayStats_loops_detected_tag 15
+#define meshtastic_DtnOverlayStats_delivered_local_tag 16
+#define meshtastic_DtnOverlayStats_duplicates_suppressed_tag 17
+#define meshtastic_DtnOverlayStats_progressive_relays_tag 18
+#define meshtastic_DtnOverlayStats_progressive_relay_loops_tag 19
+#define meshtastic_DtnOverlayStats_adaptive_reroutes_tag 20
+#define meshtastic_DtnOverlayStats_link_health_checks_tag 21
+#define meshtastic_DtnOverlayStats_path_learning_updates_tag 22
+#define meshtastic_DtnOverlayStats_monitored_links_tag 23
+#define meshtastic_DtnOverlayStats_monitored_paths_tag 24
+#define meshtastic_DtnOverlayStats_fwplus_unresponsive_fallbacks_tag 25
 #define meshtastic_BroadcastAssistStats_enabled_tag 1
 #define meshtastic_BroadcastAssistStats_reflood_attempts_tag 2
 #define meshtastic_BroadcastAssistStats_reflood_sent_tag 3
@@ -728,7 +785,20 @@ X(a, STATIC,   OPTIONAL, UINT32,   milestones_sent,   8) \
 X(a, STATIC,   OPTIONAL, UINT32,   probes_sent,       9) \
 X(a, STATIC,   OPTIONAL, BOOL,     enabled,          10) \
 X(a, STATIC,   OPTIONAL, UINT32,   last_forward_age_secs,  11) \
-X(a, STATIC,   OPTIONAL, UINT32,   known_nodes_count,  12)
+X(a, STATIC,   OPTIONAL, UINT32,   known_nodes_count,  12) \
+X(a, STATIC,   OPTIONAL, UINT32,   handoffs_attempted,  13) \
+X(a, STATIC,   OPTIONAL, UINT32,   handoff_cache_hits,  14) \
+X(a, STATIC,   OPTIONAL, UINT32,   loops_detected,   15) \
+X(a, STATIC,   OPTIONAL, UINT32,   delivered_local,  16) \
+X(a, STATIC,   OPTIONAL, UINT32,   duplicates_suppressed,  17) \
+X(a, STATIC,   OPTIONAL, UINT32,   progressive_relays,  18) \
+X(a, STATIC,   OPTIONAL, UINT32,   progressive_relay_loops,  19) \
+X(a, STATIC,   OPTIONAL, UINT32,   adaptive_reroutes,  20) \
+X(a, STATIC,   OPTIONAL, UINT32,   link_health_checks,  21) \
+X(a, STATIC,   OPTIONAL, UINT32,   path_learning_updates,  22) \
+X(a, STATIC,   OPTIONAL, UINT32,   monitored_links,  23) \
+X(a, STATIC,   OPTIONAL, UINT32,   monitored_paths,  24) \
+X(a, STATIC,   OPTIONAL, UINT32,   fwplus_unresponsive_fallbacks,  25)
 #define meshtastic_DtnOverlayStats_CALLBACK NULL
 #define meshtastic_DtnOverlayStats_DEFAULT NULL
 
@@ -795,7 +865,7 @@ extern const pb_msgdesc_t meshtastic_BroadcastAssistStats_msg;
 #define meshtastic_AirActivityEntry_size         18
 #define meshtastic_AirActivityHistory_size       200
 #define meshtastic_BroadcastAssistStats_size     26
-#define meshtastic_DtnOverlayStats_size          46
+#define meshtastic_DtnOverlayStats_size          106
 #define meshtastic_ExchangeEntry_size            18
 #define meshtastic_ExchangeList_size             240
 #define meshtastic_FwPlusVersion_size            6
