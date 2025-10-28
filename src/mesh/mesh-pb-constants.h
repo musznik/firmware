@@ -15,11 +15,12 @@
 // FIXME - max_count is actually 32 but we save/load this as one long string of preencoded MeshPacket bytes - not a big array in
 // RAM #define MAX_RX_TOPHONE (member_size(DeviceState, receive_queue) / member_size(DeviceState, receive_queue[0]))
 #ifndef MAX_RX_TOPHONE
-//#if defined(ARCH_ESP32) && !(defined(CONFIG_IDF_TARGET_ESP32C3) || defined(CONFIG_IDF_TARGET_ESP32S3))
-//#define MAX_RX_TOPHONE 8
-//#else
+//fw+ Reduce for NRF52 to save RAM (limited to 256KB total)
+#if defined(ARCH_NRF52)
+#define MAX_RX_TOPHONE 12
+#else
 #define MAX_RX_TOPHONE 32
-//#endif
+#endif
 #endif
 
 /// max number of QueueStatus packets which can be waiting for delivery to phone
@@ -46,7 +47,7 @@ static_assert(sizeof(meshtastic_NodeInfoLite) <= 200, "NodeInfoLite size increas
 #if defined(ARCH_STM32WL)
 #define MAX_NUM_NODES 10
 #elif defined(ARCH_NRF52)
-#define MAX_NUM_NODES 80
+#define MAX_NUM_NODES 50  //fw+ Reduced from 80 to save RAM (50*200bytes = 10KB saved)
 #elif defined(CONFIG_IDF_TARGET_ESP32S3)
 #include "Esp.h"
 static inline int get_max_num_nodes()
