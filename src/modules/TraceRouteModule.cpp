@@ -4,6 +4,7 @@
 #include "graphics/ScreenFonts.h"
 #include "graphics/SharedUIDisplay.h"
 #include "mesh/Router.h"
+#include "mesh/NextHopRouter.h"  //fw+ CRITICAL: Enable DV-ETX route learning from traceroutes
 #include "meshUtils.h"
 #include <vector>
 
@@ -13,6 +14,18 @@ TraceRouteModule *traceRouteModule;
 
 bool TraceRouteModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, meshtastic_RouteDiscovery *r)
 {
+    //fw+  Call NextHopRouter to learn routes from traceroute packets
+    // This enables ACTIVE and PASSIVE DV-ETX route learning, which is essential for DTN and mesh routing
+    // Without this, traceroute responses are logged but never used for routing decisions
+    // This was a MAJOR missing integration causing 0% DTN delivery rate
+    if (router) {
+        NextHopRouter *nh = static_cast<NextHopRouter*>(router);
+        nh->learnFromRouteDiscoveryPayload(&mp);
+        LOG_DEBUG("Traceroute: NextHopRouter learning triggered for packet id=0x%x", mp.id);
+    } else {
+        LOG_WARN("Traceroute: Router is NULL");
+    }
+    
     // We only alter the packet in alterReceivedProtobuf()
     return false; // let it be handled by RoutingModule
 }
