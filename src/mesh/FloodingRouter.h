@@ -28,12 +28,12 @@
 class FloodingRouter : public Router
 {
   private:
-    // Telemetry rebroadcast limiter state (60s fixed window)
+    //fw+ Telemetry rebroadcast limiter state (60s fixed window)
     uint32_t telemetryWindowStartMs = 0;
     uint16_t telemetryPacketsInWindow = 0;
     bool isTelemetryRebroadcastLimited(const meshtastic_MeshPacket *p);
 
-    // Position rebroadcast limiter - cache of last forwarded positions (LRU, fixed size)
+    //fw+ Position rebroadcast limiter - cache of last forwarded positions (LRU, fixed size)
     struct ForwardedPositionEntry {
       uint32_t nodeId = 0;
       int32_t lastLat_i = 0;
@@ -46,14 +46,14 @@ class FloodingRouter : public Router
     bool isPositionRebroadcastAllowed(const meshtastic_MeshPacket *p);
     void upsertPositionEntryLRU(uint32_t nodeId, int32_t lat_i, int32_t lon_i, uint32_t nowMs);
 
-    // Opportunistic/selective flooding helpers
+    //fw+ Opportunistic/selective flooding helpers
     bool isOpportunisticEnabled() const;
     bool isOpportunisticAuto() const;
     uint32_t computeOpportunisticDelayMs(const meshtastic_MeshPacket *p) const;
     uint32_t clampDelay(uint32_t d) const;
     bool hasBackboneNeighbor() const;
 
-    // Counters for diagnostics
+    //fw+ Counters for diagnostics
     uint32_t opportunistic_scheduled = 0;
     uint32_t opportunistic_canceled = 0;
 

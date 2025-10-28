@@ -71,33 +71,8 @@ bool FloodingRouter::shouldFilterReceived(const meshtastic_MeshPacket *p)
         wasSeenRecently(p, true, nullptr, nullptr, &wasUpgraded); // Updates history; returns false when an upgrade is detected
 
     // Handle hop_limit upgrade scenario for rebroadcasters
-    // isRebroadcaster() is duplicated in perhapsRebroadcast(), but this avoids confusing log messages
-    if (wasUpgraded && isRebroadcaster() && iface && p->hop_limit > 0) {
-        // wasSeenRecently() reports false in upgrade cases so we handle replacement before the duplicate short-circuit
-        // If we overhear a duplicate copy of the packet with more hops left than the one we are waiting to
-        // rebroadcast, then remove the packet currently sitting in the TX queue and use this one instead.
-        uint8_t dropThreshold = p->hop_limit; // remove queued packets that have fewer hops remaining
-        if (iface->removePendingTXPacket(getFrom(p), p->id, dropThreshold)) {
-            LOG_DEBUG("Processing upgraded packet 0x%08x for rebroadcast with hop limit %d (dropping queued < %d)", p->id,
-                      p->hop_limit, dropThreshold);
-
-            if (nodeDB)
-                nodeDB->updateFrom(*p);
-#if !MESHTASTIC_EXCLUDE_TRACEROUTE
-            if (traceRouteModule && p->which_payload_variant == meshtastic_MeshPacket_decoded_tag &&
-                p->decoded.portnum == meshtastic_PortNum_TRACEROUTE_APP)
-                traceRouteModule->processUpgradedPacket(*p);
-#endif
-
-            perhapsRebroadcast(p);
-
-            // We already enqueued the improved copy, so make sure the incoming packet stops here.
-            return true;
-        }
-
-        // No queue entry was replaced by this upgraded copy, so treat it as a duplicate to avoid
-        // delivering the same packet to applications/phone twice with different hop limits.
-        seenRecently = true;
+    if (wasUpgraded && perhapsHandleUpgradedPacket(p)) {
+        return true; // we handled it, so stop processing
     }
 
     if (seenRecently) {
@@ -113,8 +88,10 @@ bool FloodingRouter::shouldFilterReceived(const meshtastic_MeshPacket *p)
         if (isRepeated) {
             LOG_DEBUG("Repeated reliable tx");
             // Check if it's still in the Tx queue, if not, we have to relay it again
-            if (!findInTxQueue(p->from, p->id))
+            if (!findInTxQueue(p->from, p->id)) {
+                reprocessPacket(p);
                 perhapsRebroadcast(p);
+            }
         } else {
             perhapsCancelDupe(p);
         }
@@ -123,6 +100,40 @@ bool FloodingRouter::shouldFilterReceived(const meshtastic_MeshPacket *p)
     }
 
     return Router::shouldFilterReceived(p);
+}
+
+bool FloodingRouter::perhapsHandleUpgradedPacket(const meshtastic_MeshPacket *p)
+{
+    // isRebroadcaster() is duplicated in perhapsRebroadcast(), but this avoids confusing log messages
+    if (isRebroadcaster() && iface && p->hop_limit > 0) {
+        // If we overhear a duplicate copy of the packet with more hops left than the one we are waiting to
+        // rebroadcast, then remove the packet currently sitting in the TX queue and use this one instead.
+        uint8_t dropThreshold = p->hop_limit; // remove queued packets that have fewer hops remaining
+        if (iface->removePendingTXPacket(getFrom(p), p->id, dropThreshold)) {
+            LOG_DEBUG("Processing upgraded packet 0x%08x for rebroadcast with hop limit %d (dropping queued < %d)", p->id,
+                      p->hop_limit, dropThreshold);
+
+            reprocessPacket(p);
+            perhapsRebroadcast(p);
+
+            rxDupe++;
+            // We already enqueued the improved copy, so make sure the incoming packet stops here.
+            return true;
+        }
+    }
+
+    return false;
+}
+
+void FloodingRouter::reprocessPacket(const meshtastic_MeshPacket *p)
+{
+    if (nodeDB)
+        nodeDB->updateFrom(*p);
+#if !MESHTASTIC_EXCLUDE_TRACEROUTE
+    if (traceRouteModule && p->which_payload_variant == meshtastic_MeshPacket_decoded_tag &&
+        p->decoded.portnum == meshtastic_PortNum_TRACEROUTE_APP)
+        traceRouteModule->processUpgradedPacket(*p);
+#endif
 }
 
 bool FloodingRouter::roleAllowsCancelingDupe(const meshtastic_MeshPacket *p)
@@ -171,9 +182,9 @@ bool FloodingRouter::isRebroadcaster()
            config.device.rebroadcast_mode != meshtastic_Config_DeviceConfig_RebroadcastMode_NONE;
 }
 
+//fw+ perhapsRebroadcast with telemetry/position limiters and opportunistic flooding
 bool FloodingRouter::perhapsRebroadcast(const meshtastic_MeshPacket *p)
 {
-    //fw+
     if (!isToUs(p) && (p->hop_limit <= 0) && !isFromUs(p)) {
         blocked_by_hoplimit++;
     }
@@ -181,14 +192,14 @@ bool FloodingRouter::perhapsRebroadcast(const meshtastic_MeshPacket *p)
     if (!isToUs(p) && (p->hop_limit > 0) && !isFromUs(p)) {
         if (p->id != 0) {
             if (isRebroadcaster()) {
-                // If telemetry limiter is enabled and this is TELEMETRY_APP, enforce per-minute limit
+                //fw+ Telemetry limiter: enforce per-minute limit
                 if (p->which_payload_variant == meshtastic_MeshPacket_decoded_tag &&
                     p->decoded.portnum == meshtastic_PortNum_TELEMETRY_APP) {
                     if (!isTelemetryRebroadcastLimited(p)) {
                         return false; // limit reached: do not rebroadcast telemetry
                     }
                 }
-                // If position limiter is enabled and this is POSITION_APP broadcast with unchanged position within threshold, block
+                //fw+ Position limiter: block unchanged position within threshold
                 if (p->which_payload_variant == meshtastic_MeshPacket_decoded_tag &&
                     p->decoded.portnum == meshtastic_PortNum_POSITION_APP) {
                     if (!isPositionRebroadcastAllowed(p)) {
@@ -215,7 +226,7 @@ bool FloodingRouter::perhapsRebroadcast(const meshtastic_MeshPacket *p)
                 LOG_INFO("Rebroadcast received floodmsg");
                 // Note: we are careful to resend using the original senders node id
                 // We are careful not to call our hooked version of send() - because we don't want to check this again
-                // Opportunistic/selective flooding: schedule delayed rebroadcast, cancel on hear
+                //fw+ Opportunistic/selective flooding: schedule delayed rebroadcast, cancel on hear
                 if (isOpportunisticEnabled() && isBroadcast(tosend->to)) {
                     uint32_t delayMs = computeOpportunisticDelayMs(p);
                     if (delayMs > 0) {
@@ -235,6 +246,7 @@ bool FloodingRouter::perhapsRebroadcast(const meshtastic_MeshPacket *p)
     }
     return false;
 }
+
 
 void FloodingRouter::sniffReceived(const meshtastic_MeshPacket *p, const meshtastic_Routing *c)
 {

@@ -2566,6 +2566,16 @@ bool DtnOverlayModule::sendProxyFallback(uint32_t id, Pending &p)
     // Send fresh native DM (Router will generate new ID)
     service->sendToMesh(dm, RX_SRC_LOCAL, false);
     
+    //fw+ FIX #154: Send FAILED receipt after Stock fallback (APK status update)
+    // PROBLEM: sendProxyFallback erases pending without sending receipt
+    //          Result: APK stuck on "in transit" (last receipt was PROGRESSED)
+    // SOLUTION: Send FAILED receipt to indicate Stock fallback (reason=0)
+    // APK MAPPING: FAILED → "Sent via Stock" or "DTN unavailable"
+    // BENEFIT: User gets feedback that message was sent (not stuck)
+    emitReceipt(dataCopy.orig_from, dataCopy.orig_id, 
+               meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_FAILED,
+               0); // reason=0 = Stock fallback (not error)
+    
     LOG_INFO("DTN: Source fallback to Stock 0x%x (fresh native DM, DTN aborted)", 
              (unsigned)dataCopy.orig_to);  // (OK) Use copy, not p.data!
     
