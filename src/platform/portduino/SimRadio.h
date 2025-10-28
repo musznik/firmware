@@ -4,6 +4,7 @@
 #include "RadioInterface.h"
 #include "api/WiFiServerAPI.h"
 #include "concurrency/NotifiedWorkerThread.h"
+#include "RFBridgeProtocol.h"
 
 #include <RadioLib.h>
 
@@ -12,6 +13,11 @@ class SimRadio : public RadioInterface, protected concurrency::NotifiedWorkerThr
     enum PendingISR { ISR_NONE = 0, ISR_RX, ISR_TX, TRANSMIT_DELAY_COMPLETED };
 
     MeshPacketQueue txQueue = MeshPacketQueue(MAX_TX_QUEUE);
+    
+    //fw+ RF Bridge - direct radio simulation
+    int rfBridgeSocket = -1;     // Unix socket to Python RF bridge
+    bool rfBridgeEnabled = false; // Use RF bridge instead of PhoneAPI
+    char rfBridgeSocketPath[256]; // Socket path (e.g., /tmp/meshtastic_rf_bridge_node0)
 
   public:
     SimRadio();
@@ -47,6 +53,13 @@ class SimRadio : public RadioInterface, protected concurrency::NotifiedWorkerThr
 
     // Convert Compressed_msg to normal msg and receive it
     void unpackAndReceive(meshtastic_MeshPacket &p);
+    
+    //fw+ RF Bridge methods - direct radio simulation
+    bool initRFBridge();           // Initialize Unix socket to RF bridge
+    void closeRFBridge();          // Cleanup
+    bool sendToRFBridge(meshtastic_MeshPacket *p);  // Send packet to bridge (data plane)
+    void pollRFBridge();           // Check for incoming packets from bridge
+    void injectFromRFBridge(const RFBridgeRxPacket &rx); // Inject packet from bridge to firmware
 
     /**
      * Debugging counts
@@ -71,6 +84,9 @@ class SimRadio : public RadioInterface, protected concurrency::NotifiedWorkerThr
     void handleReceiveInterrupt();
 
     void onNotify(uint32_t notification);
+    
+    //fw+ Override runOnce to add continuous RF Bridge polling
+    int32_t runOnce() override;
 
     // start an immediate transmit
     virtual void startSend(meshtastic_MeshPacket *txp);

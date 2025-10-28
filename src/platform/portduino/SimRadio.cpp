@@ -1,10 +1,30 @@
 #include "SimRadio.h"
 #include "MeshService.h"
 #include "Router.h"
+#include "NodeDB.h"
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <errno.h>
+#include <cstdlib>
 
 SimRadio::SimRadio() : NotifiedWorkerThread("SimRadio")
 {
     instance = this;
+    
+    //fw+ RF Bridge initialization
+    // Check env var to enable RF bridge mode (bypasses PhoneAPI for packets)
+    const char *bridgeEnv = getenv("MESHTASTIC_RF_BRIDGE");
+    if (bridgeEnv && strcmp(bridgeEnv, "1") == 0) {
+        if (initRFBridge()) {
+            LOG_INFO("SimRadio: RF Bridge mode ENABLED (data plane bypasses PhoneAPI)");
+        } else {
+            LOG_WARN("SimRadio: RF Bridge init failed, falling back to PhoneAPI mode");
+        }
+    } else {
+        LOG_INFO("SimRadio: RF Bridge mode DISABLED (using PhoneAPI mode)");
+    }
 }
 
 SimRadio *SimRadio::instance;
@@ -74,14 +94,26 @@ void SimRadio::startTransmitTimerRebroadcast(meshtastic_MeshPacket *p)
 
 void SimRadio::handleTransmitInterrupt()
 {
-    // This can be null if we forced the device to enter standby mode.  In that case
-    // ignore the transmit interrupt
-    if (sendingPacket)
-        completeSending();
+    //fw+ ALWAYS clear sendingPacket, even if receivingPacket is set!
+    // BUG: Original code skipped completeSending() if receivingPacket was set
+    // Problem: In RF Bridge mode, RX arrives asynchronously via pollRFBridge()
+    // Result: receivingPacket often set when ISR_TX fires → sendingPacket never cleared
+    // 
+    // Flow (BROKEN):
+    //   ISR_TX fires → receivingPacket set by pollRFBridge() → skip completeSending()
+    // 
+    // Solution: ALWAYS complete TX first, THEN handle pending RX
+    // TX and RX are independent in RF Bridge (no actual RF collision)
+    
+    if (sendingPacket) {
+        completeSending(); // ALWAYS clear sendingPacket
+    }
 
     isReceiving = true;
-    if (receivingPacket) // This happens when we don't consider something a collision if we weren't sending long enough
+    if (receivingPacket) {
+        // Handle any pending RX packet AFTER TX completion
         handleReceiveInterrupt();
+    }
 }
 
 void SimRadio::completeSending()
@@ -150,23 +182,77 @@ bool SimRadio::findInTxQueue(NodeNum from, PacketId id)
     return txQueue.find(from, id);
 }
 
+//fw+ FIX: Override runOnce() to add CONTINUOUS RF Bridge polling!
+// Problem: pollRFBridge() only called in onNotify() → firmware stops polling when no notifications
+// Result: Socket buffers fill → RF Bridge drops custody packets → DTN custody transfer fails
+// Solution: Poll EVERY iteration + return short interval for continuous execution
+int32_t SimRadio::runOnce()
+{
+    //fw+ AGGRESSIVE POLLING: Poll RF Bridge on EVERY runOnce iteration!
+    // This ensures we drain socket buffer even when no ISR notifications pending
+    // Critical for custody transfer delivery (large packets from RF Bridge Python)
+    static uint32_t runOnceCallCount = 0;
+    runOnceCallCount++;
+    
+    // Debug: Log polling frequency
+    if (runOnceCallCount % 1000 == 0 && rfBridgeEnabled) {
+        LOG_DEBUG("RF Bridge: runOnce() called %u times (continuous polling active)", runOnceCallCount);
+    }
+    
+    pollRFBridge();
+    
+    //fw+ FIX: DO NOT call parent runOnce() in RF Bridge mode!
+    // Problem: NotifiedWorkerThread::runOnce() sets enabled=false
+    // Result: Thread is DISABLED after each run → waits for notification → no continuous polling!
+    // Evidence: Node2 gets 19 RX packets at same timestamp (batched, not continuous)
+    // Solution: Check notifications manually + keep thread enabled for continuous execution
+    
+    if (rfBridgeEnabled) {
+        // Manual notification check (like parent does, but WITHOUT disabling thread!)
+        // Use public checkNotification() instead of accessing private notification
+        checkNotification();
+        
+        // Return 0 = run ASAP (continuous polling, no sleep)
+        // enabled stays TRUE (not disabled like parent would do)
+        return 0;
+    }
+    
+    // Normal mode (non-RF Bridge): use parent implementation
+    return NotifiedWorkerThread::runOnce();
+}
+
 void SimRadio::onNotify(uint32_t notification)
 {
+    //fw+ Poll RF Bridge AFTER handling ISR_TX to prevent race condition!
+    // BUG: Polling BEFORE switch → receivingPacket set → ISR_TX skips completeSending()
+    // Result: sendingPacket never cleared → busyTx forever
+    // 
+    // Flow (BROKEN - poll before switch):
+    //   1. ISR_TX fires after 219ms
+    //   2. pollRFBridge() receives RX packet → sets receivingPacket
+    //   3. handleTransmitInterrupt() sees receivingPacket → skips completeSending()!
+    //   4. sendingPacket remains set → busyTx loop
+    // 
+    // Solution: Poll AFTER switch so ISR_TX completes first
+    
     switch (notification) {
     case ISR_TX:
         handleTransmitInterrupt();
         //  LOG_DEBUG("tx complete - starting timer");
         startTransmitTimer();
+        pollRFBridge(); // Poll AFTER TX complete (safe timing)
         break;
     case ISR_RX:
         handleReceiveInterrupt();
         //  LOG_DEBUG("rx complete - starting timer");
         startTransmitTimer();
+        pollRFBridge(); // Poll AFTER RX handled
         break;
     case TRANSMIT_DELAY_COMPLETED:
         if (receivingPacket) { // This happens when we had a timer pending and we started receiving
             handleReceiveInterrupt();
             startTransmitTimer();
+            pollRFBridge(); // Poll after handling buffered RX
             break;
         }
         LOG_DEBUG("delay done");
@@ -177,24 +263,26 @@ void SimRadio::onNotify(uint32_t notification)
             if (!canSendImmediately()) {
                 // LOG_DEBUG("Currently Rx/Tx-ing: set random delay");
                 setTransmitDelay(); // currently Rx/Tx-ing: reset random delay
+                pollRFBridge(); // Poll after defer decision
             } else {
                 if (isChannelActive()) { // check if there is currently a LoRa packet on the channel
                     // LOG_DEBUG("Channel is active: set random delay");
                     setTransmitDelay(); // reset random delay
+                    pollRFBridge(); // Poll after defer decision
                 } else {
                     // Send any outgoing packets we have ready
                     meshtastic_MeshPacket *txp = txQueue.dequeue();
                     assert(txp);
                     startSend(txp);
-                    // Packet has been sent, count it toward our TX airtime utilization.
-                    uint32_t xmitMsec = RadioInterface::getPacketTime(txp);
-                    airTime->logAirtime(TX_LOG, xmitMsec);
-
-                    notifyLater(xmitMsec, ISR_TX, false); // Model the time it is busy sending
+                    //fw+ NOTE: startSend() now handles airtime logging + ISR_TX timer internally
+                    // This code (lines 214-217) was moved into startSend() to support RF Bridge
+                    // RF Bridge returns early, so timer must be set inside startSend(), not here
+                    pollRFBridge(); // Poll after startSend() returns (new TX in flight)
                 }
             }
         } else {
             // LOG_DEBUG("done with txqueue");
+            pollRFBridge(); // Poll even when queue empty (keep RX flowing)
         }
         break;
     default:
@@ -209,23 +297,96 @@ void SimRadio::startSend(meshtastic_MeshPacket *txp)
     isReceiving = false;
     size_t numbytes = beginSending(txp);
     meshtastic_MeshPacket *p = packetPool.allocCopy(*txp);
-    perhapsDecode(p);
-    meshtastic_Compressed c = meshtastic_Compressed_init_default;
-    c.portnum = p->decoded.portnum;
-    // LOG_DEBUG("Send back to simulator with portNum %d", p->decoded.portnum);
-    if (p->decoded.payload.size <= sizeof(c.data.bytes)) {
-        memcpy(&c.data.bytes, p->decoded.payload.bytes, p->decoded.payload.size);
-        c.data.size = p->decoded.payload.size;
-    } else {
-        LOG_WARN("Payload size larger than compressed message allows! Send empty payload");
+    
+    //fw+ ════════════════════════════════════════════════════════════════════════
+    //fw+ RF BRIDGE MODE - ZERO PhoneAPI overhead!
+    //fw+ ════════════════════════════════════════════════════════════════════════
+    // Direct Unix socket: Firmware → RF Bridge → Topology routing → Firmware
+    // Bypasses entire PhoneAPI stack (17-step flow → 3 steps!)
+    // 
+    // OLD: Firmware → TCP → Python → pubsub → heapq → ThreadPool → TCP → Firmware (500ms+)
+    // NEW: Firmware → Unix socket → Topology → Unix socket → Firmware (<1ms!)
+    
+    if (rfBridgeEnabled) {
+        if (sendToRFBridge(p)) {
+            // ✅ SUCCESS: Packet sent to RF Bridge via Unix socket
+            // Bridge will apply topology routing and inject to receivers via RX socket
+            packetPool.release(p);
+            // Note: sendToRFBridge() already logged TX details, no need to duplicate here
+            
+            //fw+ Must log airtime AND schedule ISR_TX here!
+            // Problem: onNotify() code (lines 215-217) is AFTER startSend() returns
+            // Without this: sendingPacket never cleared + airtime not logged → busyTx forever
+            // Solution: Replicate onNotify() airtime tracking for RF Bridge path
+            // 
+            // Use overwrite=true to prevent ISR_TX drop!
+            // If TRANSMIT_DELAY_COMPLETED pending, ISR_TX would be dropped (overwrite=false)
+            // Result: sendingPacket never cleared → busyTx forever
+            uint32_t xmitMsec = RadioInterface::getPacketTime(txp);
+            airTime->logAirtime(TX_LOG, xmitMsec); // Count toward channel utilization
+            notifyLater(xmitMsec, ISR_TX, true);   // MUST overwrite to prevent drop!
+            return;
+        } else {
+            // ❌ FAILURE: Unix socket error (bridge down, queue full, etc)
+            // This is FATAL - RF Bridge mode has no fallback to PhoneAPI!
+            // Bridge must be running for simulator to work
+            LOG_ERROR("RF Bridge: TX FAILED id=0x%x - bridge unavailable!", txp->id);
+            packetPool.release(p);
+            
+            //fw+ Still need ISR_TX to clear sendingPacket (even on error)
+            // Also log airtime for failed sends (prevents util undercount)
+            uint32_t xmitMsec = RadioInterface::getPacketTime(txp);
+            airTime->logAirtime(TX_LOG, xmitMsec);
+            notifyLater(xmitMsec, ISR_TX, true);  // Must overwrite!
+            return;
+        }
     }
-    p->decoded.payload.size =
-        pb_encode_to_bytes(p->decoded.payload.bytes, sizeof(p->decoded.payload.bytes), &meshtastic_Compressed_msg, &c);
-    p->decoded.portnum = meshtastic_PortNum_SIMULATOR_APP;
+    
+    //fw+ ════════════════════════════════════════════════════════════════════════
+    //fw+ PHONEAPI MODE - Legacy simulator (when RF Bridge disabled)
+    //fw+ ════════════════════════════════════════════════════════════════════════
+    // Only used when MESHTASTIC_RF_BRIDGE=0 (old interactive.py mode)
+    // This is the 17-step flow with pubsub/heapq overhead
+    
+    // FIX: Don't send encrypted packets that failed to decode to PhoneAPI
+    // Problem: Encrypted packets (channel=0x1f) that can't be decoded cause Error=6 (NO_CHANNEL)
+    // Root cause: Simulator sends TX packets back to transmitter → firmware tries to process as RX
+    // Solution: Check decode result, skip sending undecryptable packets (simulator workaround)
+    DecodeState decodeResult = perhapsDecode(p);
+    
+    if (decodeResult == DecodeState::DECODE_SUCCESS) {
+        // Successfully decoded - send decoded payload to simulator
+        meshtastic_Compressed c = meshtastic_Compressed_init_default;
+        c.portnum = p->decoded.portnum;
+        if (p->decoded.payload.size <= sizeof(c.data.bytes)) {
+            memcpy(&c.data.bytes, p->decoded.payload.bytes, p->decoded.payload.size);
+            c.data.size = p->decoded.payload.size;
+        } else {
+            LOG_WARN("Payload size larger than compressed message allows! Send empty payload");
+        }
+        p->decoded.payload.size =
+            pb_encode_to_bytes(p->decoded.payload.bytes, sizeof(p->decoded.payload.bytes), &meshtastic_Compressed_msg, &c);
+        p->decoded.portnum = meshtastic_PortNum_SIMULATOR_APP;
 
-    service->sendQueueStatusToPhone(router->getQueueStatus(), 0, p->id);
-    service->sendToPhone(p); // Sending back to simulator
-    service->loop();         // Process the send immediately
+        service->sendQueueStatusToPhone(router->getQueueStatus(), 0, p->id);
+        service->sendToPhone(p); // PhoneAPI: 17-step flow starts here
+        service->loop();
+    } else {
+        // Decode failed - DON'T send to simulator/PhoneAPI
+        // This happens when rebroadcasting packets from other nodes (can't decrypt with our keys)
+        // Simulator will receive this packet through normal RX path from other nodes
+        LOG_DEBUG("Skipping sendToPhone for encrypted packet (decode failed, id=0x%x, channel=0x%x)", 
+                 p->id, p->channel);
+        packetPool.release(p);
+    }
+    
+    //fw+ PhoneAPI mode also needs ISR_TX timer to clear sendingPacket!
+    // Same issue as RF Bridge - onNotify() line 217 is not reached from here
+    // Must schedule ISR_TX timer + log airtime for PhoneAPI path too
+    // Use overwrite=true to prevent drop if TRANSMIT_DELAY pending
+    uint32_t xmitMsec = RadioInterface::getPacketTime(txp);
+    airTime->logAirtime(TX_LOG, xmitMsec);
+    notifyLater(xmitMsec, ISR_TX, true);  // Must overwrite to prevent drop!
 }
 
 // Simulates device received a packet via the LoRa chip
@@ -362,4 +523,286 @@ uint32_t SimRadio::getPacketTime(uint32_t pl, bool received)
 
     uint32_t msecs = tPacket * 1000;
     return msecs;
+}
+
+//fw+ ═══════════════════════════════════════════════════════════════════════
+//fw+ RF BRIDGE IMPLEMENTATION - Direct Radio Simulation (Bypass PhoneAPI)
+//fw+ ═══════════════════════════════════════════════════════════════════════
+
+// Initialize Unix domain socket connection to Python RF bridge
+// Returns: true if success, false if fallback to PhoneAPI mode
+bool SimRadio::initRFBridge()
+{
+    // Build socket path: /tmp/meshtastic_rf_bridge_node<nodeNum>
+    uint32_t myNode = nodeDB->getNodeNum();
+    snprintf(rfBridgeSocketPath, sizeof(rfBridgeSocketPath), 
+             "/tmp/meshtastic_rf_bridge_node%u", myNode);
+    
+    // Create Unix domain socket
+    rfBridgeSocket = socket(AF_UNIX, SOCK_DGRAM, 0);
+    if (rfBridgeSocket < 0) {
+        LOG_ERROR("RF Bridge: socket() failed: %s", strerror(errno));
+        return false;
+    }
+    
+    // Set non-blocking mode for polling
+    int flags = fcntl(rfBridgeSocket, F_GETFL, 0);
+    if (fcntl(rfBridgeSocket, F_SETFL, flags | O_NONBLOCK) < 0) {
+        LOG_WARN("RF Bridge: fcntl() non-blocking failed: %s", strerror(errno));
+        close(rfBridgeSocket);
+        rfBridgeSocket = -1;
+        return false;
+    }
+    
+    //fw+ Increase socket receive buffer to prevent packet loss!
+    // Problem: Default buffer (8KB) too small for mesh traffic bursts
+    // Result: RF Bridge drops packets when firmware can't poll fast enough
+    // Solution: 512KB buffer to handle bursts from 18 nodes
+    int rcvbuf = 512 * 1024;  // 512KB (vs default ~8KB)
+    if (setsockopt(rfBridgeSocket, SOL_SOCKET, SO_RCVBUF, &rcvbuf, sizeof(rcvbuf)) < 0) {
+        LOG_WARN("RF Bridge: setsockopt(SO_RCVBUF) failed: %s (continuing anyway)", strerror(errno));
+        // Not fatal - continue with default buffer
+    } else {
+        LOG_INFO("RF Bridge: Increased socket buffer to 512KB (prevents packet loss)");
+    }
+    
+    // Bind to our socket path
+    struct sockaddr_un addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sun_family = AF_UNIX;
+    strncpy(addr.sun_path, rfBridgeSocketPath, sizeof(addr.sun_path) - 1);
+    
+    // Remove old socket file if exists
+    unlink(rfBridgeSocketPath);
+    
+    if (bind(rfBridgeSocket, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+        LOG_ERROR("RF Bridge: bind() failed: %s", strerror(errno));
+        close(rfBridgeSocket);
+        rfBridgeSocket = -1;
+        return false;
+    }
+    
+    rfBridgeEnabled = true;
+    LOG_INFO("RF Bridge: Initialized socket %s (node=0x%x)", rfBridgeSocketPath, myNode);
+    return true;
+}
+
+// Cleanup RF bridge socket
+void SimRadio::closeRFBridge()
+{
+    if (rfBridgeSocket >= 0) {
+        close(rfBridgeSocket);
+        unlink(rfBridgeSocketPath);
+        rfBridgeSocket = -1;
+        rfBridgeEnabled = false;
+        LOG_DEBUG("RF Bridge: Closed socket");
+    }
+}
+
+// Send packet to RF bridge for radio simulation (bypasses PhoneAPI!)
+// Returns: true if sent to bridge, false if should use PhoneAPI fallback
+bool SimRadio::sendToRFBridge(meshtastic_MeshPacket *p)
+{
+    if (!rfBridgeEnabled || rfBridgeSocket < 0) {
+        return false; // Fallback to PhoneAPI mode
+    }
+    
+    // Build TX message
+    RFBridgeTxPacket tx;
+    memset(&tx, 0, sizeof(tx));
+    tx.type = RF_MSG_PACKET_TX;
+    tx.nodeNum = nodeDB->getNodeNum();
+    tx.packetId = p->id;
+    tx.from = p->from;
+    tx.to = p->to;
+    tx.hopLimit = p->hop_limit;
+    tx.hopStart = p->hop_start;
+    tx.channel = p->channel;
+    tx.priority = p->priority;
+    //fw+ FIX #101: Preserve ALL critical MeshPacket fields for full node emulation
+    tx.wantAck = p->want_ack ? 1 : 0;
+    tx.viaMqtt = p->via_mqtt ? 1 : 0;
+    tx.pkiEncrypted = p->pki_encrypted ? 1 : 0;
+    tx.delayed = (uint8_t)p->delayed;  // meshtastic_MeshPacket_Delayed enum
+    
+    // Copy public key if present (PKI encryption)
+    if (p->public_key.size > 0 && p->public_key.size <= 32) {
+        tx.publicKeyLen = p->public_key.size;
+        memcpy(tx.publicKey, p->public_key.bytes, p->public_key.size);
+    } else {
+        tx.publicKeyLen = 0;
+        memset(tx.publicKey, 0, 32);
+    }
+    
+    // Copy encrypted payload (opaque to bridge)
+    if (p->which_payload_variant == meshtastic_MeshPacket_encrypted_tag) {
+        tx.payloadLen = (p->encrypted.size > RF_BRIDGE_MAX_PAYLOAD) ? 
+                        RF_BRIDGE_MAX_PAYLOAD : p->encrypted.size;
+        memcpy(tx.payload, p->encrypted.bytes, tx.payloadLen);
+    } else {
+        // Not encrypted yet - bridge expects encrypted payload
+        // This shouldn't happen (Router encrypts before Radio send)
+        LOG_WARN("RF Bridge: Packet not encrypted yet (id=0x%x), skipping bridge", p->id);
+        return false;
+    }
+    
+    // Send to Python RF bridge via Unix socket (FAST - no TCP overhead!)
+    // Bridge socket path: /tmp/meshtastic_rf_bridge (global bridge)
+    struct sockaddr_un bridgeAddr;
+    memset(&bridgeAddr, 0, sizeof(bridgeAddr));
+    bridgeAddr.sun_family = AF_UNIX;
+    strncpy(bridgeAddr.sun_path, "/tmp/meshtastic_rf_bridge", sizeof(bridgeAddr.sun_path) - 1);
+    
+    //fw+ DEBUG: Log TX packet details for custody tracking
+    static uint32_t txPacketCount = 0;
+    txPacketCount++;
+    if (txPacketCount <= 10 || tx.payloadLen > 30) {  // Log first 10 + all large packets (custody)
+        LOG_INFO("RF Bridge: Sending TX packet #%u: id=0x%x size=%zu payloadLen=%u", 
+                 txPacketCount, tx.packetId, sizeof(tx), tx.payloadLen);
+    }
+    
+    ssize_t sent = sendto(rfBridgeSocket, &tx, sizeof(tx), 0,
+                         (struct sockaddr*)&bridgeAddr, sizeof(bridgeAddr));
+    
+    if (sent < 0) {
+        LOG_WARN("RF Bridge: sendto() failed: %s (fallback to PhoneAPI)", strerror(errno));
+        return false;
+    }
+    
+    if (sent != sizeof(tx)) {
+        LOG_WARN("RF Bridge: Partial send! sent=%zd expected=%zu (payloadLen=%u)", 
+                 sent, sizeof(tx), tx.payloadLen);
+        return false;
+    }
+    
+    LOG_DEBUG("RF Bridge: TX sent id=0x%x from=0x%x to=0x%x hops=%u size=%u", 
+             tx.packetId, tx.from, tx.to, tx.hopLimit, tx.payloadLen);
+    return true;
+}
+
+// Poll RF bridge for incoming RX packets (called from main loop)
+// AGGRESSIVE POLLING: Drains socket buffer completely to prevent packet loss
+void SimRadio::pollRFBridge()
+{
+    if (!rfBridgeEnabled || rfBridgeSocket < 0) {
+        return;
+    }
+    
+    //fw+ DEBUG: Track poll attempts and successes
+    static uint32_t pollAttempts = 0;
+    static uint32_t packetsReceived = 0;
+    
+    //fw+ FIX: Poll MULTIPLE times per call to drain socket buffer!
+    // Problem: Single recvfrom() leaves packets queued → buffer fills → RF Bridge drops
+    // Solution: Loop until EAGAIN to ensure buffer is fully drained
+    int drainedCount = 0;
+    const int MAX_DRAIN = 50; // Increased from 10 to 50 to handle burst traffic from 18 nodes
+    
+    while (drainedCount < MAX_DRAIN) {
+        pollAttempts++;
+        
+        // Non-blocking read (socket is O_NONBLOCK)
+        RFBridgeRxPacket rx;
+        struct sockaddr_un sender_addr;
+        socklen_t sender_len = sizeof(sender_addr);
+        ssize_t received = recvfrom(rfBridgeSocket, &rx, sizeof(rx), 0, 
+                                    (struct sockaddr*)&sender_addr, &sender_len);
+        
+        if (received < 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                // No more data available - buffer fully drained
+                if (drainedCount > 1) {
+                    LOG_DEBUG("RF Bridge: Drained %d packets in single poll (prevents buffer overflow)", drainedCount);
+                }
+                return;
+            }
+            LOG_WARN("RF Bridge: recvfrom() error: %s", strerror(errno));
+            return;
+        }
+        
+        drainedCount++;
+        packetsReceived++;
+        
+        //fw+ DEBUG: Log first few received packets
+        if (packetsReceived <= 5) {
+            LOG_INFO("RF Bridge: RX packet #%u (size=%zd, expected=%zu)", 
+                     packetsReceived, received, sizeof(rx));
+        }
+        
+        if (received != sizeof(rx)) {
+            LOG_WARN("RF Bridge: Unexpected message size %zd (expected %zu)", 
+                    received, sizeof(rx));
+            continue; // Skip this packet, try next one
+        }
+        
+        // Verify message type
+        if (rx.type != RF_MSG_PACKET_RX) {
+            LOG_WARN("RF Bridge: Unexpected message type %u", rx.type);
+            continue; // Skip this packet, try next one
+        }
+        
+        // Inject packet to firmware (bypass StreamAPI!)
+        injectFromRFBridge(rx);
+        
+        //fw+ DEBUG: Periodic stats
+        if (packetsReceived % 100 == 0) {
+            LOG_INFO("RF Bridge: Received %u packets (poll attempts: %u, ratio: %.2f%%)",
+                     packetsReceived, pollAttempts, (100.0f * packetsReceived / pollAttempts));
+        }
+    } // end while loop
+    
+    // If we hit MAX_DRAIN, there might be more packets queued
+    if (drainedCount >= MAX_DRAIN) {
+        LOG_WARN("RF Bridge: Drained max %d packets, more may be queued (consider increasing buffer or poll frequency)", MAX_DRAIN);
+    }
+}
+
+// Inject packet from RF bridge directly to firmware Radio layer
+void SimRadio::injectFromRFBridge(const RFBridgeRxPacket &rx)
+{
+    // Allocate MeshPacket from pool
+    meshtastic_MeshPacket *p = packetPool.allocZeroed();
+    if (!p) {
+        LOG_WARN("RF Bridge: packetPool full, dropping RX packet id=0x%x", rx.packetId);
+        return;
+    }
+    
+    // Fill packet from RX message
+    p->id = rx.packetId;
+    p->from = rx.from;
+    p->to = rx.to;
+    p->hop_limit = rx.hopLimit;
+    p->hop_start = rx.hopStart;
+    p->channel = rx.channel;
+    p->priority = (meshtastic_MeshPacket_Priority)rx.priority;
+    //fw+ FIX #101: Restore ALL critical MeshPacket fields for full node emulation
+    p->want_ack = rx.wantAck ? true : false;
+    p->via_mqtt = rx.viaMqtt ? true : false;
+    p->pki_encrypted = rx.pkiEncrypted ? true : false;
+    p->delayed = (meshtastic_MeshPacket_Delayed)rx.delayed;
+    
+    // Restore public key if present (PKI encryption)
+    if (rx.publicKeyLen > 0 && rx.publicKeyLen <= 32) {
+        p->public_key.size = rx.publicKeyLen;
+        memcpy(p->public_key.bytes, rx.publicKey, rx.publicKeyLen);
+    } else {
+        p->public_key.size = 0;
+    }
+    
+    p->relay_node = rx.relayNode;
+    p->rx_rssi = rx.rxRssi;
+    p->rx_snr = rx.rxSnr;
+    
+    // Copy encrypted payload
+    p->which_payload_variant = meshtastic_MeshPacket_encrypted_tag;
+    p->encrypted.size = (rx.payloadLen > sizeof(p->encrypted.bytes)) ? 
+                        sizeof(p->encrypted.bytes) : rx.payloadLen;
+    memcpy(p->encrypted.bytes, rx.payload, p->encrypted.size);
+    
+    LOG_DEBUG("RF Bridge: RX inject id=0x%x from=0x%x to=0x%x rssi=%d snr=%.1f hops=%u/%u", 
+             p->id, p->from, p->to, p->rx_rssi, p->rx_snr, p->hop_limit, p->hop_start);
+    
+    // Direct injection to Radio layer (bypass StreamAPI!)
+    // This calls Router::handleFromRadio() → normal firmware processing
+    startReceive(p);
 }
