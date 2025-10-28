@@ -107,7 +107,9 @@ int MeshService::handleFromRadio(const meshtastic_MeshPacket *mp)
         mp->decoded.portnum == meshtastic_PortNum_TELEMETRY_APP && mp->decoded.request_id > 0) {
         LOG_DEBUG("Received telemetry response. Skip sending our NodeInfo");
         //  ignore our request for its NodeInfo
-    } else if (mp->which_payload_variant == meshtastic_MeshPacket_decoded_tag && !nodeDB->getMeshNode(mp->from)->has_user &&
+    } else if (mp->which_payload_variant == meshtastic_MeshPacket_decoded_tag && 
+               //fw+ FIX 137: Guard getMeshNode() against nullptr for synthetic/distant nodes
+               nodeDB->getMeshNode(mp->from) && !nodeDB->getMeshNode(mp->from)->has_user &&
                nodeInfoModule && !isPreferredRebroadcaster && !nodeDB->isFull()) {
         if (airTime->isTxAllowedChannelUtil(true)) {
             // Hops used by the request. If somebody in between running modified firmware modified it, ignore it
@@ -265,18 +267,16 @@ void MeshService::handleToRadio(meshtastic_MeshPacket &p)
         bool isUnicast = (p.to != NODENUM_BROADCAST && p.to != NODENUM_BROADCAST_NO_LORA);
         bool isText = (p.which_payload_variant == meshtastic_MeshPacket_decoded_tag &&
                        p.decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP);
-        //fw+ Intelligent interception: only use DTN if it can actually help with this destination
-        if (dtnOverlayModule && isUnicast && isText && dtnOverlayModule->shouldInterceptLocalDM(p.to)) {
+        // Intelligent interception: only use DTN if it can actually help with this destination
+        // Pass channel (should be valid here, after decoding)
+        if (dtnOverlayModule && isUnicast && isText && dtnOverlayModule->shouldInterceptLocalDM(p.to, p.channel)) {
             uint32_t ttlMinutes = moduleConfig.dtn_overlay.ttl_minutes ? moduleConfig.dtn_overlay.ttl_minutes : 4; //fw+
-            //Use uint64_t for epoch milliseconds to avoid overflow
-            uint64_t deadline = ((uint64_t)getValidTime(RTCQualityFromNet) * 1000ULL) + 
-                               (ttlMinutes * 60ULL * 1000ULL);
-            // enqueue overlay carrying plaintext DM; allow proxy fallback later
+            //fw+ Pass TTL directly in minutes (no deadline calculation needed)
             dtnOverlayModule->enqueueFromCaptured(p.id,
                                                   nodeDB->getNodeNum(),
                                                   p.to,
                                                   p.channel,
-                                                  deadline,
+                                                  ttlMinutes,
                                                   false,
                                                   p.decoded.payload.bytes,
                                                   p.decoded.payload.size,
