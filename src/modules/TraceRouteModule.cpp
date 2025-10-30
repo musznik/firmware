@@ -4,7 +4,7 @@
 #include "graphics/ScreenFonts.h"
 #include "graphics/SharedUIDisplay.h"
 #include "mesh/Router.h"
-#include "mesh/NextHopRouter.h"  //fw+ CRITICAL: Enable DV-ETX route learning from traceroutes
+#include "mesh/NextHopRouter.h"
 #include "meshUtils.h"
 #include <vector>
 
