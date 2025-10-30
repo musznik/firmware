@@ -50,8 +50,10 @@ void NextHopRouter::processPathAndLearn(const uint32_t *path, size_t maxHops,
         if (snrList && maxSnr > (size_t)selfIdx) {
             float snr = (float)snrList[selfIdx] / 4.0f;
             linkEtx = estimateEtxFromSnr(snr);
-        } else {
+        } else if (p) {
             linkEtx = estimateEtxFromSnr(p->rx_snr);
+        } else {
+            linkEtx = 1.5f; // Default conservative ETX when no SNR data available (DTN custody chains)
         }
         int remainingHops = (int)maxHops - selfIdx - 1;
         float observedCost = linkEtx + (remainingHops > 1 ? (remainingHops - 1) * 1.0f : 0.0f);
@@ -66,6 +68,12 @@ void NextHopRouter::processPathAndLearn(const uint32_t *path, size_t maxHops,
     // "destination is reachable via the neighbor who sent us this traceroute"
     // This dramatically speeds up route discovery in large networks (100-200 nodes)
     else if (selfIdx < 0 && maxHops >= 2) {
+        //fw+ CRITICAL: Check if p is not nullptr before accessing (DTN custody chains pass nullptr)
+        if (!p) {
+            LOG_DEBUG("NextHop: Skip PASSIVE learn: no packet context (DTN custody chain, need packet for receivedFrom)");
+            return;
+        }
+        
         uint32_t dest = path[maxHops - 1];  // Final destination
         uint32_t receivedFrom = getFrom(p);  // Who sent us this packet
         uint8_t viaHop = (uint8_t)(receivedFrom & 0xFF);
@@ -134,6 +142,20 @@ void NextHopRouter::learnFromRouteDiscoveryPayload(const meshtastic_MeshPacket *
             learnRoute(destNode, firstHop, observedCost);
         }
     }
+}
+//fw+
+void NextHopRouter::learnFromDtnCustodyPath(const uint32_t *path, size_t pathLen)
+{
+    if (!path || pathLen < 2) {
+        LOG_DEBUG("NextHop: learnFromDtnCustodyPath called with invalid path (len=%u)", (unsigned)pathLen);
+        return;
+    }
+    
+    // Call processPathAndLearn with DTN custody chain
+    // No SNR data available from custody chains, so we pass nullptr
+    processPathAndLearn(path, pathLen, nullptr, 0, nullptr);
+    
+    LOG_INFO("NextHop: Learned from DTN custody chain (len=%u)", (unsigned)pathLen);
 }
 //fw+
 void NextHopRouter::learnFromRoutingPayload(const meshtastic_MeshPacket *p)

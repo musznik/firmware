@@ -68,6 +68,9 @@ class NextHopRouter : public FloodingRouter
      */
     NextHopRouter();
 
+    NextHopRouter *asNextHopRouter() override { return this; }
+    const NextHopRouter *asNextHopRouter() const override { return this; }
+
     /**
      * Send a packet
      * @return an error code
@@ -99,6 +102,10 @@ class NextHopRouter : public FloodingRouter
     //fw+ PUBLIC API for route learning from traceroute packets (called by TraceRouteModule)
     // This enables ACTIVE and PASSIVE DV-ETX learning from traceroute responses
     void learnFromRouteDiscoveryPayload(const meshtastic_MeshPacket *p);
+    
+    //fw+ PUBLIC API for route learning from DTN custody chains (called by DtnOverlayModule)
+    // This enables PASSIVE DV-ETX learning from observed DTN custody paths
+    void learnFromDtnCustodyPath(const uint32_t *path, size_t pathLen);
 
   protected:
     /**
