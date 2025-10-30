@@ -10,6 +10,8 @@
 #include "concurrency/OSThread.h"
 #include "PacketCounter.h"
 
+class NextHopRouter; // forward declaration for RTTI-free downcast helpers
+
 /**
  * A mesh aware router that supports multiple interfaces.
  */
@@ -29,6 +31,10 @@ class Router : protected concurrency::OSThread, protected PacketHistory
      *
      */
     Router();
+
+    //fw+ RTTI-free helper for modules that need NextHopRouter specifics
+    virtual NextHopRouter *asNextHopRouter() { return nullptr; }
+    virtual const NextHopRouter *asNextHopRouter() const { return nullptr; }
     /**
      * Currently we only allow one interface, that may change in the future
      */
