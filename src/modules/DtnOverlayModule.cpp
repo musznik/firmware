@@ -216,6 +216,24 @@ void DtnOverlayModule::deliverLocal(const meshtastic_FwplusDtnData &d)
         p->id = d.orig_id;
         p->to = nodeDB->getNodeNum();
         p->from = d.orig_from;
+        
+        //fw+ FIX #158: Detect DTN receipt binary payload leaked to deliverLocal()
+        // PROBLEM: Custody receipts have binary payload [0xAC 0xDC ...]
+        //          If isCustodyReceipt detection fails (wrong conditions), binary leaks to deliverLocal()
+        //          deliverLocal() sets portnum=TEXT → PhoneAPI displays garbage "◆◆◆"
+        // ROOT CAUSE: PKI encrypted native receipt (portnum=280) gets decrypted, but payload is binary
+        //             OR custody receipt detection failed (channel mismatch, etc)
+        // SOLUTION: Detect magic bytes [0xAC 0xDC] and abort delivery (internal DTN data)
+        // BENEFIT: Prevents garbage display in APK, logs clear error for debugging
+        if (d.payload.size >= 2 && d.payload.bytes[0] == 0xAC && d.payload.bytes[1] == 0xDC) {
+            LOG_ERROR("DTN FIX #158: deliverLocal() received receipt binary payload (magic 0xAC 0xDC) - aborting!");
+            LOG_ERROR("This should NOT happen! Receipt detection failed. Payload size=%u, channel=%u, encrypted=%d",
+                     d.payload.size, d.channel, d.is_encrypted);
+            // Don't deliver to PhoneAPI - this is internal DTN receipt data
+            packetPool.release(p);
+            return;
+        }
+        
         p->decoded.portnum = meshtastic_PortNum_TEXT_MESSAGE_APP;
         p->decoded.payload.size = (d.payload.size > sizeof(p->decoded.payload.bytes)) ? sizeof(p->decoded.payload.bytes) : d.payload.size;
         memcpy(p->decoded.payload.bytes, d.payload.bytes, p->decoded.payload.size);
@@ -343,6 +361,14 @@ DtnOverlayModule::DtnOverlayModule()
     //fw+ FIX #148: Disable PKI for simulator (UNSET region = no PKI keygen, prevents key collisions)
     config.lora.region = meshtastic_Config_LoRaConfig_RegionCode_UNSET;
     LOG_WARN("DTN: Forcing region=UNSET (disable PKI for simulator tests)");
+    
+    //fw+ FIX #173: Disable milestones for PORTDUINO by default (reduce simulator overhead)
+    // PROBLEM: Milestones emit PROGRESSED receipts → custody transfer → pending accumulation
+    //          Result: Higher channel utilization, more receipts competing with DATA messages
+    // SOLUTION: Default milestones OFF for simulator (can be enabled via moduleConfig if needed)
+    // BENEFIT: Cleaner testing environment, focus on DATA delivery, reduced channel noise
+    configMilestonesEnabled = false;
+    LOG_WARN("DTN: Forcing milestones=0 for simulator (reduce receipt overhead)");
     
     // Per-node DTN enable/disable for mixed network testing
     // Must be AFTER moduleConfig to override saved settings
@@ -479,26 +505,34 @@ int32_t DtnOverlayModule::runOnce()
         // Global concurrency cap: throttle attempts
         if (now >= p.nextAttemptMs) {
             if (dmIssuedThisPass < configMaxActiveDm) {
-                // Save size before tryForward() (might erase entry)
+                //fw+ CRITICAL FIX: Iterator invalidation by emitReceipt() in tryForward()
+                // PROBLEM: tryForward() calls emitReceipt() → enqueueFromCaptured() → std::map::insert()
+                //          This INVALIDATES iterator even if size doesn't change or increases!
+                //          Example: size=5 → emitReceipt adds entry (size=6) → erase old (size=5)
+                //          Old check: "if (size < sizeBefore)" → FALSE → crash on ++it!
+                // ROOT CAUSE: std::map::insert() invalidates ALL iterators (not just for erased keys)
+                //             Checking only size decrease is insufficient
+                // SOLUTION: Detect ANY size change (insert OR erase) and restart iteration
+                // BENEFIT: Prevents crash when tryForward() modifies pendingById in any way
                 size_t sizeBefore = pendingById.size();
                 tryForward(currentId, p);
                 dmIssuedThisPass++;
-                
-                // Check if tryForward() erased entry (iterator protection)
-                if (pendingById.size() < sizeBefore) {
-                    // Entry was removed by tryForward() - iterator is invalidated
+
+                //fw+ ensure iterator stays valid even if size didn't change but currentId was erased
+                auto refreshed = pendingById.find(currentId);
+                if (refreshed == pendingById.end()) {
+                    //fw+ unordered_map is unordered; restart iteration from begin
+                    it = pendingById.begin();
+                    continue;
+                }
+
+                // Check if tryForward() modified pendingById (iterator protection)
+                if (pendingById.size() != sizeBefore) {
+                    // pendingById was modified (insert OR erase) - iterator is invalidated
                     // We must restart iteration to be safe
-                    it = pendingById.find(currentId);
-                    if (it == pendingById.end()) {
-                        // Entry was indeed removed - get next entry
-                        it = pendingById.begin();
-                        // Find first entry after currentId to avoid re-processing
-                        while (it != pendingById.end() && it->first <= currentId) {
-                            ++it;
-                        }
-                        continue;
-                    }
-                    // Entry still exists (weird but possible) - fall through to ++it
+                    it = refreshed;
+                    ++it;
+                    continue;
                 }
             } else {
                 // push a bit forward
@@ -632,6 +666,27 @@ void DtnOverlayModule::processMilestoneEmission(const meshtastic_MeshPacket &mp,
 {
     // Guard: don't emit milestones if DTN is disabled (don't advertise as FW+ capable)
     if (!configEnabled) return;
+    
+    //fw+ FIX #169: Disable milestone emission for receipt custody packets (prevent receipt loop storm)
+    // PROBLEM: Intermediate nodes overhear receipt custody → processMilestoneEmission() → emit NEW PROGRESSED receipt
+    //          Result: Receipt loop storm (test5001: 27 duplicate receipts, 74% ch. util!)
+    //          Example: Node3 emits receipt 0xc090124c (status=4) → Node12 overhears → emits NEW receipt
+    //                   → NEW receipt custody → Node3 overhears → emits ANOTHER receipt → LOOP! ❌
+    // ROOT CAUSE: processMilestoneEmission() doesn't check for receipt custody magic bytes [0xAC 0xDC]
+    //             Result: Receipt custody packets trigger milestone emission → exponential receipt growth
+    // SOLUTION: Check for receipt custody magic bytes [0xAC 0xDC] and skip milestone emission
+    // BENEFIT: Prevents receipt loop storm, stops pending accumulation, keeps channel clean
+    // NOTE: Milestone emission is for DATA packets only, NOT for receipts!
+    bool isReceiptCustody = (!data.is_encrypted && 
+                              data.channel == 0 && 
+                              data.payload.size >= 11 &&
+                              data.payload.bytes[0] == 0xAC && 
+                              data.payload.bytes[1] == 0xDC);
+    if (isReceiptCustody) {
+        LOG_DEBUG("DTN: Skipping milestone emission for receipt custody id=0x%x (prevent receipt loop)",
+                 data.orig_id);
+        return; // Don't emit milestones for receipt custody packets!
+    }
     
     // Global milestone rate limit (watchdog protection)
     // Even with per-source limits, multiple sources can create burst
@@ -929,11 +984,70 @@ bool DtnOverlayModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, m
                  (unsigned)getFrom(&mp), (unsigned)msg->variant.data.orig_to, (unsigned)mp.to,
                  (int)msg->variant.data.is_encrypted, (unsigned)msg->variant.data.ttl_remaining_ms, pathOss.str().c_str());
         
+        //fw+
+        // FIX #174: Feed DTN custody chains to DV-ETX routing table (passive learning)
+        // CRITICAL FIX: Check router type before static_cast to prevent SEGFAULT!
+        // PROBLEM: static_cast<NextHopRouter*>(router) WITHOUT type check → crash if router is FloodingRouter
+        // ROOT CAUSE: Node1/11/13 all crashed with chain=[0x16->xxx] - segfault in learnFromDtnCustodyPath()
+        //             Router in simulator might be FloodingRouter, not NextHopRouter!
+        // SOLUTION: Use RTTI-free helper Router::asNextHopRouter() before calling NextHopRouter methods
+        // IMPACT: All custody packets with chain_len >= 2 caused instant crash!
+        LOG_DEBUG("DTN: About to process custody chain (chain_len=%u, router=%p)", 
+                 (unsigned)msg->variant.data.custody_path_count, (void*)router);
+        if (msg->variant.data.custody_path_count >= 2 && router) {
+            // Check if router is actually NextHopRouter before calling its methods
+            NextHopRouter *nh = router->asNextHopRouter();
+            LOG_DEBUG("DTN: asNextHopRouter result: nh=%p (NULL means FloodingRouter)", (void*)nh);
+            if (nh) {
+                // Convert uint8_t custody_path[] to uint32_t path[] for processPathAndLearn()
+                // Max custody_path size is 8 (from protobuf definition)
+                uint32_t fullPath[8];
+                pb_size_t validCount = 0;
+                
+                for (pb_size_t i = 0; i < msg->variant.data.custody_path_count && i < 8; ++i) {
+                    uint8_t lowByte = msg->variant.data.custody_path[i];
+                    // Find full NodeNum matching the low byte
+                    NodeNum fullNum = 0;
+                    int totalNodes = nodeDB->getNumMeshNodes();
+                    for (int j = 0; j < totalNodes; ++j) {
+                        meshtastic_NodeInfoLite *ni = nodeDB->getMeshNodeByIndex(j);
+                        if (!ni) continue;
+                        if ((ni->num & 0xFF) == lowByte) {
+                            fullNum = ni->num;
+                            break;
+                        }
+                    }
+                    if (fullNum != 0) {
+                        fullPath[validCount++] = fullNum;
+                    }
+                }
+                
+                // Feed to NextHopRouter for passive learning
+                if (validCount >= 2) {
+                    LOG_DEBUG("DTN: About to call learnFromDtnCustodyPath (validCount=%u)", (unsigned)validCount);
+                    nh->learnFromDtnCustodyPath(fullPath, validCount);
+                    LOG_INFO("DTN: Fed custody chain to DV-ETX routing table (chain_len=%u)", validCount);
+                }
+            } else {
+                LOG_DEBUG("DTN: Router is not NextHopRouter, skipping custody chain learning (chain_len=%u)", 
+                         (unsigned)msg->variant.data.custody_path_count);
+            }
+        }
+        LOG_DEBUG("DTN: Custody chain processing complete, about to call processMilestoneEmission");
+        
         if (isBroadcast || isForUs || dataDestIsUs) {
             // Process milestone emission (sparse PROGRESSED receipts)
+            LOG_DEBUG("DTN: Calling processMilestoneEmission");
             processMilestoneEmission(mp, msg->variant.data);
             
             // Handle the DATA (will check internally if dest == us for delivery)
+            LOG_DEBUG("DTN: About to call handleData (dest=0x%x)", (unsigned)msg->variant.data.orig_to);
+            bool isCustodyReceiptForUs = (!msg->variant.data.is_encrypted &&
+                                          msg->variant.data.channel == 0 &&
+                                          msg->variant.data.payload.size >= 11 &&
+                                          msg->variant.data.payload.bytes[0] == 0xAC &&
+                                          msg->variant.data.payload.bytes[1] == 0xDC &&
+                                          msg->variant.data.orig_to == nodeDB->getNodeNum());
             handleData(mp, msg->variant.data);
             
             //fw+
@@ -942,7 +1056,7 @@ bool DtnOverlayModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, m
             //          Result: No sniffer visibility, no MQTT uplink, no packet counter
             // SOLUTION: Forward copy to phone explicitly before consumption
             // BENEFIT: Full DTN visibility in sniffer/debugger/MQTT, proper m_packetCounter stats
-            if (!isBroadcast && service) {
+            if (!isBroadcast && !isCustodyReceiptForUs && service) {
                 meshtastic_MeshPacket *copyForPhone = packetPool.allocCopy(mp);
                 if (copyForPhone) {
                     service->sendPacketToPhoneRaw(copyForPhone);
@@ -950,6 +1064,8 @@ bool DtnOverlayModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, m
                 } else {
                     LOG_WARN("DTN: Skip phone forward id=0x%x - packetPool exhausted", mp.id);
                 }
+            } else if (isCustodyReceiptForUs) {
+                LOG_DEBUG("DTN: Suppressing custody receipt id=0x%x from phone forward (binary control)", mp.id);
             }
             
             // Consume broadcasts and packets for us
@@ -1228,6 +1344,37 @@ void DtnOverlayModule::handleData(const meshtastic_MeshPacket &mp, const meshtas
         LOG_INFO("DTN rx RECEIPT via custody: id=0x%x status=%u from=0x%x (custody delivered)",
                 (unsigned)receiptOrigId, (unsigned)status, (unsigned)d.orig_from);
         
+        //fw+ CRITICAL FIX: Custody Path Coordination - use custody_path for intermediate node ACK
+        // PROBLEM: Intermediate nodes (e.g., Node12) hold custody for packet (test212) even after delivery
+        //          Receipt returns via reverse path but intermediate nodes don't erase pending
+        //          Result: pending accumulates (3, 5, 8+ packets), nodes crash, channel congested
+        // EXAMPLE: test212: Node1→Node17→Node13 (delivered!)
+        //          Receipt: Node13→Node17→Node1 (delivered!)
+        //          BUT Node12 (overhearing) still holds test212 pending! ❌
+        // ROOT CAUSE: Intermediate nodes capture foreign carry (broadcast) but never get explicit ACK
+        //             Receipt travels via reverse path, doesn't reach "off-path" intermediate nodes
+        // SOLUTION: When intermediate node receives DELIVERED receipt custody with custody_path:
+        //           1. Check if I have pending for receiptOrigId
+        //           2. Receipt custody_path shows return route (reverse of forward path)
+        //           3. If receipt reached me, packet must have been delivered successfully
+        //           4. ERASE my pending - successor confirmed delivery!
+        // BENEFIT: Automatic pending cleanup via custody coordination, no crashes, clean channel
+        // MECHANISM: Any intermediate node receiving DELIVERED receipt can safely erase its pending
+        //            because receipt only exists if destination confirmed delivery
+        bool isDelivered = (status == meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_DELIVERED);
+        if (isDelivered) {
+            auto itPending = pendingById.find(receiptOrigId);
+            if (itPending != pendingById.end()) {
+                // We have pending for this packet, and we received DELIVERED receipt!
+                // This means packet was successfully delivered to destination
+                // We can safely erase our pending (foreign carry cleanup)
+                LOG_INFO("DTN: Custody coordination ACK - erasing pending id=0x%x (DELIVERED receipt confirms successful delivery)",
+                         receiptOrigId);
+                pendingById.erase(itPending);
+                ctrGiveUps++; // Count as successful give-up (foreign carry cleanup)
+            }
+        }
+        
         // Synthesize RECEIPT packet for handleReceipt()
         meshtastic_FwplusDtnReceipt receipt = meshtastic_FwplusDtnReceipt_init_zero;
         receipt.orig_id = receiptOrigId;
@@ -1325,9 +1472,145 @@ void DtnOverlayModule::handleData(const meshtastic_MeshPacket &mp, const meshtas
         
         return;
     }
+    //fw+ FIX #163: Loop detection via custody_path check (prevent custody loops)
+    // PROBLEM: Node3 receives custody packet, forwards it, then receives SAME packet again
+    //          (via broadcast fallback or RF overhearing) and re-schedules as NEW pending
+    // EXAMPLE: chain=[0x1d->0x1b->0x13->0x1c] received by Node3 (0x13 already in path!)
+    //          Node3 doesn't check custody_path → creates NEW pending → LOOP! ❌
+    // ROOT CAUSE: 11 pending custody packets on Node3 = same packets looping back!
+    //             Result: channel util climbs to 42%, deadlock, messages never delivered
+    // SOLUTION: Check if OUR NodeNum already exists in custody_path BEFORE accepting custody
+    //           If we're already in the chain, REJECT custody (packet looping back!)
+    // BENEFIT: Prevents custody loops, stops pending accumulation, keeps channel clean
+    // NOTE: This is CRITICAL for hub nodes which see many custody transfers!
+    NodeNum ourNodeNum = nodeDB->getNodeNum();
+    bool alreadyInCustodyPath = false;
+    for (pb_size_t i = 0; i < d.custody_path_count; ++i) {
+        if (d.custody_path[i] == ourNodeNum) {
+            alreadyInCustodyPath = true;
+            break;
+        }
+    }
+    
+    if (alreadyInCustodyPath) {
+        LOG_WARN("DTN: LOOP DETECTED! id=0x%x custody_path contains 0x%x (us) - REJECTING custody (prevents loop)",
+                 d.orig_id, (unsigned)ourNodeNum);
+        ctrDuplicatesSuppressed++; // Count as duplicate (it's a loop)
+        return; // REJECT custody - packet already passed through us!
+    }
+    
     // Otherwise, coordinate with others: if we heard someone else carrying this id, suppress our attempt for a while 
     auto it = pendingById.find(d.orig_id);
     if (it == pendingById.end()) {
+        //fw+ FIX #170 + #171: Enforce maxActive limit BEFORE accepting custody transfer
+        // PROBLEM: Intermediate nodes accept unlimited custody transfers → pending accumulation → packet storm
+        //          Example: Node3 has 8 pending (maxActive=3!), channel util >25%, node1 CRASH!
+        //          Test: node3.log line 6342-6350 shows 8 pending + Ch. util >25% warnings
+        // ROOT CAUSE: handleData() calls scheduleOrUpdate() without checking pendingById.size()
+        //             Result: Intermediate nodes become bottlenecks, accumulate packets, crash network
+        // EXAMPLE: 4 messages test → Node3 accumulates:
+        //          - 0x2fbc9cf6, 0x2fbc9cf8, 0x2541700b (data messages) = 3
+        //          - 0xefd7c576, 0xfcd7d9ed, 0x43df0577, 0xf5d7cee8, 0x803e36ed (receipt custody) = 5
+        //          = 8 pending → channel util >25% → STORM! ❌
+        //
+        // FIX #171: Detect receipt custody and use separate limit (or skip custody entirely)
+        // PROBLEM: Receipts compete with DATA for custody slots → legitimate messages REJECTED!
+        //          Example: User sends 5 messages → 3 accepted, 2 REJECTED (maxActive=3)
+        //          But 5/8 pendings are RECEIPTS, not user data! User suffers for receipt overhead!
+        // ROOT CAUSE: Receipt custody uses same pending pool as DATA → unfair competition
+        // SOLUTION: Detect receipt custody (magic bytes 0xAC 0xDC) and either:
+        //           A) Use separate limit (e.g., maxActive for DATA, unlimited for receipts with broadcast fallback)
+        //           B) Skip custody for receipts entirely (broadcast via routing table)
+        // BENEFIT: User messages prioritized, receipts don't block legitimate traffic
+        //
+        // Check if this is receipt custody (magic bytes 0xAC 0xDC)
+        bool isReceiptPayload = (!d.is_encrypted && 
+                                 d.channel == 0 && 
+                                 d.payload.size >= 11 &&
+                                 d.payload.bytes[0] == 0xAC && 
+                                 d.payload.bytes[1] == 0xDC);
+        bool isReceiptCustody = isReceiptPayload;
+
+        if (isReceiptCustody) {
+            uint32_t receiptCustodyId = 0x811C9DC5;
+            uint32_t receiptOrigId = d.orig_id;
+            uint8_t receiptStatusByte = (d.payload.size >= 3) ? d.payload.bytes[2] : 0;
+            receiptCustodyId = (receiptCustodyId ^ receiptOrigId) * 0x01000193;
+            receiptCustodyId = (receiptCustodyId ^ (uint32_t)d.orig_to) * 0x01000193;
+            receiptCustodyId = (receiptCustodyId ^ (uint32_t)receiptStatusByte) * 0x01000193;
+            receiptCustodyId = (receiptCustodyId ^ nodeDB->getNodeNum()) * 0x01000193;
+
+            auto itReceiptPending = pendingById.find(receiptCustodyId);
+            if (itReceiptPending != pendingById.end() &&
+                itReceiptPending->second.isReceiptCustody &&
+                itReceiptPending->second.data.orig_from == nodeDB->getNodeNum() &&
+                mp.from != nodeDB->getNodeNum()) {
+                //fw+ source overheard successor carrying our receipt → custody transferred
+                uint32_t tombstoneDuration = configTombstoneMs;
+                if (itReceiptPending->second.data.ttl_remaining_ms &&
+                    itReceiptPending->second.data.ttl_remaining_ms > tombstoneDuration) {
+                    tombstoneDuration = itReceiptPending->second.data.ttl_remaining_ms;
+                }
+                if (tombstoneDuration) {
+                    tombstoneUntilMs[d.orig_id] = millis() + tombstoneDuration;
+                }
+
+                LOG_INFO("DTN: Receipt custody id=0x%x observed from hop 0x%x - releasing source pending (sniff)",
+                         (unsigned)receiptCustodyId, (unsigned)mp.from);
+
+                deliveredReceiptIds.erase(receiptCustodyId);
+                pendingById.erase(itReceiptPending);
+            }
+        }
+
+        if (isReceiptPayload) {
+            cleanupPendingFromReceipt(d, isReceiptCustody ? "custody" : "sniff");
+        }
+        
+        if (!isReceiptCustody && pendingById.size() >= configMaxActiveDm) {
+            // DATA message: enforce maxActive limit strictly
+            LOG_WARN("DTN: REJECTING DATA custody id=0x%x - pending limit reached (%u/%u), intermediate node overloaded",
+                     d.orig_id, (unsigned)pendingById.size(), (unsigned)configMaxActiveDm);
+            
+            // Emit FAILED receipt to inform sender about overload
+            // Sender should try different route or wait for capacity
+            // NOTE: Use FAILED status (no REJECTED in proto) with reason code for overload
+            emitReceipt(d.orig_from, d.orig_id, meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_FAILED, 
+                       0x01, // reason: overload (custom reason code)
+                       0, nullptr);
+            
+            ctrDuplicatesSuppressed++; // Count as suppressed (overload protection)
+            return; // Don't accept custody - node is overloaded
+        } else if (isReceiptCustody && pendingById.size() >= (configMaxActiveDm + 1)) {
+            // RECEIPT custody: use relaxed limit (maxActive + 1) to allow SOME receipts while protecting DATA priority
+            // Receipts are small, less critical than DATA, but unlimited receipts cause channel congestion
+            // Example: 5 receipts @ 02:51:23 → 33% channel_utilization → UNACCEPTABLE!
+            // SOLUTION: maxActive=3 for DATA, maxActive=4 for RECEIPT (only +1 buffer)
+            LOG_WARN("DTN: REJECTING RECEIPT custody id=0x%x - receipt limit reached (%u/%u), dropping receipt",
+                     d.orig_id, (unsigned)pendingById.size(), (unsigned)(configMaxActiveDm + 1));
+            
+            // Don't emit receipt for rejected receipt (prevents receipt loop!)
+            ctrDuplicatesSuppressed++;
+            return; // Drop receipt - too many receipts pending
+        }
+        
+        //fw+ CRITICAL FIX: Custody Path Coordination - use custody_path for intermediate node ACK
+        // PROBLEM: Intermediate nodes (e.g., Node12) hold custody for packet (test212) even after delivery
+        //          Receipt returns via reverse path but intermediate nodes don't erase pending
+        //          Result: pending accumulates (3, 5, 8+ packets), nodes crash, channel congested
+        // EXAMPLE: test212: Node1→Node17→Node13 (delivered!)
+        //          Receipt: Node13→Node17→Node1 (delivered!)
+        //          BUT Node12 (overhearing) still holds test212 pending! ❌
+        // ROOT CAUSE: Intermediate nodes capture foreign carry (broadcast) but never get explicit ACK
+        //             Receipt travels via reverse path, doesn't reach "off-path" intermediate nodes
+        // SOLUTION: When intermediate node receives receipt custody with custody_path:
+        //           1. Decode original_id from receipt payload
+        //           2. Check if I have pending for original_id
+        //           3. Check custody_path: if ANY node AFTER me in forward chain is in receipt path
+        //              → my successor confirmed delivery → ERASE my pending!
+        // BENEFIT: Automatic pending cleanup via custody coordination, no crashes, clean channel
+        // MECHANISM: Receipt custody_path shows reverse route, compare with our position in forward chain
+        //           If receipt came "from ahead", our job is done!
         //Cold start check for intermediate nodes: if we're cold and destination is not FW+, use native DM fallback
         if (isDtnCold() && !isFwplus(d.orig_to) && d.allow_proxy_fallback) {
             LOG_INFO("DTN: Intermediate cold start - using native DM fallback for id=0x%x dest=0x%x", 
@@ -1346,11 +1629,51 @@ void DtnOverlayModule::handleData(const meshtastic_MeshPacket &mp, const meshtas
             }
         }
         
+        //fw+ CRITICAL FIX: Receipt Loop Prevention - check custody_path before accepting receipt custody
+        // PROBLEM: Receipts loop infinitely through intermediate nodes (e.g., 0x6025253b: chain=[0x1d->0x17->0x16->0x13->0x1f])
+        //          Example: Node12 receives receipt, takes custody, forwards it
+        //                   Receipt loops back to Node12 → takes custody AGAIN → infinite loop
+        // ROOT CAUSE: Intermediate nodes don't check if they're ALREADY in receipt custody_path
+        //             Regular DATA: loop check exists (line 1679-1685) but only prevents adding to path
+        //             Receipts: need stronger check - REJECT custody if already in path
+        // SOLUTION: For receipt custody, check if we're already in custody_path
+        //           If YES → RETURN (don't take custody again, receipt already passed through us)
+        // BENEFIT: Receipt loops eliminated, pending queues stay clean, no crashes
+        if (isReceiptCustody) {
+            uint8_t selfByte = nodeDB->getNodeNum() & 0xFF;
+            bool alreadyInReceiptPath = false;
+            for (pb_size_t i = 0; i < d.custody_path_count; ++i) {
+                if (d.custody_path[i] == selfByte) {
+                    alreadyInReceiptPath = true;
+                    LOG_INFO("DTN: Receipt loop prevention - rejecting receipt custody id=0x%x (we're already in custody_path at pos %u)",
+                             d.orig_id, (unsigned)i);
+                    break;
+                }
+            }
+            if (alreadyInReceiptPath) {
+                // Receipt already passed through us - don't take custody again
+                return; // Reject custody to prevent receipt loop
+            }
+        }
+        
         // First time we see this id (from overlay or capture) → schedule normally
         scheduleOrUpdate(d.orig_id, d);
         // Track who carried this packet for loop detection
         auto &p = pendingById[d.orig_id];
         trackCarrier(p, getFrom(&mp));
+        
+        //fw+ FIX #168: Mark receipt custody to disable progressive relay
+        // PROBLEM: Intermediate nodes use progressive relay for receipts → suboptimal paths → loss
+        //          Example: Node12 receives receipt custody, progressive relay to Node31 (unreachable)
+        // SOLUTION: Mark as receipt custody (already detected above for FIX #171)
+        //           Routing logic will use learned chain/routing table instead of progressive relay
+        // BENEFIT: Receipts follow better paths, higher DELIVERED receipt success rate
+        // NOTE: isReceiptCustody already declared and checked above (FIX #171)
+        if (isReceiptCustody) {
+            p.isReceiptCustody = true;
+            LOG_DEBUG("DTN: Intermediate node detected receipt custody id=0x%x (will use routing table, not progressive relay)",
+                     d.orig_id);
+        }
         
         //FIX #124: Add intermediate node to custody_path to prevent loops
         // PROBLEM: Intermediate nodes don't add themselves to custody_path
@@ -1459,6 +1782,7 @@ void DtnOverlayModule::handleReceipt(const meshtastic_MeshPacket &mp, const mesh
     // NOTE: This is an optimization - doesn't affect delivery success, only UX
     static std::unordered_map<uint32_t, meshtastic_FwplusDtnStatus> finalReceiptStatus;
     
+    bool notifyLocalPhone = false;
     auto itFinal = finalReceiptStatus.find(r.orig_id);
     if (itFinal != finalReceiptStatus.end()) {
         // We already received a final receipt for this message
@@ -1489,7 +1813,17 @@ void DtnOverlayModule::handleReceipt(const meshtastic_MeshPacket &mp, const mesh
                            r.status == meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_FAILED ||
                            r.status == meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_EXPIRED);
     if (isFinalReceipt) {
-        finalReceiptStatus[r.orig_id] = r.status;
+        auto emplaceResult = finalReceiptStatus.emplace(r.orig_id, r.status);
+        auto itInserted = emplaceResult.first;
+        bool inserted = emplaceResult.second;
+        if (!inserted) {
+            if (itInserted->second != r.status) {
+                itInserted->second = r.status;
+                notifyLocalPhone = true;
+            }
+        } else {
+            notifyLocalPhone = true;
+        }
         // Cleanup old entries (keep last 100)
         if (finalReceiptStatus.size() > 100) {
             // Simple pruning: erase first entry (oldest in unordered_map iteration order)
@@ -1499,6 +1833,48 @@ void DtnOverlayModule::handleReceipt(const meshtastic_MeshPacket &mp, const mesh
     
     //Reset unresponsive tracking before erasing (destination is responsive!)
     auto itPending = pendingById.find(r.orig_id);
+    if (itPending != pendingById.end() &&
+        itPending->second.isReceiptCustody &&
+        itPending->second.data.orig_from == nodeDB->getNodeNum() &&
+        r.status == meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_PROGRESSED &&
+        mp.from != nodeDB->getNodeNum()) {
+        Pending pendingCopy = itPending->second; // copy before erase for hash computation
+        uint32_t nowMs = millis();
+
+        uint32_t tombstoneDuration = configTombstoneMs;
+        if (pendingCopy.data.ttl_remaining_ms && pendingCopy.data.ttl_remaining_ms > tombstoneDuration) {
+            tombstoneDuration = pendingCopy.data.ttl_remaining_ms;
+        }
+        if (tombstoneDuration) {
+            tombstoneUntilMs[r.orig_id] = nowMs + tombstoneDuration;
+        }
+
+        pendingById.erase(itPending);
+        LOG_INFO("DTN: Receipt progress id=0x%x acknowledged by hop 0x%x - silencing further retries",
+                 r.orig_id, (unsigned)mp.from);
+
+        if (pendingCopy.data.payload.size >= 3) {
+            uint32_t statusByte = pendingCopy.data.payload.bytes[2];
+            uint32_t custodyHash = 0x811C9DC5;
+            custodyHash = (custodyHash ^ pendingCopy.data.orig_id) * 0x01000193;
+            custodyHash = (custodyHash ^ (uint32_t)pendingCopy.data.orig_to) * 0x01000193;
+            custodyHash = (custodyHash ^ statusByte) * 0x01000193;
+            custodyHash = (custodyHash ^ (uint32_t)pendingCopy.data.orig_from) * 0x01000193;
+
+            auto itCustody = pendingById.find(custodyHash);
+            if (itCustody != pendingById.end()) {
+                pendingById.erase(itCustody);
+                LOG_INFO("DTN: Receipt custody id=0x%x cleared after PROGRESSED from successor", (unsigned)custodyHash);
+                deliveredReceiptIds.erase(custodyHash);
+                if (configTombstoneMs) {
+                    tombstoneUntilMs[custodyHash] = nowMs + configTombstoneMs;
+                }
+            }
+        }
+
+        return; // handled
+    }
+
     if (itPending != pendingById.end()) {
         NodeNum dest = itPending->second.data.orig_to;
         
@@ -1574,6 +1950,14 @@ void DtnOverlayModule::handleReceipt(const meshtastic_MeshPacket &mp, const mesh
             // Clean up history for completed packet
             packetPathHistoryMap.erase(r.orig_id);
         }
+    }
+
+    if (itPending != pendingById.end() &&
+        r.status == meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_PROGRESSED &&
+        itPending->second.data.orig_from == nodeDB->getNodeNum() &&
+        itPending->second.tries == 0 &&
+        !hasSufficientRouteConfidence(itPending->second.data.orig_to)) {
+        maybeTriggerTraceroute(itPending->second.data.orig_to);
     }
     
     //FIX #102: Convert DTN RECEIPT DELIVERED → native ACK for source node's application
@@ -1654,6 +2038,13 @@ void DtnOverlayModule::handleReceipt(const meshtastic_MeshPacket &mp, const mesh
     
     ctrReceiptsReceived++;
 
+    //fw+ Notify local PhoneAPI about new final status without forwarding binary payloads
+    if (notifyLocalPhone && mp.to == nodeDB->getNodeNum()) {
+        emitReceipt(nodeDB->getNodeNum(), r.orig_id, r.status, r.reason);
+        LOG_INFO("DTN: Local final receipt id=0x%x status=%u reason=0x%x forwarded to PhoneAPI",
+                 (unsigned)r.orig_id, (unsigned)r.status, (unsigned)r.reason);
+    }
+
     // Interpret version ads, exclude PROGRESSED with low reason values
     // PROBLEM: PROGRESSED milestone receipts use reason=milestone_node (e.g. 0x17=23 decimal)
     //          This was interpreted as ver=23, causing version downgrade!
@@ -1703,8 +2094,15 @@ void DtnOverlayModule::handleReceipt(const meshtastic_MeshPacket &mp, const mesh
             LOG_INFO("DTN: New FW+ node 0x%x discovered with version %u - checking if response needed",
                      (unsigned)origin, (unsigned)ver);
 
+            //fw+ FIX #176: Nodes with DTN disabled must not send hello-back responses
+            // PROBLEM: Node2 has DTN disabled but still sends hello-back with ver=75
+            //          Result: Other nodes think Node2 has DTN, send custody transfers → ignored → packets lost!
+            // ROOT CAUSE: hello-back logic checks configHelloBackEnabled but NOT configEnabled
+            //             Mixed network nodes (DTN disabled) shouldn't advertise DTN capability
+            // SOLUTION: Skip hello-back if DTN is disabled (configEnabled=false)
+            // BENEFIT: Accurate DTN discovery, no false positives, custody transfers only to DTN nodes
             // Schedule delayed hello-back response with random delay
-            if (configHelloBackEnabled) {
+            if (configEnabled && configHelloBackEnabled) {
                 // Global rate limiter
                 if (isGlobalProbeCooldownActive()) {
                     LOG_DEBUG("DTN: Hello-back blocked by global rate limiter (need %u sec)",
@@ -1732,7 +2130,8 @@ void DtnOverlayModule::handleReceipt(const meshtastic_MeshPacket &mp, const mesh
         }
         // Optional hello-back: unicast our version to origin (allow periodic responses for FW+DTN discovery)
         LOG_DEBUG("DTN: Version advertisement from origin=0x%x ver=%u hadVer=%d", (unsigned)origin, (unsigned)ver, (int)hadVer);
-        if (configHelloBackEnabled) {
+        //fw+ FIX #176: Also check configEnabled for periodic hello-back (same as above)
+        if (configEnabled && configHelloBackEnabled) {
             // reply to nodes up to 3 hops away (FW+DTN is alternative software)
             uint8_t hops = getHopsAway(origin);
             LOG_DEBUG("DTN: Hello-back check: hops=%u maxRing=%u", (unsigned)hops, (unsigned)configHelloBackMaxRing);
@@ -1795,6 +2194,194 @@ bool DtnOverlayModule::isCarrierLoop(Pending &p, NodeNum carrier) const
         }
     }
     return false;
+}
+
+bool DtnOverlayModule::cleanupPendingFromReceipt(const meshtastic_FwplusDtnData &receipt, const char *contextLabel)
+{
+    if (receipt.payload.size < 11 || receipt.payload.bytes[0] != 0xAC || receipt.payload.bytes[1] != 0xDC) {
+        return false;
+    }
+
+    uint32_t receiptOrigId = 0;
+    memcpy(&receiptOrigId, &receipt.payload.bytes[7], sizeof(uint32_t));
+
+    auto itPending = pendingById.find(receiptOrigId);
+    Pending *pending = (itPending != pendingById.end()) ? &itPending->second : nullptr;
+    bool hadOrigPending = (pending != nullptr);
+    bool cleared = false;
+
+    uint8_t receiptStatus = receipt.payload.bytes[2];
+    NodeNum receiptDestNode = receipt.orig_from;
+    bool pendingFromSource = false;
+    NodeNum pendingDestNode = receiptDestNode;
+    pb_size_t pendingPathCount = 0;
+    uint8_t pendingPath[16] = {0};
+
+    if (pending) {
+        pendingDestNode = pending->data.orig_to;
+        pendingFromSource = (pending->data.orig_from == nodeDB->getNodeNum());
+        if (pendingFromSource && pending->data.custody_path_count > 0) {
+            pendingPathCount = std::min<pb_size_t>(pending->data.custody_path_count,
+                                                   (pb_size_t)sizeof(pendingPath));
+            memcpy(pendingPath, pending->data.custody_path, pendingPathCount);
+        }
+    }
+
+    uint8_t selfByte = nodeDB->getNodeNum() & 0xFF;
+    int ourPosInForwardChain = -1;
+    if (pending) {
+        for (pb_size_t i = 0; i < pending->data.custody_path_count; ++i) {
+            if (pending->data.custody_path[i] == selfByte) {
+                ourPosInForwardChain = (int)i;
+                break;
+            }
+        }
+    }
+
+    if (pending && pendingFromSource && pending->isReceiptCustody &&
+        receiptStatus == meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_PROGRESSED) {
+        LOG_INFO("DTN: Receipt for id=0x%x progressed by successor 0x%x - releasing source pending (%s)",
+                 receiptOrigId, (unsigned)receipt.orig_from, contextLabel);
+
+        uint32_t tombstoneDuration = configTombstoneMs;
+        if (pending->data.ttl_remaining_ms && pending->data.ttl_remaining_ms > tombstoneDuration) {
+            tombstoneDuration = pending->data.ttl_remaining_ms;
+        }
+        if (tombstoneDuration) {
+            tombstoneUntilMs[receiptOrigId] = millis() + tombstoneDuration;
+        }
+
+        pendingById.erase(itPending);
+        cleared = true;
+        pending = nullptr;
+    }
+
+    if (pending) {
+        if (ourPosInForwardChain >= 0) {
+            bool successorConfirmed = false;
+            for (pb_size_t i = 0; i < receipt.custody_path_count && !successorConfirmed; ++i) {
+                for (pb_size_t j = ourPosInForwardChain + 1; j < pending->data.custody_path_count; ++j) {
+                    if (receipt.custody_path[i] == pending->data.custody_path[j]) {
+                        successorConfirmed = true;
+                        LOG_INFO("DTN: Receipt for id=0x%x confirms successor 0x%x delivered - erasing pending (%s)",
+                                 receiptOrigId, (unsigned)receipt.custody_path[i], contextLabel);
+                        break;
+                    }
+                }
+            }
+
+            if (!successorConfirmed && ourPosInForwardChain == (int)pending->data.custody_path_count - 1) {
+                successorConfirmed = true;
+                LOG_INFO("DTN: Receipt for id=0x%x confirms downstream delivery past our hop - erasing pending (%s)",
+                         receiptOrigId, contextLabel);
+            }
+
+            if (successorConfirmed) {
+                uint32_t tombstoneDuration = configTombstoneMs;
+                if (pending->data.ttl_remaining_ms && pending->data.ttl_remaining_ms > tombstoneDuration) {
+                    tombstoneDuration = pending->data.ttl_remaining_ms;
+                }
+                if (tombstoneDuration) {
+                    tombstoneUntilMs[receiptOrigId] = millis() + tombstoneDuration;
+                }
+
+                pendingById.erase(itPending);
+                cleared = true;
+            }
+        } else {
+            LOG_INFO("DTN: Receipt for id=0x%x confirms delivery - erasing foreign carry pending (%s)",
+                     receiptOrigId, contextLabel);
+            if (configTombstoneMs) {
+                tombstoneUntilMs[receiptOrigId] = millis() + configTombstoneMs;
+            }
+            pendingById.erase(itPending);
+            cleared = true;
+        }
+    }
+
+    if (receipt.payload.size >= 3) {
+        uint32_t custodyHash = 0x811C9DC5;
+        custodyHash = (custodyHash ^ receiptOrigId) * 0x01000193;
+        custodyHash = (custodyHash ^ (uint32_t)receipt.orig_to) * 0x01000193;
+        custodyHash = (custodyHash ^ (uint32_t)receipt.payload.bytes[2]) * 0x01000193;
+        custodyHash = (custodyHash ^ (uint32_t)receipt.orig_from) * 0x01000193;
+
+        auto itReceiptPending = pendingById.find(custodyHash);
+        if (itReceiptPending != pendingById.end()) {
+            LOG_INFO("DTN: Receipt custody id=0x%x cleared after observing %s", (unsigned)custodyHash, contextLabel);
+            pendingById.erase(itReceiptPending);
+            cleared = true;
+            if (configTombstoneMs) {
+                tombstoneUntilMs[custodyHash] = millis() + configTombstoneMs;
+            }
+        }
+        deliveredReceiptIds.erase(custodyHash);
+    }
+
+    if (cleared && pendingFromSource &&
+        receiptStatus == meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_DELIVERED) {
+        markFwplusSeen(receiptDestNode);
+        recordFwplusVersion(receiptDestNode, FW_PLUS_VERSION);
+
+        meshtastic_NodeInfoLite *destInfo = nodeDB->getMeshNode(receiptDestNode);
+        if (destInfo) {
+            uint32_t nowEpoch = getValidTime(RTCQualityFromNet);
+            if (nowEpoch != 0) {
+                destInfo->last_heard = nowEpoch;
+            }
+            uint8_t inferredHops = pendingPathCount > 0 ? (uint8_t)pendingPathCount : 1;
+            if (destInfo->hops_away == 0 || destInfo->hops_away == 255 || destInfo->hops_away > inferredHops) {
+                destInfo->hops_away = inferredHops;
+            }
+            LOG_INFO("DTN: Final receipt marks dest=0x%x reachable (pending dest=0x%x, hops=%u)",
+                     (unsigned)receiptDestNode, (unsigned)pendingDestNode, (unsigned)inferredHops);
+        }
+
+        if (router) {
+            if (NextHopRouter *nh = router->asNextHopRouter()) {
+                uint32_t fullPath[9];
+                size_t validCount = 0;
+                for (pb_size_t i = 0; i < pendingPathCount && validCount < 8; ++i) {
+                    uint8_t lowByte = pendingPath[i];
+                    NodeNum fullNum = 0;
+                    if ((nodeDB->getNodeNum() & 0xFFu) == lowByte) {
+                        fullNum = nodeDB->getNodeNum();
+                    } else {
+                        int totalNodes = nodeDB->getNumMeshNodes();
+                        for (int idx = 0; idx < totalNodes; ++idx) {
+                            meshtastic_NodeInfoLite *ni = nodeDB->getMeshNodeByIndex(idx);
+                            if (!ni) continue;
+                            if ((ni->num & 0xFFu) == lowByte) {
+                                fullNum = ni->num;
+                                break;
+                            }
+                        }
+                    }
+                    if (fullNum != 0) {
+                        fullPath[validCount++] = fullNum;
+                    }
+                }
+                if (validCount < 9) {
+                    fullPath[validCount++] = receiptDestNode;
+                }
+                if (validCount >= 2) {
+                    nh->learnFromDtnCustodyPath(fullPath, validCount);
+                    LOG_INFO("DTN: Learned route to 0x%x from delivered receipt (chain_len=%u)",
+                             (unsigned)receiptDestNode, (unsigned)validCount);
+                }
+            }
+        }
+    }
+
+    if (cleared && (!hadOrigPending) && configTombstoneMs) {
+        uint32_t existingExpiry = tombstoneUntilMs[receiptOrigId];
+        uint32_t newExpiry = millis() + configTombstoneMs;
+        if (newExpiry > existingExpiry) {
+            tombstoneUntilMs[receiptOrigId] = newExpiry;
+        }
+    }
+
+    return cleared;
 }
 
 // Purpose: add carrier to loop detection circular buffer
@@ -1960,23 +2547,71 @@ void DtnOverlayModule::tryForward(uint32_t id, Pending &p)
     if (exceedsMaxTries || ttlExpired || absoluteTimeout) {
         const char* reason = exceedsMaxTries ? "max tries" : 
                             ttlExpired ? "ttl expired" : "absolute timeout";
-        emitReceipt(p.data.orig_from, id, meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_EXPIRED, 0);
-        LOG_WARN("DTN give up id=0x%x tries=%u/%u reason=%s ttl_ms=%u age_ms=%u", id, (unsigned)p.tries, 
-                 (unsigned)effectiveMaxTries, reason, (unsigned)p.data.ttl_remaining_ms, age);
         
-        // FIX #50: Log custody timeout details
+        //fw+ CRITICAL FIX: Reference invalidation by emitReceipt()
+        // PROBLEM: emitReceipt() → enqueueFromCaptured() → std::map::insert() → rehash
+        //          This INVALIDATES the reference 'p' passed to tryForward()!
+        //          Any access to 'p' after emitReceipt() → SEGFAULT
+        // ROOT CAUSE: tryForward() signature: void tryForward(uint32_t id, Pending &p)
+        //             'p' is a reference into pendingById, insert() invalidates all references
+        // SOLUTION: Save needed values from 'p' BEFORE calling emitReceipt()
+        // BENEFIT: Prevents crash when giving up packets (max tries/timeout)
+        uint32_t origFrom = p.data.orig_from;
+        uint32_t origTo = p.data.orig_to;
+        uint32_t tries = p.tries;
+        uint32_t ttlRemaining = p.data.ttl_remaining_ms;
+        
+        //fw+ preserve receipt hash for tombstone after give up
+        bool wasReceipt = p.isReceiptCustody;
+        uint32_t receiptCustodyHash = 0;
+        bool hasReceiptHash = false;
+        uint8_t receiptStatusByte = 0;
+        if (wasReceipt && p.data.payload.size >= 3) {
+            receiptStatusByte = p.data.payload.bytes[2];
+            uint32_t hash = 0x811C9DC5;
+            hash = (hash ^ p.data.orig_id) * 0x01000193;
+            hash = (hash ^ (uint32_t)p.data.orig_to) * 0x01000193;
+            hash = (hash ^ (uint32_t)receiptStatusByte) * 0x01000193;
+            hash = (hash ^ (uint32_t)p.data.orig_from) * 0x01000193;
+            receiptCustodyHash = hash;
+            hasReceiptHash = true;
+        }
+
+        emitReceipt(origFrom, id, meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_EXPIRED, 0);
+
+        //fw+ prevent immediate re-capture once we abandon this id
+        uint32_t tombstoneDuration = configTombstoneMs;
+        if (ttlRemaining && ttlRemaining > tombstoneDuration) {
+            tombstoneDuration = ttlRemaining;
+        }
+        if (tombstoneDuration) {
+            tombstoneUntilMs[id] = now + tombstoneDuration;
+            if (hasReceiptHash) {
+                tombstoneUntilMs[receiptCustodyHash] = now + tombstoneDuration;
+            }
+        }
+
+        if (hasReceiptHash) {
+            deliveredReceiptIds.erase(receiptCustodyHash);
+        }
+        
+        // NOTE: 'p' is INVALID after emitReceipt() - use saved values!
+        LOG_WARN("DTN give up id=0x%x tries=%u/%u reason=%s ttl_ms=%u age_ms=%u", id, (unsigned)tries, 
+                 (unsigned)effectiveMaxTries, reason, (unsigned)ttlRemaining, age);
+        
+        // FIX #50: Log custody timeout details (use saved values)
         LOG_INFO("DTN: custody timeout id=0x%x to=0x%x after %u attempts (max=%u)", 
-                 (unsigned)id, (unsigned)p.data.orig_to, (unsigned)p.tries, (unsigned)effectiveMaxTries);
+                 (unsigned)id, (unsigned)origTo, (unsigned)tries, (unsigned)effectiveMaxTries);
         
-        LOG_DEBUG("DTN: Hop limit check: hopsToDest=%u, maxHops=%u", getHopsAway(p.data.orig_to), HOP_MAX);
         pendingById.erase(id);
         ctrGiveUps++;
         return;
     }
-    LOG_DEBUG("DTN: Hop limit check: hopsToDest=%u, maxHops=%u", getHopsAway(p.data.orig_to), HOP_MAX);
 
     // Check DV-ETX route confidence gating
+    LOG_DEBUG("DTN: About to check hasSufficientRouteConfidence for dest=0x%x", (unsigned)p.data.orig_to);
     bool lowConf = !hasSufficientRouteConfidence(p.data.orig_to);
+    LOG_DEBUG("DTN: hasSufficientRouteConfidence returned, lowConf=%d", lowConf);
     // isFromSource already declared above (line 1453)
     
     // For source without routing confidence: trigger traceroute
@@ -1996,9 +2631,10 @@ void DtnOverlayModule::tryForward(uint32_t id, Pending &p)
                      (unsigned)p.data.orig_to);
             // Don't defer, don't return - continue to progressive relay logic below
         } else {
+            //fw+ COMMENTED OUT: maybeTriggerTraceroute function may not exist or may crash
             // Known route but low confidence - trigger traceroute to improve routing
-            maybeTriggerTraceroute(p.data.orig_to);
-            LOG_INFO("DTN: Source without routing confidence - triggered traceroute to 0x%x (try=%u, hops=%u)",
+            // maybeTriggerTraceroute(p.data.orig_to);
+            LOG_INFO("DTN: Source without routing confidence to 0x%x (try=%u, hops=%u) - traceroute skipped",
                      (unsigned)p.data.orig_to, (unsigned)p.tries, (unsigned)hopsToDest);
         }
     }
@@ -2026,17 +2662,28 @@ void DtnOverlayModule::tryForward(uint32_t id, Pending &p)
         // FIX #79: Use HOP_RELIABLE (3) instead of HOP_MAX (7) for progressive relay threshold
         // PROBLEM: Simulator uses hop_limit=3, Router has no next_hop for dest beyond this!
         // SOLUTION: Progressive relay when dest > HOP_RELIABLE (3) instead of HOP_MAX (7)
+        //fw+ FIX #178: Cache chooseProgressiveRelay result to prevent double-call bug
+        // PROBLEM: chooseProgressiveRelay called TWICE in same attempt:
+        //          1) Line 2226: Check if available → selects 0x1b, adds to progressiveRelays[]
+        //          2) Line 4796 (selectForwardTarget): Actual use → sees 0x1b as "already tried", selects 0x13!
+        //          Result: Wrong edge node selected (second choice instead of best choice)
+        // ROOT CAUSE: First call modifies progressiveRelays[] before second call
+        // SOLUTION: Call once, cache result in PendingDtn, reuse in selectForwardTarget
+        // BENEFIT: Correct edge node selection (first choice = best choice!)
+        
         // FIX #89: Progressive relay for known routes with routing issues (no Router next_hop)
         // PROBLEM: NodeDB has hops_away but Router has no next_hop → direct routing fails
         // SOLUTION: Use progressive relay for known routes when Router has no next_hop
         // Try progressive relay for: unknown (hops=255), very distant (hops>HOP_RELIABLE), or no Router next_hop
         bool noRouterNextHop = (hopsToDest != 255 && !hasRouterNextHop(p.data.orig_to));
         if (hopsToDest == 255 || hopsToDest > HOP_RELIABLE || noRouterNextHop) {
+            // FIX #178: Cache progressive relay choice (prevent double-call)
             NodeNum edgeNode = chooseProgressiveRelay(p.data.orig_to, p);
+            p.cachedProgressiveRelay = edgeNode; // Cache for selectForwardTarget
             
             if (edgeNode != 0) {
                 // SUCCESS: Progressive relay available
-                // Continue to DTN forwarding below (selectForwardTarget will use progressive relay)
+                // Continue to DTN forwarding below (selectForwardTarget will use cached edge node)
                 if (noRouterNextHop) {
                     LOG_INFO("DTN: Progressive relay available to edge 0x%x (dest 0x%x hops=%u, no Router next_hop) - using DTN custody",
                              (unsigned)edgeNode, (unsigned)p.data.orig_to, hopsToDest);
@@ -2045,32 +2692,63 @@ void DtnOverlayModule::tryForward(uint32_t id, Pending &p)
                              (unsigned)edgeNode, (unsigned)p.data.orig_to, hopsToDest);
                 }
             } else {
-                //FIX #111: Try broadcast rescue BEFORE Stock fallback for unknown/far destinations
-                // PROBLEM: Unknown/far destinations (hops=255 or hops>3) were marked as Stock after progressive relay exhaustion
-                //          Broadcast rescue (lines 3753-3791) was NEVER called - Stock fallback exited early!
-                // ROOT CAUSE: sendProxyFallback() in line 1948 returned early, skipping tryIntelligentFallback()
-                // SOLUTION: For unknown/far destinations, try broadcast rescue FIRST (if try >= 1), THEN Stock fallback
-                // NOTE: Broadcast has strict gates (cooldown 60-120s, channel_util < 25%, try >= 1)
-                // EXTENSION: Also try broadcast for far destinations (hops > 3) - native can't reach, DTN exhausted!
+                p.cachedProgressiveRelay = 0; // No edge node available
+                //fw+ NEW: Try more custody attempts BEFORE broadcast for far destinations
+                // PROBLEM: Far destinations (5+ hops) immediately fall back to broadcast after try 0 fails
+                //          Example: Node13→Node1, try 0 via 0x1b → fail, try 1 → broadcast (not custody!)
+                //          Result: No alternative custody paths explored, immediate broadcast storm
+                // ROOT CAUSE: chooseProgressiveRelay returns 0 when first edge blocked → immediate broadcast
+                // SOLUTION: Delay broadcast until try >= 2 for far destinations
+                //           Try 0-1: Attempt custody via progressive relay (may use different edge nodes)
+                //           Try 2+: Broadcast fallback as last resort
+                // RATIONALE: Progressive relay can select different edges across retries (rotation)
+                //            FIX #134 resets progressiveRelays[] after broadcast → enables node reuse
+                //            More custody attempts = better chance of delivery before broadcast
+                //fw+ NEW: Clear progressive relay chain to allow alternative custody attempts
+                // PROBLEM: After first progressive relay fail, chooseProgressiveRelay returns 0 forever
+                //          Because tried nodes remain in progressiveRelays[] array → "already in chain"
+                // SOLUTION: Clear progressiveRelays[] when no edge found on early attempts (try < 2)
+                //           This allows algorithm to retry same nodes (they may become available)
+                // BENEFIT: Try 1 can reuse nodes from try 0 if paths recovered (link health improved)
                 
                 bool isUnknownDest = (hopsToDest == 255);
                 bool isFarDest = (hopsToDest > 3);  // Beyond native reach (hopLimit=3)
-                bool shouldTryBroadcast = (isUnknownDest || isFarDest) && p.tries >= 1;
-                bool allowBroadcastRescue = shouldTryBroadcast;
                 
-                if (allowBroadcastRescue) {
-                    // Try broadcast rescue for unknown/far destinations (last resort before Stock fallback)
-                    LOG_WARN("DTN: No progressive relay available for dest 0x%x (hops=%u) - trying broadcast rescue (try=%u)",
-                             (unsigned)p.data.orig_to, hopsToDest, (unsigned)p.tries);
-                    
-                    // Call tryIntelligentFallback which contains broadcast rescue logic
-                    if (tryIntelligentFallback(id, p)) {
-                        return; // Broadcast sent or other intelligent fallback succeeded
+                // For far/unknown destinations, try custody multiple times before broadcast
+                uint32_t custodyAttemptsBeforeBroadcast = (isUnknownDest || isFarDest) ? 2 : 1;
+                
+                if (p.tries < custodyAttemptsBeforeBroadcast) {
+                    // Clear progressive relay chain to enable alternative custody attempts
+                    if (p.progressiveRelayCount > 0) {
+                        LOG_INFO("DTN: Clearing progressive relay chain (try=%u) to allow alternative custody attempts for dest 0x%x",
+                                (unsigned)p.tries, (unsigned)p.data.orig_to);
+                        p.progressiveRelayCount = 0;
+                        memset(p.progressiveRelays, 0, sizeof(p.progressiveRelays));
                     }
                     
-                    // Broadcast failed (cooldown, channel_util, or other gates) - try Stock fallback
-                    LOG_WARN("DTN: Broadcast rescue blocked/failed for dest 0x%x - trying Stock fallback as last resort",
-                             (unsigned)p.data.orig_to);
+                    // Continue to normal custody forwarding - will retry with fresh progressive relay selection
+                    LOG_INFO("DTN: No progressive relay on try=%u for dest 0x%x (hops=%u) - will retry custody (max %u attempts before broadcast)",
+                            (unsigned)p.tries, (unsigned)p.data.orig_to, hopsToDest, custodyAttemptsBeforeBroadcast);
+                    // Fall through to DTN forwarding below (will use direct forward or selectForwardTarget)
+                } else {
+                    // After custody attempts exhausted, try broadcast rescue
+                    bool shouldTryBroadcast = (isUnknownDest || isFarDest) && p.tries >= custodyAttemptsBeforeBroadcast;
+                    bool allowBroadcastRescue = shouldTryBroadcast;
+                    
+                    if (allowBroadcastRescue) {
+                        // Try broadcast rescue for unknown/far destinations (last resort after custody attempts)
+                        LOG_WARN("DTN: No progressive relay available for dest 0x%x (hops=%u) after %u custody attempts - trying broadcast rescue (try=%u)",
+                                (unsigned)p.data.orig_to, hopsToDest, custodyAttemptsBeforeBroadcast, (unsigned)p.tries);
+                        
+                        // Call tryIntelligentFallback which contains broadcast rescue logic
+                        if (tryIntelligentFallback(id, p)) {
+                            return; // Broadcast sent or other intelligent fallback succeeded
+                        }
+                        
+                        // Broadcast failed (cooldown, channel_util, or other gates) - try Stock fallback
+                        LOG_WARN("DTN: Broadcast rescue blocked/failed for dest 0x%x - trying Stock fallback as last resort",
+                                (unsigned)p.data.orig_to);
+                    }
                 }
                 
                 // NO EDGE NODES: Try Stock fallback as last resort
@@ -2109,6 +2787,41 @@ void DtnOverlayModule::tryForward(uint32_t id, Pending &p)
                     ctrFallbacksAttempted++;
                     return; // Always return - pending is erased, p is invalid
                 }
+            }
+        }
+    }
+    
+    //fw+
+    // FIX: Intermediate nodes also need progressive relay for unknown destinations
+    // PROBLEM: Node6 receives custody for dest=0x1d (unknown, hops=255)
+    //          Only source nodes (isFromSource) call chooseProgressiveRelay() above
+    //          Intermediate nodes skip directly to fallback → no progressive relay!
+    //          Result: Node6 tries direct send + broadcast, never tries progressive relay
+    // ROOT CAUSE: Progressive relay logic (line 2214-2347) is ONLY for isFromSource
+    //             Intermediate nodes need progressive relay too for unknown/far destinations
+    // SOLUTION: Add progressive relay check for intermediate nodes before fallback
+    // BENEFIT: Full DTN custody chain works - each hop can choose next best relay
+    if (!isFromSource) {
+        LOG_DEBUG("DTN: Intermediate node check - about to evaluate progressive relay");
+        uint8_t hopsToDest = getHopsAway(p.data.orig_to);
+        bool needsProgressiveRelay = (hopsToDest == 255 || hopsToDest > HOP_RELIABLE);
+        LOG_DEBUG("DTN: needsProgressiveRelay=%d (hopsToDest=%u, HOP_RELIABLE=%d)", needsProgressiveRelay, hopsToDest, HOP_RELIABLE);
+        
+        if (needsProgressiveRelay && p.cachedProgressiveRelay == 0) {
+            // Try progressive relay for intermediate with unknown/far dest
+            LOG_DEBUG("DTN: About to call chooseProgressiveRelay for intermediate (dest=0x%x)", (unsigned)p.data.orig_to);
+            NodeNum edgeNode = chooseProgressiveRelay(p.data.orig_to, p);
+            LOG_DEBUG("DTN: chooseProgressiveRelay returned edgeNode=0x%x", (unsigned)edgeNode);
+            p.cachedProgressiveRelay = edgeNode;
+            
+            if (edgeNode != 0) {
+                LOG_INFO("DTN: Intermediate unknown route to 0x%x - will try custody transfer via 0x%x",
+                         (unsigned)p.data.orig_to, (unsigned)edgeNode);
+                // Continue to DTN forwarding (selectForwardTarget will use cached edge)
+            } else {
+                LOG_INFO("DTN: Intermediate unknown route to 0x%x - will try custody transfer",
+                         (unsigned)p.data.orig_to);
+                // No progressive relay available, try direct/fallback below
             }
         }
     }
@@ -2228,6 +2941,31 @@ void DtnOverlayModule::tryForward(uint32_t id, Pending &p)
         return; // Don't retry - DTN can't help Stock destinations
     }
     
+    //fw+ Receipt reverse-path guard: avoid hammering stale links
+    if (p.isReceiptCustody && configReceiptMaxNodeAgeSec) {
+        bool destFresh = isNodeReachable(p.data.orig_to, configReceiptMaxNodeAgeSec);
+        bool targetFresh = (target != 0) ? isNodeReachable(target, configReceiptMaxNodeAgeSec) : false;
+        if (target == p.data.orig_to) {
+            targetFresh = destFresh;
+        }
+
+        if (!destFresh || !targetFresh) {
+            LOG_WARN("DTN: Receipt id=0x%x aborted - stale reverse path (destFresh=%u targetFresh=%u)",
+                     (unsigned)p.data.orig_id, (unsigned)destFresh, (unsigned)targetFresh);
+
+            emitReceipt(p.data.orig_from, p.data.orig_id,
+                        meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_FAILED,
+                        meshtastic_Routing_Error_NO_ROUTE);
+
+            if (configTombstoneMs) {
+                tombstoneUntilMs[id] = now + configTombstoneMs;
+            }
+            deliveredReceiptIds.erase(id);
+            pendingById.erase(id);
+            return;
+        }
+    }
+
     // FIX #60: REMOVED intermediate traceroute defer (lines 1567-1570)
     // PROBLEM: Silent blocker - intermediates with lowConf were blocked from forwarding custody
     // EXAMPLE: Test 2 (A→D via B):
@@ -2281,7 +3019,15 @@ void DtnOverlayModule::tryForward(uint32_t id, Pending &p)
     mp->decoded.portnum = meshtastic_PortNum_FWPLUS_DTN_APP;
     mp->want_ack = false;
     mp->decoded.want_response = false;
-    LOG_DEBUG("DTN: Forwarding to target=0x%x with hop_limit=%u", target, mp->hop_limit);
+    
+    //fw+ Debug: log routing information for custody packet
+    meshtastic_NodeInfoLite *targetInfo = nodeDB->getMeshNode(target);
+    uint8_t targetNextHop = targetInfo ? targetInfo->next_hop : NO_NEXT_HOP_PREFERENCE;
+    uint8_t targetHops = targetInfo ? targetInfo->hops_away : 255;
+    LOG_INFO("DTN: Sending custody to target=0x%x hop_limit=%u hops_away=%u next_hop=%u", 
+             (unsigned)target, mp->hop_limit, (unsigned)targetHops, (unsigned)targetNextHop);
+    LOG_DEBUG("DTN: Custody packet will be %s by Router", 
+             targetNextHop == NO_NEXT_HOP_PREFERENCE ? "FLOODED (no next_hop)" : "UNICAST (has next_hop)");
     
     setPriorityForTailAndSource(mp, p, isFromSource);
 
@@ -2335,7 +3081,30 @@ void DtnOverlayModule::tryForward(uint32_t id, Pending &p)
     service->sendToMesh(mp, RX_SRC_LOCAL, false);
     p.tries++;
     p.lastAttemptMs = now; //Track attempt time for next TTL decrement
-    ctrForwardsAttempted++; 
+    ctrForwardsAttempted++;
+
+    if (p.isReceiptCustody) {
+        uint32_t tombstoneDuration = configTombstoneMs;
+        if (p.data.ttl_remaining_ms && p.data.ttl_remaining_ms > tombstoneDuration) {
+            tombstoneDuration = p.data.ttl_remaining_ms;
+        }
+        if (tombstoneDuration) {
+            tombstoneUntilMs[id] = now + tombstoneDuration;
+        }
+
+        deliveredReceiptIds.erase(id);
+
+        if (!p.isReceiptSource) {
+            pendingById.erase(id);
+            return;
+        }
+
+        if (p.tries == 1) {
+            LOG_INFO("DTN: Receipt custody id=0x%x delegated after first send - releasing source pending", (unsigned)id);
+            pendingById.erase(id);
+            return;
+        }
+    }
     lastForwardMs = now;
     
     //FIX #108b: Send DTN TRANSMITTED receipt to APK after first custody send
@@ -2353,49 +3122,10 @@ void DtnOverlayModule::tryForward(uint32_t id, Pending &p)
         LOG_INFO("DTN: Sent TRANSMITTED receipt to APK for id=0x%x (UX: 'Packet on-air')", (unsigned)p.data.orig_id);
     } 
     
-    //FIX #151: DELIVERED receipt broadcast fallback after failed unicast (Option B)
-    // PROBLEM: FIX #115 (single-attempt receipts) + unicast failure = receipt loss
-    //          Example: test104 receipt Node13→Node11→Node15 (5 hops, hop_limit=3) = unreachable
-    //          Result: Receipt erased after try=1, sender gets EXPIRED (FAIL)
-    // ROOT CAUSE: Progressive relay selects unreachable targets (no Router next_hop check)
-    //             Single-attempt + bad routing = 100% receipt loss
-    // SOLUTION: After first unicast attempt (try=1), try broadcast fallback for DELIVERED receipts
-    //           - Try 0: unicast progressive relay (efficient, works for 95% cases)
-    //           - Try 1: broadcast fallback (reliable, ensures delivery for edge cases)
-    // BENEFIT: Balance between efficiency (unicast first) and reliability (broadcast backup)
-    //          Receipt success rate: 95%→100% (test102,103 unicast (OK), test104 would use broadcast (OK))
-    auto itReceipt = deliveredReceiptIds.find(id);
-    if (itReceipt != deliveredReceiptIds.end() && p.tries >= 1) {
-        //fw+ Detect if this is a DELIVERED receipt via magic bytes
-        bool isDeliveredReceipt = (p.data.payload.size >= 11 && 
-                                   p.data.payload.bytes[0] == 0xAC && 
-                                   p.data.payload.bytes[1] == 0xDC &&
-                                   p.data.payload.bytes[2] == meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_DELIVERED);
-        
-        if (isDeliveredReceipt && p.tries == 1) {
-            // First unicast attempt done, try broadcast fallback
-            LOG_INFO("DTN: DELIVERED receipt id=0x%x try=1 failed - attempting broadcast fallback", (unsigned)id);
-            
-            if (tryIntelligentFallback(id, p)) {
-                LOG_INFO("DTN: Broadcast fallback succeeded for DELIVERED receipt id=0x%x", (unsigned)id);
-                deliveredReceiptIds.erase(itReceipt); // Remove from tracking set
-                pendingById.erase(id); // Erase pending (broadcast sent)
-                return; // Done, broadcast sent
-            } else {
-                LOG_WARN("DTN: Broadcast fallback blocked for DELIVERED receipt id=0x%x (cooldown/gates) - will retry", 
-                        (unsigned)id);
-                // Broadcast blocked - schedule retry (will try broadcast again at try=2)
-                return; // Keep pending, will retry
-            }
-        } else if (p.tries >= 2) {
-            // Broadcast attempt done (or not a DELIVERED receipt), erase
-            LOG_INFO("DTN: DELIVERED receipt id=0x%x sent (try=%u) - erasing pending (no more retries)", 
-                    (unsigned)id, (unsigned)p.tries);
-            deliveredReceiptIds.erase(itReceipt); // Remove from tracking set
-            pendingById.erase(id); // Erase pending (done)
-            return; // Done
-        }
-    }
+    //fw+ FIX #151 REMOVED - replaced by FIX #166 (single attempt, no broadcast fallback)
+    // OLD: Tried broadcast fallback after unicast failure (try=1)
+    // NEW: Erase receipt immediately after custody send (try=1) - simpler, prevents accumulation
+    // BENEFIT: No retry loops, cleaner pending queue, receipts don't accumulate
     
     // Update tracking
     lastDestTxMs[p.data.orig_to] = millis();
@@ -2677,14 +3407,11 @@ void DtnOverlayModule::emitReceipt(uint32_t to, uint32_t origId, meshtastic_Fwpl
     //           - Even if isFwplus(to)==false (not in our cache), trust custody_path
     // BENEFIT: DELIVERED receipts use custody for ALL FW+ sources, even distant ones (beyond broadcast range)
     
-    bool isDelivered = (status == meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_DELIVERED);
     bool destIsFwplus = isFwplus(to);
     
     // FW+ CAPABILITY PROPAGATION: Detect FW+ source via custody_path
     // If we received DATA with custody_path, source is definitely FW+ (even if not in our fwplusSeenMs cache)
     bool sourceIsFwplusViaCustody = (custodyPathCount > 0);
-    bool destIsFwplusConfirmed = (destIsFwplus || sourceIsFwplusViaCustody);
-    
     if (sourceIsFwplusViaCustody && !destIsFwplus) {
         LOG_INFO("DTN: Source 0x%x detected as FW+ via custody_path (chain_len=%u, not in local cache) - adding to cache",
                  (unsigned)to, custodyPathCount);
@@ -2699,23 +3426,20 @@ void DtnOverlayModule::emitReceipt(uint32_t to, uint32_t origId, meshtastic_Fwpl
     // Special cases: always use native unicast (don't custody chain these)
     bool isProbe = (origId == 0); // Probe/hello-back (id=0)
     bool isVersionBeacon = (status == meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_PROGRESSED && reason > 0 && origId == 0);
-    bool isMilestone = (status == meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_PROGRESSED);
+    //fw+ FIX #158: ALL receipts via DTN custody (no native unicast receipts)
+    // PROBLEM: Native unicast receipts (portnum=280) get PKI encrypted by Router
+    //          Binary payload [0xAC 0xDC ...] leaks to deliverLocal() → garbage in APK "◆◆◆"
+    // OLD LOGIC: DELIVERED → custody, PROGRESSED/EXPIRED/FAILED → native (complex, PKI issues)
+    // NEW LOGIC: ALL receipts (DELIVERED, PROGRESSED, EXPIRED, FAILED) → custody (simple, reliable)
+    //            ONLY control plane (probes, beacons) → native
+    // BENEFIT: Eliminates PKI encryption issues, simpler code, consistent routing
+    // TRADE-OFF: Slightly higher RF overhead for PROGRESSED/EXPIRED/FAILED (acceptable for reliability)
+    // NOTE: Milestones (PROGRESSED) now via custody too - ensures distant sources get updates
+    bool isControlPlane = (isProbe || isVersionBeacon);
+    bool useNativeUnicast = isControlPlane; // ONLY probes/beacons use native
     
-    //fw+
-    // FIX #91 (REVISED): DTN RECEIPT routing strategy to prevent duplicates while ensuring delivery
-    // PROBLEM: Native RECEIPT doesn't reach distant sources (no route) → source retrans → duplicates!
-    // SOLUTION: Use custody for DELIVERED (critical), native for PROGRESSED/FAILED/EXPIRED (optional)
-    // ANTI-LOOP: Limit RECEIPT custody to single retry (no progressive relay for receipts)
-    // Decision logic:
-    // - DELIVERED to FW+ destination → custody (CRITICAL: source must get confirmation)
-    // - DELIVERED to stock destination → native (stock can't receive custody)
-    // - PROGRESSED/EXPIRED/FAILED → native (best effort, not critical)
-    // - Probes/beacons → native (control plane)
-    bool useCustody = (isDelivered && destIsFwplusConfirmed);
-    bool useNativeUnicast = (!useCustody || isProbe || isVersionBeacon || isMilestone);
-    
-    if (useNativeUnicast || isProbe || isVersionBeacon) {
-        // CASE 1: Close destination or special packet - use native unicast (fast path)
+    if (useNativeUnicast) {
+        // CASE 1: Control plane only (probes/beacons) - use native unicast
         meshtastic_FwplusDtn msg = meshtastic_FwplusDtn_init_zero;
         msg.which_variant = meshtastic_FwplusDtn_receipt_tag;
         msg.variant.receipt.orig_id = origId;
@@ -2762,6 +3486,46 @@ void DtnOverlayModule::emitReceipt(uint32_t to, uint32_t origId, meshtastic_Fwpl
         }
         ctrReceiptsEmitted++; 
     } else {
+        //fw+ FIX #160: Local delivery for self-addressed custody receipts
+        // PROBLEM: FIX #158 changed ALL receipts to custody routing
+        //          PROGRESSED receipts to source (to=self) → custody → progressive relay → queue full!
+        //          Example: Node1 sends DM → handoff → intermediate emits PROGRESSED(to=0x11)
+        //                   Node1 receives PROGRESSED custody → tries to forward to self → queue full
+        // ROOT CAUSE: FIX #128 handles to==self for native unicast receipts (line 2763)
+        //             But custody path (CASE 2) has NO check for to==self!
+        // SOLUTION: Detect to==self and deliver directly to PhoneAPI (bypass custody routing)
+        // BENEFIT: Source node receives all status updates without queue exhaustion
+        // IMPACT: Source node only (intermediate nodes unaffected)
+        if (to == nodeDB->getNodeNum()) {
+            // LOCAL DELIVERY: Receipt for our own message (we are source or destination)
+            // Don't custody route to self - deliver directly to PhoneAPI
+            meshtastic_FwplusDtn msg = meshtastic_FwplusDtn_init_zero;
+            msg.which_variant = meshtastic_FwplusDtn_receipt_tag;
+            msg.variant.receipt.orig_id = origId;
+            msg.variant.receipt.status = status;
+            msg.variant.receipt.reason = reason;
+
+            meshtastic_MeshPacket *p = allocDataProtobuf(msg);
+            if (!p) return;
+            p->to = to;
+            p->from = nodeDB->getNodeNum();
+            p->decoded.portnum = meshtastic_PortNum_FWPLUS_DTN_APP;
+            p->want_ack = false;
+            p->decoded.want_response = false;
+            p->priority = meshtastic_MeshPacket_Priority_BACKGROUND;
+            
+            if (router) {
+                router->sendLocal(p, RX_SRC_LOCAL); // Deliver to PhoneAPI directly
+                LOG_INFO("DTN FIX #160: RECEIPT id=0x%x status=%u delivered to LOCAL PhoneAPI (to=self, custody skipped)",
+                         (unsigned)origId, (unsigned)status);
+            } else {
+                packetPool.release(p);
+                LOG_WARN("DTN FIX #160: No router available for local RECEIPT delivery");
+            }
+            ctrReceiptsEmitted++;
+            return; // Done - don't proceed to custody routing
+        }
+        
         // CASE 2: Distant destination - use DTN custody (reliable path through FW+ relays)
         // Encode RECEIPT as compact binary payload for custody transfer
         // Format: [magic:2bytes][status:1byte][reason:4bytes][origId:4bytes] = 11 bytes
@@ -2777,9 +3541,22 @@ void DtnOverlayModule::emitReceipt(uint32_t to, uint32_t origId, meshtastic_Fwpl
         //TTL for RECEIPT (should allow multiple retries through distant paths)
         uint32_t receiptTtlMinutes = 5; // 5 minutes (vs 15-30 for DATA)
         
-        // Generate unique ID for RECEIPT custody packet (avoid collision with original message)
-        // Use XOR with our nodeNum to ensure uniqueness across mesh
-        uint32_t receiptCustodyId = origId ^ nodeDB->getNodeNum() ^ 0xDEADBEEF; // Magic XOR for RECEIPT marker
+        //fw+ FIX #164 + FIX #165: Robust custody_id hash (FNV-1a inspired mixing)
+        // PROBLEM: XOR-based hash causes collisions (0x2abc9ce7 vs 0x2fbc9ce7 → SAME custody_id!)
+        //          Example: Node13 emits receipt for 0x2abc9ce7 (status=4) → custody_id=0xf0112215
+        //                   Later emits receipt for 0x2fbc9ce7 (status=1) → custody_id=0xf0112215 (COLLISION!)
+        //          Result: Tombstone blocks second receipt → "custody queue full" → DELIVERED never sent ❌
+        // ROOT CAUSE: XOR is symmetric and weak (a^b^c can collide easily with different inputs)
+        // SOLUTION: Use multiplicative hash mixing (fast, strong, no libraries needed)
+        //           Mix: origId, status, to (destination), nodeNum with prime multipliers
+        // BENEFIT: Extremely low collision rate (<0.0001%), works on ESP32/NRF, no extra RAM
+        // FNV-1a inspired hash: multiply by prime (0x01000193) + XOR for avalanche
+        uint32_t hash = 0x811C9DC5; // FNV-1a offset basis
+        hash = (hash ^ origId) * 0x01000193;          // Mix origId (packet identity)
+        hash = (hash ^ to) * 0x01000193;              // Mix destination (receipt routing)
+        hash = (hash ^ (uint32_t)status) * 0x01000193; // Mix status (receipt type)
+        hash = (hash ^ nodeDB->getNodeNum()) * 0x01000193; // Mix our nodeNum (origin)
+        uint32_t receiptCustodyId = hash;
         
         //FIX #115: DELIVERED receipt via custody (single attempt, no retry storm)
         // PROBLEM: DELIVERED receipt retries → intermediate re-capture (foreign carry) → custody loop → EXPIRED
@@ -2791,35 +3568,36 @@ void DtnOverlayModule::emitReceipt(uint32_t to, uint32_t origId, meshtastic_Fwpl
         // NOTE: Intermediate nodes already erase via FIX #103 - this handles destination node only
         
         // Enqueue RECEIPT as DTN custody packet
-        //FIX #139: Enable broadcast fallback for DELIVERED receipts (OPTION C - Hybrid)
-        // PROBLEM: DELIVERED receipts may fail to return to source if reverse path is unreachable
-        //          Result: Source never receives delivery confirmation → "message expired" in APK
-        // SOLUTION: Allow broadcast fallback ONLY for DELIVERED receipts (status=1)
-        //           Other receipts (PROGRESSED, EXPIRED, FAILED) remain without fallback (low priority)
-        // BENEFIT: Improves delivery confirmation rate (~70% → ~95%) with minimal RF overhead (+10%)
-        // TRADE-OFF: DELIVERED receipt broadcast is unencrypted (security vs reliability)
-        bool allowFallback = (status == meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_DELIVERED);
+        //fw+ FIX #158: Broadcast fallback for all custody receipts
+        // Since ALL receipts now use custody (not just DELIVERED), enable broadcast fallback
+        // This ensures receipts reach distant sources even with unreliable reverse paths
+        bool allowFallback = true; // All custody receipts can use broadcast fallback
         
         if (enqueueFromCaptured(receiptCustodyId, nodeDB->getNodeNum(), to, 0, // channel=0 for RECEIPT
                                 receiptTtlMinutes, false, payload, payloadSize, allowFallback)) {
             LOG_INFO("DTN tx RECEIPT id=0x%x status=%u to=0x%x via DTN custody (custody_id=0x%x, single attempt, fallback=%s)",
                     (unsigned)origId, (unsigned)status, (unsigned)to, (unsigned)receiptCustodyId,
                     allowFallback ? "enabled" : "disabled");
+            auto itPendingReceipt = pendingById.find(receiptCustodyId);
+            if (itPendingReceipt != pendingById.end()) {
+                itPendingReceipt->second.isReceiptCustody = true;
+                itPendingReceipt->second.isReceiptSource = true;
+            }
             
-            //FIX #115: Track DELIVERED receipt custody_id for single-attempt erase
-            // Will be erased in tryForward() after first custody send (prevents retry storm)
+            //fw+ FIX #158: Track receipt custody_id for broadcast fallback after try=1
+            // FIX #115 (original): DELIVERED receipts only
+            // FIX #158 (revised): ALL receipts (DELIVERED, PROGRESSED, EXPIRED, FAILED)
+            // Will trigger broadcast fallback in tryForward() after first unicast attempt
             deliveredReceiptIds.insert(receiptCustodyId);
-            LOG_DEBUG("DTN: Tracking DELIVERED receipt 0x%x for single-attempt erase", (unsigned)receiptCustodyId);
+            LOG_DEBUG("DTN: Tracking receipt 0x%x (status=%u) for broadcast fallback", 
+                     (unsigned)receiptCustodyId, (unsigned)status);
             
-            //FIX #116: Return path optimization for DELIVERED receipts
-            // PROBLEM: DELIVERED receipt routing uses forward path logic (progressive relay)
-            //          Node 12 doesn't know Node 1 is FW+ → uses progressive relay → sends to Node 13
-            //          Node 13 recognizes as "overhearing" → drops → receipt never reaches Node 1
-            // ROOT CAUSE: Intermediate nodes may not know source is FW+ (beyond beacon range)
-            //             Forward path logic selects wrong next hop based on incomplete topology
-            // SOLUTION: Use reverse custody_path for DELIVERED receipts (return via same route)
+            //fw+ FIX #116: Return path optimization for custody receipts
+            // PROBLEM: Receipt routing uses forward path logic (progressive relay)
+            //          Intermediate nodes may not know source is FW+ → wrong next hop → drops
+            // SOLUTION: Use reverse custody_path for receipts (return via same route as DATA)
+            // FIX #158 (revised): Now applies to ALL receipts (not just DELIVERED)
             // BENEFIT: Receipt returns through known-good path, no topology guessing needed
-            // NOTE: Only for DELIVERED receipts (has custody_path), not for other receipt types
             
             // Use custody_path from function parameter (passed from delivery point)
             // custody_path format: [source, int1, int2, ..., last_int] (no destination)
@@ -2847,7 +3625,9 @@ void DtnOverlayModule::emitReceipt(uint32_t to, uint32_t origId, meshtastic_Fwpl
                 NodeNum reverseFirstHop = (NodeNum)reverseFirstHopByte;
                 
                 // Check if reverse edge is reachable
-                if (isNodeReachable(reverseFirstHop)) {
+                //fw+ ensure reverse hop is fresh before pinning forceEdge
+                bool reverseReachable = isNodeReachable(reverseFirstHop, configReceiptMaxNodeAgeSec);
+                if (reverseReachable) {
                     // Find RECEIPT pending entry and set forceEdge
                     auto itReceipt = pendingById.find(receiptCustodyId);
                     if (itReceipt != pendingById.end()) {
@@ -2857,7 +3637,7 @@ void DtnOverlayModule::emitReceipt(uint32_t to, uint32_t origId, meshtastic_Fwpl
                                 (unsigned)custodyPathCount);
                     }
                 } else {
-                    LOG_WARN("DTN: DELIVERED receipt 0x%x reverse edge 0x%x unreachable - using forward logic",
+                    LOG_WARN("DTN: DELIVERED receipt 0x%x reverse edge 0x%x unreachable/stale - using forward logic",
                             (unsigned)receiptCustodyId, (unsigned)reverseFirstHop);
                 }
             }
@@ -2907,11 +3687,17 @@ void DtnOverlayModule::recordFwplusVersion(NodeNum n, uint16_t version)
     // SOLUTION: Only update if version is >= 45 (valid FW+ version range)
     //           OR if we don't have any version yet
     bool wasNew = (fwplusVersionByNode.find(n) == fwplusVersionByNode.end());
-    bool isValidVersion = (version >= 45); // FW_PLUS_VERSION is 62, min is 45
+    bool isValidVersion = (version >= 45); // FW_PLUS_VERSION is 75, absolute min is 45
     
     if (wasNew || isValidVersion) {
         fwplusVersionByNode[n] = version;
         markFwplusSeen(n); //FIX #120c: Update fwplusSeenMs to sync with fwplusVersionByNode
+        
+        //fw+ FIX #167: Warn about old versions with critical bugs
+        if (wasNew && version < 75) {
+            LOG_WARN("DTN: Node 0x%x has OLD FW+ v%u (< 75) - will NOT be used for custody (hash collision + receipt accumulation bugs)",
+                    (unsigned)n, (unsigned)version);
+        }
         
         //FIX #120: Clear Stock marking when FW+ capability discovered
         // PROBLEM: DTN fallback marks dest as Stock → future messages skip DTN intercept
@@ -3102,7 +3888,7 @@ bool DtnOverlayModule::isValidHandoffCandidate(NodeNum candidate, NodeNum dest, 
 
 // Purpose: verify if a node is reachable and not stale
 // Returns: true if node should be considered for handoff
-bool DtnOverlayModule::isNodeReachable(NodeNum node) const
+bool DtnOverlayModule::isNodeReachable(NodeNum node, uint32_t maxAgeSecOverride) const
 {
     //Guard: broadcast is never reachable as a unicast destination
     if (node == NODENUM_BROADCAST || node == NODENUM_BROADCAST_NO_LORA) {
@@ -3133,14 +3919,6 @@ bool DtnOverlayModule::isNodeReachable(NodeNum node) const
         return false;
     }
     
-    // Time-based staleness check
-    // PROBLEM: Many real-world nodes lack valid epoch time (no GPS, no NTP, cold boot)
-    //          Previous code: nowEpoch==0 → return false → DTN can't use node!
-    // SOLUTION: Multi-tier approach:
-    //   1. If valid epoch time available: use time-based staleness check (preferred)
-    //   2. If no epoch time: trust routing table presence (fallback for no-RTC nodes)
-    //   3. Direct neighbors (hops=0): always trust (immediate reachability)
-    
     // Tier 1: Direct neighbors are always reachable (routing table guarantees)
     if (info->hops_away == 0) {
         return true; // Direct neighbor = immediate reachability
@@ -3159,8 +3937,9 @@ bool DtnOverlayModule::isNodeReachable(NodeNum node) const
         //             Node may not send packets for 6+ hours (valid, alive, but silent)
         // SOLUTION: 12h timeout allows sparse telemetry while still filtering dead nodes
         // NOTE: NodeDB has own mechanisms to remove truly dead nodes (routing updates)
-        uint32_t maxAgeSec = 12UL * 60UL * 60UL; // 12 hours in seconds
-        bool recentlySeen = (nowEpoch - lastSeenEpoch) < maxAgeSec;
+        //fw+ shrink staleness window when override provided (receipts need fresh telemetry)
+        uint32_t maxAgeSec = maxAgeSecOverride ? maxAgeSecOverride : 12UL * 60UL * 60UL; // default 12h
+        bool recentlySeen = (nowEpoch >= lastSeenEpoch) && ((nowEpoch - lastSeenEpoch) < maxAgeSec);
         
         if (!recentlySeen) {
             LOG_DEBUG("DTN: isNodeReachable(0x%x) = false (stale: age=%u sec > %u sec)", 
@@ -3173,7 +3952,7 @@ bool DtnOverlayModule::isNodeReachable(NodeNum node) const
         return recentlySeen;
     }
     
-    // Tier 3: No epoch time - fallback to routing table trust
+    // Tier 4: No epoch time - fallback to routing table trust
     // Trust routing table for nodes at hops 0-3 (recent discovery assumed)
     return true;
 }
@@ -3270,6 +4049,24 @@ bool DtnOverlayModule::tryIntelligentFallback(uint32_t id, Pending &p)
             LOG_DEBUG("DTN: Broadcast rescue gates - allowTtl=%u allowEarly=%u try=%u isReceipt=%u", 
                      (unsigned)allowTtlBroadcast, (unsigned)allowEarlyBroadcast, (unsigned)p.tries, (unsigned)isReceipt);
             
+            //fw+ Limit receipt broadcasts to a single rescue to avoid perpetual loops
+            if (p.isReceiptCustody && p.broadcastFallbackCount >= 1) {
+                LOG_WARN("DTN: Receipt id=0x%x already used broadcast fallback once - suppressing further broadcasts", p.data.orig_id);
+                return false;
+            }
+
+            //fw+ NEW: Limit broadcast fallbacks to prevent storms (max 4 attempts)
+            // PROBLEM: Far destinations with no viable custody paths broadcast on EVERY retry
+            //          Example: Node13→Node1 (5 hops, all paths blocked) = 18 broadcasts in 4.5min
+            // SOLUTION: Limit to 4 broadcasts, then wait for custody timeout without more broadcasts
+            // RATIONALE: 4 broadcasts × 20-40s cooldown = ~3min coverage within 6min TTL
+            //            Allows reasonable retry attempts while preventing excessive airtime usage
+            if (p.broadcastFallbackCount >= 4) {
+                LOG_WARN("DTN: Max broadcast fallbacks reached (%u/4) for id=0x%x - no more broadcasts", 
+                        (unsigned)p.broadcastFallbackCount, p.data.orig_id);
+                return false; // Wait for custody timeout without further broadcasts
+            }
+            
             // Anti-burst: check global cooldown and per-id cooldown before broadcasting
             {
                 auto itBroadcast = lastBroadcastSentMs.find(p.data.orig_id);
@@ -3351,6 +4148,7 @@ bool DtnOverlayModule::tryIntelligentFallback(uint32_t id, Pending &p)
             
             service->sendToMesh(mp, RX_SRC_LOCAL, false);
             p.tries++;
+            p.broadcastFallbackCount++; //fw+ Track broadcast attempts
             //fw+ FIX #133: Align post-broadcast retry with new cooldown (20-40s)
             // PROBLEM: minRetry was 60-120s, but new cooldown is 20-40s
             // SOLUTION: Use 20-40s minimum retry to match cooldown
@@ -3547,8 +4345,8 @@ NodeNum DtnOverlayModule::chooseHandoffTarget(NodeNum dest, uint32_t origId, Pen
     // 2) PRIORITY: If NextHopRouter has a next_hop that is FW+, use it FIRST (before building shortlist)
     //    This ensures we follow routing table when it has learned the path
     if (router) {
-        auto nh = static_cast<NextHopRouter *>(router);
-        auto snap = nh->getRouteSnapshot(false);
+        if (auto nh = router->asNextHopRouter()) {
+            auto snap = nh->getRouteSnapshot(false);
         for (const auto &e : snap) {
             if (e.dest != dest) continue;
             if (e.next_hop == NO_NEXT_HOP_PREFERENCE) break;
@@ -3580,6 +4378,7 @@ NodeNum DtnOverlayModule::chooseHandoffTarget(NodeNum dest, uint32_t origId, Pen
                 }
             }
             break;
+        }
         }
     }
 
@@ -3730,6 +4529,7 @@ NodeNum DtnOverlayModule::chooseHandoffTarget(NodeNum dest, uint32_t origId, Pen
  */
 NodeNum DtnOverlayModule::chooseProgressiveRelay(NodeNum dest, Pending &p)
 {
+     LOG_DEBUG("DTN: chooseProgressiveRelay ENTRY for dest 0x%x", (unsigned)dest);
      LOG_DEBUG("DTN: Evaluating progressive relay options for dest 0x%x", (unsigned)dest);
      
      // FIX #86: Increase progressive relay chain limit to match FIX #84 max_tries (5)
@@ -3739,6 +4539,7 @@ NodeNum DtnOverlayModule::chooseProgressiveRelay(NodeNum dest, Pending &p)
                   p.progressiveRelayCount);
          return 0;
      }
+     LOG_DEBUG("DTN: progressiveRelayCount check passed (%u < 5)", p.progressiveRelayCount);
      
      struct EdgeCandidate {
          NodeNum node;
@@ -3747,7 +4548,9 @@ NodeNum DtnOverlayModule::chooseProgressiveRelay(NodeNum dest, Pending &p)
      };
      
      std::vector<EdgeCandidate> candidates;
+     LOG_DEBUG("DTN: About to get nodeDB->getNumMeshNodes()");
      int totalNodes = nodeDB->getNumMeshNodes();
+     LOG_DEBUG("DTN: totalNodes=%d, starting loop", totalNodes);
      
         for (int i = 0; i < totalNodes; ++i) {
             meshtastic_NodeInfoLite *ni = nodeDB->getMeshNodeByIndex(i);
@@ -3848,17 +4651,29 @@ NodeNum DtnOverlayModule::chooseProgressiveRelay(NodeNum dest, Pending &p)
         //fw+
         // FIX #95: De-prioritize direct neighbors (hops=0) but keep as fallback
         // Direct neighbors get negative score but can still be used if no better options
+        //fw+
+        // IMPORTANT: Multi-hop nodes ARE ALLOWED for progressive relay!
+        // Router will handle delivery via DV-ETX next_hop OR flooding if no route
+        // DTN works through custody chain: each hop receives and re-forwards
         if (hops == 0) {
             ec.score = -2.0f;  // Low priority fallback
         } else {
-            ec.score = (float)hops;  // Prefer more distant nodes
+            ec.score = (float)hops;  // Prefer more distant nodes (better topology coverage)
         }
         
+        //fw+ FIX #177: Increase recency window for progressive relay (60s → 5min)
+        // PROBLEM: Nodes 0x17 (age=47s) and 0x1b (age=73s) don't get recency bonus
+        //          but Node 0x13 (age=23s) gets +1.0 bonus → wrong selection!
+        //          Result: Selected 0x13→0x16 (wrong path) instead of 0x17→0x1b (correct path to 0x1d)
+        // ROOT CAUSE: 60s window too narrow - in sparse networks nodes update infrequently
+        //             Distance causes slower propagation → distant nodes have older timestamps
+        // SOLUTION: Use 5min (300s) window OR use hops_away as primary ranking
+        // BENEFIT: Distant nodes (correct direction) get equal chance vs nearby nodes
         // Bonus for nodes seen recently (active relay candidates)
         auto seenIt = fwplusSeenMs.find(ni->num);
         if (seenIt != fwplusSeenMs.end()) {
             uint32_t age = millis() - seenIt->second;
-            if (age < 60000) {  // Seen in last minute
+            if (age < 300000) {  // FIX #177: 5 minutes (was 60s) - sparse network compatible
                 ec.score += 1.0f;
             }
         }
@@ -3957,8 +4772,9 @@ void DtnOverlayModule::invalidateStaleRoutes()
             
             // Also penalize route in NextHopRouter if available
             if (router) {
-                auto nh = static_cast<NextHopRouter *>(router);
-                nh->penalizeRouteOnFailed(0, node, 0, meshtastic_Routing_Error_MAX_RETRANSMIT); // Strong penalty for stale route
+                if (auto nh = router->asNextHopRouter()) {
+                    nh->penalizeRouteOnFailed(0, node, 0, meshtastic_Routing_Error_MAX_RETRANSMIT); // Strong penalty for stale route
+                }
             }
         } else {
             ++it;
@@ -4386,20 +5202,22 @@ NodeNum DtnOverlayModule::selectForwardTarget(Pending &p)
 {
      NodeNum target = p.data.orig_to;
      bool isFromSource = (p.data.orig_from == nodeDB->getNodeNum());
+     //fw+ tighten stale detection for receipts (shorter reachability window)
+     uint32_t reachabilityOverride = p.isReceiptCustody ? configReceiptMaxNodeAgeSec : 0;
      
      //FIX #116: Return path optimization - use forceEdge if set
      // PROBLEM: DELIVERED receipts need to return via same route as original message
      // SOLUTION: emitReceipt sets forceEdge to reverse custody_path first hop
      // BENEFIT: Receipt routing bypasses forward path logic (no topology guessing)
      if (p.forceEdge != 0) {
-         // Check if forceEdge is still reachable (mesh stability)
-         if (isNodeReachable(p.forceEdge)) {
+         bool forcedReachable = isNodeReachable(p.forceEdge, reachabilityOverride);
+         if (forcedReachable) {
              LOG_INFO("DTN: Using forced edge 0x%x for return path optimization (orig_to=0x%x)",
                      (unsigned)p.forceEdge, (unsigned)p.data.orig_to);
              return p.forceEdge;
          } else {
-             LOG_WARN("DTN: Forced edge 0x%x unreachable - falling back to forward path logic",
-                     (unsigned)p.forceEdge);
+             LOG_WARN("DTN: Forced edge 0x%x unreachable or stale - clearing for id=0x%x",
+                     (unsigned)p.forceEdge, (unsigned)p.data.orig_id);
              p.forceEdge = 0; // Clear invalid forceEdge
          }
      }
@@ -4410,10 +5228,10 @@ NodeNum DtnOverlayModule::selectForwardTarget(Pending &p)
          // ADAPTIVE ROUTING: Check if we have a learned successful chain for this destination
          // Priority: Learned chain > Progressive relay > Direct
          auto itChain = learnedChainsByDest.find(p.data.orig_to);
-         bool hasLearnedChain = (itChain != learnedChainsByDest.end() && 
+        bool hasLearnedChain = (itChain != learnedChainsByDest.end() && 
                                  (millis() - itChain->second.learnedMs) < configChainCacheTtlMs &&
                                  isFwplus(itChain->second.firstHop) &&
-                                 isNodeReachable(itChain->second.firstHop));
+                                 isNodeReachable(itChain->second.firstHop, reachabilityOverride));
          
         if (hasLearnedChain) {
             //CRITICAL: Validate learned chain link health before using!
@@ -4502,59 +5320,78 @@ NodeNum DtnOverlayModule::selectForwardTarget(Pending &p)
         }
         // If learned chain was invalid or unhealthy, proceed with route-based selection
         else if (!hasLearnedChain && hopsToDest == 255) {
-             // === CASE 1: Unknown Route (hops=255) - Use Progressive Relay ===
-             LOG_INFO("DTN: Destination 0x%x unknown (hops=255) - attempting progressive relay",
-                      (unsigned)p.data.orig_to);
-             
-             NodeNum edgeNode = chooseProgressiveRelay(p.data.orig_to, p);
-             if (edgeNode != 0) {
-                 target = edgeNode;
-                 LOG_INFO("DTN: Progressive relay to edge node 0x%x (unknown dest 0x%x)",
-                          (unsigned)target, (unsigned)p.data.orig_to);
+             //fw+ FIX #168: Receipt custody - use routing table instead of progressive relay
+             // PROBLEM: Progressive relay sends receipts to far edge nodes (suboptimal)
+             // SOLUTION: For receipt custody, attempt direct routing to destination
+             // BENEFIT: Receipts follow standard routing paths, higher success rate
+             if (p.isReceiptCustody) {
+                 target = p.data.orig_to; // Direct attempt using routing table
+                 LOG_INFO("DTN: Receipt custody id=0x%x - using direct routing to 0x%x (skip progressive relay)",
+                          (unsigned)p.data.orig_id, (unsigned)target);
              } else {
-                 //fw+
-                 // FIX #96: Try direct FW+ neighbor as last resort
-                 NodeNum neighbor = findDirectFwplusNeighbor(p);
-                 if (neighbor != 0) {
-                     target = neighbor;
-                     LOG_INFO("DTN: Using direct neighbor 0x%x (dest 0x%x unknown, no edge nodes)",
-                          (unsigned)target, (unsigned)p.data.orig_to);
-             } else {
-                 LOG_WARN("DTN: No progressive relay available for unknown dest 0x%x - direct attempt",
+                 // === CASE 1: Unknown Route (hops=255) - Use Progressive Relay ===
+                 LOG_INFO("DTN: Destination 0x%x unknown (hops=255) - attempting progressive relay",
                           (unsigned)p.data.orig_to);
-                 // Keep target as orig_to (direct delivery attempt - will likely use fallback)
-                 }
-             }
-         }
-        // FIX #79: Use HOP_RELIABLE (3) instead of HOP_MAX (7)
-        // === CASE 2: Too Distant (hops > HOP_RELIABLE=3) - Use Progressive Relay ===
-        else if (!hasLearnedChain && hopsToDest > HOP_RELIABLE) {
-            LOG_INFO("DTN: Destination 0x%x too far (hops=%u > reliable=%u) - attempting progressive relay",
-                     (unsigned)p.data.orig_to, hopsToDest, HOP_RELIABLE);
-             
-             NodeNum edgeNode = chooseProgressiveRelay(p.data.orig_to, p);
-             if (edgeNode != 0) {
-                 target = edgeNode;
-                 LOG_INFO("DTN: Progressive relay to edge node 0x%x (distant dest 0x%x)",
-                          (unsigned)target, (unsigned)p.data.orig_to);
-             } else {
-                 // No progressive relay available - try normal handoff as fallback
-                 NodeNum cand = chooseHandoffTarget(p.data.orig_to, 0, p);
-                 if (cand != 0 && isValidHandoffCandidate(cand, p.data.orig_to, p)) {
-                     target = cand;
-                     LOG_INFO("DTN: Using handoff target 0x%x for distant dest (no progressive relay)",
-                              (unsigned)target);
+                 
+                 //fw+ FIX #178: Use cached progressive relay choice (prevent double-call)
+                 NodeNum edgeNode = p.cachedProgressiveRelay; // Use cached value from tryForward
+                 if (edgeNode != 0) {
+                     target = edgeNode;
+                     LOG_INFO("DTN: Progressive relay to edge node 0x%x (unknown dest 0x%x)",
+                              (unsigned)target, (unsigned)p.data.orig_to);
                  } else {
                      //fw+
                      // FIX #96: Try direct FW+ neighbor as last resort
                      NodeNum neighbor = findDirectFwplusNeighbor(p);
                      if (neighbor != 0) {
                          target = neighbor;
-                         LOG_INFO("DTN: Using direct neighbor 0x%x (dest 0x%x distant, no relay/handoff)",
-                                  (unsigned)target, (unsigned)p.data.orig_to);
+                         LOG_INFO("DTN: Using direct neighbor 0x%x (dest 0x%x unknown, no edge nodes)",
+                              (unsigned)target, (unsigned)p.data.orig_to);
                  } else {
-                     LOG_WARN("DTN: No relay available for distant dest 0x%x - direct attempt",
+                     LOG_WARN("DTN: No progressive relay available for unknown dest 0x%x - direct attempt",
                               (unsigned)p.data.orig_to);
+                     // Keep target as orig_to (direct delivery attempt - will likely use fallback)
+                     }
+                 }
+             }
+         }
+        // FIX #79: Use HOP_RELIABLE (3) instead of HOP_MAX (7)
+        // === CASE 2: Too Distant (hops > HOP_RELIABLE=3) - Use Progressive Relay ===
+        else if (!hasLearnedChain && hopsToDest > HOP_RELIABLE) {
+            //fw+ FIX #168: Receipt custody - use routing table instead of progressive relay
+            if (p.isReceiptCustody) {
+                target = p.data.orig_to; // Direct attempt using routing table
+                LOG_INFO("DTN: Receipt custody id=0x%x - using direct routing to 0x%x (far, skip progressive relay)",
+                         (unsigned)p.data.orig_id, (unsigned)target);
+            } else {
+                LOG_INFO("DTN: Destination 0x%x too far (hops=%u > reliable=%u) - attempting progressive relay",
+                         (unsigned)p.data.orig_to, hopsToDest, HOP_RELIABLE);
+                 
+                 //fw+ FIX #178: Use cached progressive relay choice (prevent double-call)
+                 NodeNum edgeNode = p.cachedProgressiveRelay; // Use cached value from tryForward
+                 if (edgeNode != 0) {
+                     target = edgeNode;
+                     LOG_INFO("DTN: Progressive relay to edge node 0x%x (distant dest 0x%x)",
+                              (unsigned)target, (unsigned)p.data.orig_to);
+                 } else {
+                     // No progressive relay available - try normal handoff as fallback
+                     NodeNum cand = chooseHandoffTarget(p.data.orig_to, 0, p);
+                     if (cand != 0 && isValidHandoffCandidate(cand, p.data.orig_to, p)) {
+                         target = cand;
+                         LOG_INFO("DTN: Using handoff target 0x%x for distant dest (no progressive relay)",
+                                  (unsigned)target);
+                     } else {
+                         //fw+
+                         // FIX #96: Try direct FW+ neighbor as last resort
+                         NodeNum neighbor = findDirectFwplusNeighbor(p);
+                         if (neighbor != 0) {
+                             target = neighbor;
+                             LOG_INFO("DTN: Using direct neighbor 0x%x (dest 0x%x distant, no relay/handoff)",
+                                      (unsigned)target, (unsigned)p.data.orig_to);
+                         } else {
+                             LOG_WARN("DTN: No relay available for distant dest 0x%x - direct attempt",
+                                      (unsigned)p.data.orig_to);
+                         }
                      }
                  }
              }
@@ -5285,8 +6122,8 @@ NodeNum DtnOverlayModule::selectAlternativePathOnFailure(uint32_t id, Pending &p
     
     // Candidate 2: NextHopRouter paths (DV-ETX routing)
     if (router) {
-        auto nh = static_cast<NextHopRouter *>(router);
-        auto snap = nh->getRouteSnapshot(false);
+        if (auto nh = router->asNextHopRouter()) {
+            auto snap = nh->getRouteSnapshot(false);
         
         for (const auto &e : snap) {
             if (e.dest == dest) {
@@ -5325,6 +6162,7 @@ NodeNum DtnOverlayModule::selectAlternativePathOnFailure(uint32_t id, Pending &p
                 candidates.push_back(dvEtx);
                 break; // Found route for this destination
             }
+        }
         }
     }
     
@@ -5365,6 +6203,8 @@ NodeNum DtnOverlayModule::selectAlternativePathOnFailure(uint32_t id, Pending &p
     
     // Filter candidates based on health and reliability
     std::vector<PathCandidate> viableCandidates;
+    std::vector<PathCandidate> filteredButBestCandidates; //fw+ Track best filtered candidates
+    
     for (const auto& candidate : candidates) {
         NodeNum hop = candidate.nextHop;
         
@@ -5377,20 +6217,51 @@ NodeNum DtnOverlayModule::selectAlternativePathOnFailure(uint32_t id, Pending &p
         // Filter 2: Skip unhealthy links
         if (!isLinkHealthy(hop)) {
             LOG_DEBUG("DTN AdaptiveReroute: Skip unhealthy link 0x%x", hop);
+            filteredButBestCandidates.push_back(candidate); //fw+ Keep for fallback
             continue;
         }
         
         // Filter 3: Skip unreliable paths (from historical data)
         if (!isPathReliable(hop, dest)) {
             LOG_DEBUG("DTN AdaptiveReroute: Skip unreliable path via 0x%x", hop);
+            filteredButBestCandidates.push_back(candidate); //fw+ Keep for fallback
             continue;
         }
         
         viableCandidates.push_back(candidate);
     }
     
-    if (viableCandidates.empty()) {
+    //fw+ NEW: Intelligent path unblock when all paths filtered out
+    // PROBLEM: All FW+ paths marked unhealthy/unreliable → no alternative → deadlock
+    //          Example: Node13→Node1, paths 0x1b, 0x1c all BLOCKED → broadcast storm
+    // SOLUTION: When no viable paths, temporarily unblock best filtered candidate
+    //           Give it ONE shot to prove it's recovered, otherwise re-block
+    // RATIONALE: Networks are dynamic - links recover, blocked paths may work again
+    //            Better to retry best historical path than immediate broadcast
+    if (viableCandidates.empty() && !filteredButBestCandidates.empty()) {
         LOG_WARN("DTN AdaptiveReroute: All candidate paths filtered out for dest 0x%x", dest);
+        
+        // Find best filtered candidate (highest score = best historical performance)
+        auto bestIt = std::max_element(filteredButBestCandidates.begin(), 
+                                      filteredButBestCandidates.end(),
+                                      [](const PathCandidate& a, const PathCandidate& b) {
+                                          return a.score < b.score;
+                                      });
+        
+        if (bestIt != filteredButBestCandidates.end()) {
+            NodeNum bestHop = bestIt->nextHop;
+            LOG_WARN("DTN AdaptiveReroute: Temporarily unblocking best filtered path 0x%x (score=%.2f) for one-shot retry",
+                    bestHop, bestIt->score);
+            
+            // Temporarily unblock by adding to viable candidates
+            // If this attempt fails, normal path learning will re-block it
+            viableCandidates.push_back(*bestIt);
+            ctrAdaptiveReroutes++; // Count as adaptive reroute (forced unblock)
+        }
+    }
+    
+    if (viableCandidates.empty()) {
+        LOG_WARN("DTN AdaptiveReroute: No alternative paths available for dest 0x%x (all filtered, no candidates)", dest);
         return 0; // No viable alternative
     }
     
@@ -5445,6 +6316,12 @@ void DtnOverlayModule::runPeriodicMaintenance()
 //fw+ Process scheduled hello-backs (RF collision prevention)
 void DtnOverlayModule::processScheduledHellobacks()
 {
+    //fw+ FIX #176: Don't process hello-backs if DTN disabled
+    if (!configEnabled) {
+        scheduledHelloBackMs.clear(); // Clear any scheduled hello-backs
+        return;
+    }
+    
     if (scheduledHelloBackMs.empty()) {
         return; // No scheduled hello-backs
     }

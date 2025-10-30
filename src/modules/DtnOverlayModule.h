@@ -191,17 +191,36 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
         // SOLUTION: Match array size to extended max_tries for full edge node rotation
         NodeNum progressiveRelays[5] = {0, 0, 0, 0, 0}; // Track relay nodes used (loop prevention)
         uint8_t progressiveRelayCount = 0; // Number of progressive relay hops taken
+        //fw+ FIX #178: Cache progressive relay choice to prevent double-call bug
+        // chooseProgressiveRelay was called twice per attempt → first call added node to progressiveRelays[]
+        // → second call skipped it as "already tried" → selected wrong edge node!
+        NodeNum cachedProgressiveRelay = 0; // Cached result from tryForward, used by selectForwardTarget
         //fw+ FIX #116: Force specific edge for return path optimization
         // PROBLEM: DELIVERED receipts use forward path logic → wrong route → dropped
         // SOLUTION: For receipts, use reverse custody_path as edge (return via same route)
         NodeNum forceEdge = 0; // If non-zero, selectForwardTarget uses this edge
+        //fw+ NEW: Track broadcast fallback attempts to prevent broadcast storms
+        // PROBLEM: Far destinations (5+ hops) with no viable custody paths trigger broadcast on EVERY retry
+        //          Example: 18 broadcasts in 4.5 minutes for single packet = massive airtime waste
+        // SOLUTION: Limit broadcast fallbacks to max 4 attempts per packet
+        //           After 4 broadcasts, wait for custody timeout without further broadcasts
+        uint8_t broadcastFallbackCount = 0; // Number of broadcast fallbacks sent for this packet
+        //fw+ FIX #168: Flag receipt custody to disable progressive relay on intermediate nodes
+        // PROBLEM: Receipts use progressive relay → suboptimal paths → packet loss
+        //          Example: Node13 → Node12 → Node31 (progressive) vs Node13 → Node12 → Node1 (direct)
+        // SOLUTION: Mark receipt custody, use learned chain/routing table instead of progressive relay
+        // BENEFIT: Optimal return paths, higher delivery rate for DELIVERED receipts
+        bool isReceiptCustody = false; // True if this is a receipt sent via custody (magic [0xAC 0xDC])
+        bool isReceiptSource = false;  // True if this receipt was emitted by this node
     };
     std::unordered_map<uint32_t, Pending> pendingById; // key: orig_id
     
-    //fw+ FIX #115: Track DELIVERED receipt custody IDs for single-attempt erase
-    // PROBLEM: DELIVERED receipts retry indefinitely → broadcast storm → re-capture loop
-    // SOLUTION: Erase DELIVERED receipt pending after FIRST custody send (no retries)
-    std::unordered_set<uint32_t> deliveredReceiptIds; // DELIVERED receipt custody_ids (single attempt)
+    //fw+ FIX #115 + FIX #158: Track receipt custody IDs for broadcast fallback
+    // FIX #115 (original): DELIVERED receipts only - erase after first attempt
+    // FIX #158 (revised): ALL receipts (DELIVERED, PROGRESSED, EXPIRED, FAILED)
+    //                     Trigger broadcast fallback after try=1 if unicast fails
+    // BENEFIT: Reliable receipt delivery even with unreachable reverse paths
+    std::unordered_set<uint32_t> deliveredReceiptIds; // Receipt custody_ids (broadcast fallback after try=1)
     
     // Process received FW+ DTN DATA; deliver locally or schedule and coordinate with peers
     void handleData(const meshtastic_MeshPacket &mp, const meshtastic_FwplusDtnData &d);
@@ -230,6 +249,7 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     // Loop detection helpers
     bool isCarrierLoop(Pending &p, NodeNum carrier) const;
     void trackCarrier(Pending &p, NodeNum carrier);
+    bool cleanupPendingFromReceipt(const meshtastic_FwplusDtnData &receipt, const char *contextLabel);
     
     // Time calculation helpers (avoid code duplication and overflow bugs)
     //fw+ TTL helpers
@@ -263,7 +283,14 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     bool configEnableFwplusHandoff = true;
     uint8_t configHandoffMinRing = 2;               // require dest > this many hops to attempt handoff
     uint8_t configHandoffMaxCandidates = 3;         // FW+ neighbors shortlist size
-    uint16_t configMinFwplusVersionForHandoff = 45; // require FW+ >= this version
+    //fw+ FIX #167: Raise minimum version to 75 (FNV-1a hash + receipt cleanup)
+    // PROBLEM: FW+ v<75 has critical bugs:
+    //          - XOR hash collision (FIX #165) → custody_id conflicts → DELIVERED receipts lost
+    //          - Receipt accumulation (FIX #166) → memory leak, pending queue grows indefinitely
+    // SOLUTION: Require v75+ for custody handoff (prevent old nodes from custody chain)
+    // BENEFIT: Network stability, no hash collisions, no receipt accumulation
+    // NOTE: Old nodes can still RECEIVE (graceful degradation), but won't be used for custody
+    uint16_t configMinFwplusVersionForHandoff = 75; // require FW+ >= this version (was 45)
     
     // Periodic FW+ version advertisement with staged warmup
     uint32_t configAdvertiseIntervalMs = 6UL * 60UL * 60UL * 1000UL;  // 6h (normal operation)
@@ -285,6 +312,7 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     uint32_t configOriginProgressMinIntervalMs = 15000; // per-source min interval for milestone
     // Proactive route discovery throttle
     uint32_t configRouteProbeCooldownMs = 5UL * 60UL * 1000UL; // 5 minutes
+    uint32_t configReceiptMaxNodeAgeSec = 60UL * 60UL;         //fw+ receipts require fresh neighbors (1h staleness)
     // Enhanced monitoring intervals
     uint32_t configDetailedLogIntervalMs = 600000;      // 10 minutes
     // Capture policy (default OFF)
@@ -374,10 +402,24 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     std::unordered_map<NodeNum, SuccessfulChain> learnedChainsByDest; // dest -> chain
     uint32_t configChainCacheTtlMs = 6 * 60 * 60 * 1000UL; // 6h TTL for learned chains
     void markFwplusSeen(NodeNum n) { fwplusSeenMs[n] = millis(); }
+    //fw+ FIX #155: Comprehensive FW+ detection (checks both maps)
+    // PROBLEM: isFwplus() only checked fwplusSeenMs (nodes that sent DTN DATA/RECEIPT)
+    //          Result: Nodes discovered via beacons (fwplusVersionByNode) not detected as FW+
+    //          Example: Serwisowy (0x4357989c) sent beacon → fwplusVersionByNode ✅
+    //                   BUT: never sent DTN DATA → fwplusSeenMs ❌
+    //                   Result: isFwplus() = false → Stock fallback despite being FW+!
+    // SOLUTION: Check BOTH fwplusSeenMs (24h TTL) AND fwplusVersionByNode (beacon discovery)
+    // BENEFIT: Consistent FW+ detection, aligns with sendProxyFallback logic (line 2486-2488)
     bool isFwplus(NodeNum n) const {
-        auto it = fwplusSeenMs.find(n);
-        if (it == fwplusSeenMs.end()) return false;
-        return (millis() - it->second) <= (24 * 60 * 60 * 1000UL);
+        // Check recent activity (DATA/RECEIPT packets)
+        auto itSeen = fwplusSeenMs.find(n);
+        if (itSeen != fwplusSeenMs.end() && 
+            (millis() - itSeen->second) <= (24 * 60 * 60 * 1000UL)) {
+            return true;
+        }
+        // Also check version map (beacon discovery)
+        auto itVer = fwplusVersionByNode.find(n);
+        return (itVer != fwplusVersionByNode.end());
     }
     // Short-term tombstones per message id
     std::unordered_map<uint32_t, uint32_t> tombstoneUntilMs; // orig_id -> untilMs
@@ -518,7 +560,7 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
 
     // Handoff candidate validation helpers (private - access to Pending struct)
     bool isValidHandoffCandidate(NodeNum candidate, NodeNum dest, const Pending &p) const;
-    bool isNodeReachable(NodeNum node) const;
+    bool isNodeReachable(NodeNum node, uint32_t maxAgeSecOverride = 0) const;
     
     // Route invalidation for mobile nodes
     void invalidateStaleRoutes();
