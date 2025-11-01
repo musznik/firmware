@@ -241,6 +241,8 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     NodeNum chooseHandoffTarget(NodeNum dest, uint32_t origId, Pending &p);
     // Select furthest known FW+ node for progressive relay (unknown/distant destinations)
     NodeNum chooseProgressiveRelay(NodeNum dest, Pending &p);
+        //fw+ map DV-ETX next_hop byte to full NodeNum (handles sparse NodeDB ordering)
+        NodeNum resolveNextHopNode(uint8_t nextHopByte) const;
     NodeNum findDirectFwplusNeighbor(const Pending &p);  //fw+ FIX #96: Last resort fallback
     // Housekeeping: prune per-destination cache
     void prunePerDestCache();
