@@ -778,6 +778,16 @@ void setup()
     rp2040Setup();
 #endif
 
+#ifdef ARCH_PORTDUINO
+    //fw+ Ensure PKI tests on simulator get a real region before NodeDB loads (enables unique keygen)
+    if (const char *preserveRegionEnv = getenv("DTN_PRESERVE_REGION")) {
+        if (atoi(preserveRegionEnv) != 0 && config.lora.region != meshtastic_Config_LoRaConfig_RegionCode_US) {
+            LOG_WARN("PKI: Forcing region=US prior to NodeDB init (DTN_PRESERVE_REGION active)");
+            config.lora.region = meshtastic_Config_LoRaConfig_RegionCode_US;
+        }
+    }
+#endif
+
     // We do this as early as possible because this loads preferences from flash
     // but we need to do this after main cpu init (esp32setup), because we need the random seed set
     nodeDB = new NodeDB;

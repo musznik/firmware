@@ -24,6 +24,7 @@
 #include "modules/NeighborInfoModule.h"
 #include <ErriezCRC32.h>
 #include <algorithm>
+#include <cstdlib>
 #include <pb_decode.h>
 #include <pb_encode.h>
 #include <vector>
@@ -269,6 +270,18 @@ NodeDB::NodeDB()
         config.security.serial_enabled = config.device.serial_enabled;
         config.security.is_managed = config.device.is_managed;
     }
+
+#ifdef ARCH_PORTDUINO
+    //fw+ Force simulator PKI test runs to use US region when DTN_PRESERVE_REGION=1
+    if (!owner.is_licensed) {
+        if (const char *preserveRegionEnv = getenv("DTN_PRESERVE_REGION")) {
+            if (atoi(preserveRegionEnv) != 0 && config.lora.region == meshtastic_Config_LoRaConfig_RegionCode_UNSET) {
+                LOG_WARN("PKI: Overriding UNSET region with US for portduino PKI tests");
+                config.lora.region = meshtastic_Config_LoRaConfig_RegionCode_US;
+            }
+        }
+    }
+#endif
 
 #if !(MESHTASTIC_EXCLUDE_PKI_KEYGEN || MESHTASTIC_EXCLUDE_PKI)
 
@@ -963,9 +976,9 @@ void NodeDB::installDefaultModuleConfig()
     moduleConfig.dtn_overlay.fallback_tail_percent = 20;
     //fw+ milestones default ON for development/testing; disable for production builds
     #ifdef ARCH_PORTDUINO
-    moduleConfig.dtn_overlay.milestones_enabled = true;  // ON for simulator testing (implicit ACK for custody chain)
+        moduleConfig.dtn_overlay.milestones_enabled = true;  // ON for simulator testing
     #else
-    moduleConfig.dtn_overlay.milestones_enabled = false; // OFF for Arduino/T-Beam (save airtime)
+        moduleConfig.dtn_overlay.milestones_enabled = true; // ON for Arduino/T-Beam etc.
     #endif
     // Reduce per-dest spacing for concurrent custody transfers (was 60000ms = 1min)
     moduleConfig.dtn_overlay.per_dest_min_spacing_ms = 10000; // 10s - allows multiple custody packets in flight
