@@ -49,12 +49,20 @@ typedef struct _meshtastic_FwplusDtnData {
  Each hop checks: if (ttl_remaining_ms == 0) → EXPIRED
  Works in ALL scenarios (GPS/no-GPS, mixed network, different uptimes) */
     uint32_t ttl_remaining_ms;
+    /* Indicates the payload has been wrapped end-to-end using PKI (payload holds ciphertext) */
+    bool use_pki_encryption;
 } meshtastic_FwplusDtnData;
 
 typedef struct _meshtastic_FwplusDtnReceipt {
     uint32_t orig_id;
     meshtastic_FwplusDtnStatus status;
     uint16_t reason; /* optional routing error / failure reason */
+    uint32_t dest; /* original source node that should receive this receipt */
+    uint32_t custody_id; /* hash used for DTN custody tracking of this receipt */
+    uint32_t ttl_remaining_ms; /* remaining TTL for custody retransmissions */
+    bool allow_proxy_fallback; /* whether native fallback is permitted near deadline */
+    pb_size_t custody_path_count;
+    uint8_t custody_path[16]; /* forward custody chain (low byte NodeNum values) */
 } meshtastic_FwplusDtnReceipt;
 
 /* Top-level container for FW+ DTN app messages */
@@ -82,11 +90,11 @@ extern "C" {
 
 
 /* Initializer values for message structs */
-#define meshtastic_FwplusDtnData_init_default    {0, 0, 0, 0, 0, 0, {0, {0}}, 0, {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 0}
-#define meshtastic_FwplusDtnReceipt_init_default {0, _meshtastic_FwplusDtnStatus_MIN, 0}
+#define meshtastic_FwplusDtnData_init_default    {0, 0, 0, 0, 0, 0, {0, {0}}, 0, {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 0, 0}
+#define meshtastic_FwplusDtnReceipt_init_default {0, _meshtastic_FwplusDtnStatus_MIN, 0, 0, 0, 0, 0, 0, {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}}
 #define meshtastic_FwplusDtn_init_default        {0, {meshtastic_FwplusDtnData_init_default}}
-#define meshtastic_FwplusDtnData_init_zero       {0, 0, 0, 0, 0, 0, {0, {0}}, 0, {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 0}
-#define meshtastic_FwplusDtnReceipt_init_zero    {0, _meshtastic_FwplusDtnStatus_MIN, 0}
+#define meshtastic_FwplusDtnData_init_zero       {0, 0, 0, 0, 0, 0, {0, {0}}, 0, {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 0, 0}
+#define meshtastic_FwplusDtnReceipt_init_zero    {0, _meshtastic_FwplusDtnStatus_MIN, 0, 0, 0, 0, 0, 0, {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}}
 #define meshtastic_FwplusDtn_init_zero           {0, {meshtastic_FwplusDtnData_init_zero}}
 
 /* Field tags (for use in manual encoding/decoding) */
@@ -99,9 +107,15 @@ extern "C" {
 #define meshtastic_FwplusDtnData_payload_tag     7
 #define meshtastic_FwplusDtnData_custody_path_tag 8
 #define meshtastic_FwplusDtnData_ttl_remaining_ms_tag 9
+#define meshtastic_FwplusDtnData_use_pki_encryption_tag 10
 #define meshtastic_FwplusDtnReceipt_orig_id_tag  1
 #define meshtastic_FwplusDtnReceipt_status_tag   2
 #define meshtastic_FwplusDtnReceipt_reason_tag   3
+#define meshtastic_FwplusDtnReceipt_dest_tag     4
+#define meshtastic_FwplusDtnReceipt_custody_id_tag 5
+#define meshtastic_FwplusDtnReceipt_ttl_remaining_ms_tag 6
+#define meshtastic_FwplusDtnReceipt_allow_proxy_fallback_tag 7
+#define meshtastic_FwplusDtnReceipt_custody_path_tag 8
 #define meshtastic_FwplusDtn_data_tag            1
 #define meshtastic_FwplusDtn_receipt_tag         2
 
@@ -115,14 +129,20 @@ X(a, STATIC,   SINGULAR, BOOL,     is_encrypted,      5) \
 X(a, STATIC,   SINGULAR, BOOL,     allow_proxy_fallback,   6) \
 X(a, STATIC,   SINGULAR, BYTES,    payload,           7) \
 X(a, STATIC,   REPEATED, UINT32,   custody_path,      8) \
-X(a, STATIC,   SINGULAR, UINT32,   ttl_remaining_ms,   9)
+X(a, STATIC,   SINGULAR, UINT32,   ttl_remaining_ms,   9) \
+X(a, STATIC,   SINGULAR, BOOL,     use_pki_encryption,  10)
 #define meshtastic_FwplusDtnData_CALLBACK NULL
 #define meshtastic_FwplusDtnData_DEFAULT NULL
 
 #define meshtastic_FwplusDtnReceipt_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, UINT32,   orig_id,           1) \
 X(a, STATIC,   SINGULAR, UENUM,    status,            2) \
-X(a, STATIC,   SINGULAR, UINT32,   reason,            3)
+X(a, STATIC,   SINGULAR, UINT32,   reason,            3) \
+X(a, STATIC,   SINGULAR, UINT32,   dest,              4) \
+X(a, STATIC,   SINGULAR, UINT32,   custody_id,        5) \
+X(a, STATIC,   SINGULAR, UINT32,   ttl_remaining_ms,   6) \
+X(a, STATIC,   SINGULAR, BOOL,     allow_proxy_fallback,   7) \
+X(a, STATIC,   REPEATED, UINT32,   custody_path,      8)
 #define meshtastic_FwplusDtnReceipt_CALLBACK NULL
 #define meshtastic_FwplusDtnReceipt_DEFAULT NULL
 
@@ -145,9 +165,9 @@ extern const pb_msgdesc_t meshtastic_FwplusDtn_msg;
 
 /* Maximum encoded size of messages (where known) */
 #define MESHTASTIC_MESHTASTIC_FWPLUS_DTN_PB_H_MAX_SIZE meshtastic_FwplusDtn_size
-#define meshtastic_FwplusDtnData_size            322
-#define meshtastic_FwplusDtnReceipt_size         12
-#define meshtastic_FwplusDtn_size                325
+#define meshtastic_FwplusDtnData_size            324
+#define meshtastic_FwplusDtnReceipt_size         80
+#define meshtastic_FwplusDtn_size                327
 
 #ifdef __cplusplus
 } /* extern "C" */

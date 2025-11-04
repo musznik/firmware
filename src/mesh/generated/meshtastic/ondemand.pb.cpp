@@ -75,3 +75,5 @@ PB_BIND(meshtastic_BroadcastAssistStats, meshtastic_BroadcastAssistStats, AUTO)
 
 
 
+
+
