@@ -599,7 +599,6 @@ DtnOverlayModule::DtnOverlayModule()
     moduleStartMs = millis();
     LOG_DEBUG("DTN: enabled, configEnabled=%d", (int)configEnabled);
 }
-
 // Purpose: single scheduler tick; triggers forwards whose time arrived and performs periodic maintenance.
 // Returns: milliseconds until next desired wake (clamped 100..2000 ms when enabled).
 int32_t DtnOverlayModule::runOnce()
@@ -1039,7 +1038,6 @@ void DtnOverlayModule::processTelemetryProbe(const meshtastic_MeshPacket &mp)
     lastTelemetryProbeToNodeMs[origin] = nowMs;
     updateGlobalProbeTimestamp();
 }
-
 // Purpose: handle incoming FW+ DTN protobuf packets (DATA/RECEIPT) and conservative foreign capture.
 // Returns: true if the packet was consumed by DTN; false to let normal processing continue.
 bool DtnOverlayModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, meshtastic_FwplusDtn *msg)
@@ -1254,6 +1252,8 @@ bool DtnOverlayModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, m
             // Unicast RECEIPT for us (probe reply, delivery receipt) - process and consume
             LOG_INFO("DTN rx RECEIPT id=0x%x status=%u from=0x%x to=0x%x (FOR US)", msg->variant.receipt.orig_id,
                      (unsigned)msg->variant.receipt.status, (unsigned)getFrom(&mp), (unsigned)mp.to);
+            // Seed DV-ETX for the original destination using last hop that delivered the receipt
+            seedDvEtxFromReceipt(mp, msg->variant.receipt);
             handleReceipt(mp, msg->variant.receipt);
             
             // Removed PhoneAPI sniffer forwarding to avoid duplicate UI entries
@@ -1366,6 +1366,11 @@ bool DtnOverlayModule::enqueueFromCaptured(uint32_t origId, uint32_t origFrom, u
     d.orig_to = origTo;
     d.channel = channel;
 
+    // Track original destination for DV-ETX seeding upon delivery receipt (source only)
+    if (origFrom == nodeDB->getNodeNum()) {
+        trackSentDestForOrigId(origId, origTo);
+    }
+
     //Relative TTL in milliseconds (simple and universal)
     // If this is a source retry with existing TTL, preserve it (don't reset!)
     if (preservedTtl > 0) {
@@ -1463,7 +1468,6 @@ bool DtnOverlayModule::enqueueFromCaptured(uint32_t origId, uint32_t origFrom, u
     
     return true; // Packet was successfully enqueued
 }
-
 // Purpose: process received FWPLUS_DTN DATA; deliver locally if destined to us, else schedule and coordinate with peers.
 void DtnOverlayModule::handleData(const meshtastic_MeshPacket &mp, const meshtastic_FwplusDtnData &d)
 {
@@ -2105,7 +2109,6 @@ void DtnOverlayModule::handleReceipt(const meshtastic_MeshPacket &mp, const mesh
         !hasSufficientRouteConfidence(itPending->second.data.orig_to)) {
         maybeTriggerTraceroute(itPending->second.data.orig_to);
     }
-    
     //FIX #102: Convert DTN RECEIPT DELIVERED → native ACK for source node's application
     // PROBLEM: Source node receives DTN RECEIPT but application expects native ACK for UX (✓✓ delivered)
     // SOLUTION: When source receives DELIVERED receipt, send local native ACK to inform application
@@ -4448,6 +4451,37 @@ void DtnOverlayModule::logDetailedStats()
     
     lastDetailedLogMs = now;
 }
+
+// Record mapping from original message id to its destination for later DV-ETX seeding
+void DtnOverlayModule::trackSentDestForOrigId(uint32_t origId, NodeNum dest)
+{
+    if (origId == 0 || dest == 0) return;
+    sentDestByOrigId[origId] = dest;
+    if (sentDestByOrigId.size() > kMaxSentMapEntries) {
+        auto itErase = sentDestByOrigId.begin();
+        sentDestByOrigId.erase(itErase);
+    }
+}
+
+// On receiving a DELIVERED receipt for us at the source, seed DV-ETX via the last hop
+void DtnOverlayModule::seedDvEtxFromReceipt(const meshtastic_MeshPacket &mp, const meshtastic_FwplusDtnReceipt &r)
+{
+    if (r.status != meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_DELIVERED) return;
+    if (!router) return;
+    auto nh = router->asNextHopRouter();
+    if (!nh) return;
+
+    auto itDest = sentDestByOrigId.find(r.orig_id);
+    if (itDest == sentDestByOrigId.end()) return;
+
+    uint8_t viaHop = mp.relay_node;
+    if (viaHop != 0) {
+        nh->rewardRouteOnDelivered(r.orig_id, itDest->second, viaHop, (int8_t)mp.rx_snr);
+        LOG_INFO("DTN: Seeded DV-ETX for dest=0x%x via=0x%x from receipt id=0x%x",
+                 (unsigned)itDest->second, (unsigned)viaHop, (unsigned)r.orig_id);
+    }
+    sentDestByOrigId.erase(itDest);
+}
 // custody handoff target selection
 NodeNum DtnOverlayModule::chooseHandoffTarget(NodeNum dest, uint32_t origId, Pending &p)
 {
@@ -5061,7 +5095,6 @@ bool DtnOverlayModule::hasSufficientRouteConfidence(NodeNum dest) const
     // Even weak routing hints help avoid wrong-direction handoff
     return router->hasRouteConfidence(dest, 0);
 }
-
 // Purpose: observe OnDemand responses to discover DTN-enabled nodes
 // Effect: adds DTN-enabled nodes to fwplusVersionByNode for future handoff consideration
 void DtnOverlayModule::observeOnDemandResponse(const meshtastic_MeshPacket &mp)
@@ -5704,7 +5737,6 @@ void DtnOverlayModule::setPriorityForTailAndSource(meshtastic_MeshPacket *mp, co
         mp->priority = meshtastic_MeshPacket_Priority_DEFAULT;
     }
 }
-
 void DtnOverlayModule::applyForeignCarrySuppression(uint32_t id, Pending &p)
 {
     //Adaptive suppression based on mesh conditions:

@@ -340,7 +340,7 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     uint32_t configFarMinTtlFracPercent = 20;      //fw+ reduced wait time for far nodes
     uint32_t configOriginProgressMinIntervalMs = 15000; // per-source min interval for milestone
     // Proactive route discovery throttle
-    uint32_t configRouteProbeCooldownMs = 5UL * 60UL * 1000UL; // 5 minutes
+    uint32_t configRouteProbeCooldownMs = 15UL * 60UL * 1000UL; // 15 minutes
     uint32_t configReceiptMaxNodeAgeSec = 60UL * 60UL;         //fw+ receipts require fresh neighbors (1h staleness)
     // Enhanced monitoring intervals
     uint32_t configDetailedLogIntervalMs = 600000;      // 10 minutes
@@ -458,6 +458,8 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
 
     // Short-term tombstones per message id
     std::unordered_map<uint32_t, uint32_t> tombstoneUntilMs; // orig_id -> untilMs
+    // Map original message id -> original destination for DV-ETX seeding on delivery receipts
+    std::unordered_map<uint32_t, NodeNum> sentDestByOrigId;
     // Per-source milestone rate limit
     std::unordered_map<NodeNum, uint32_t> lastProgressEmitMsBySource;
 
@@ -523,6 +525,7 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     // Cap pending queue to avoid memory growth under load
     static constexpr size_t kMaxPendingEntries = 32;
     static constexpr size_t kMaxPerDestCacheEntries = 64;
+    static constexpr size_t kMaxSentMapEntries = 128;
     uint32_t lastPruneMs = 0;
 
     // preferred handoff cache per destination
@@ -633,6 +636,10 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     NodeNum selectForwardTarget(Pending &p);
     void adaptiveMobilityManagement();
     void logDetailedStats();
+
+    // Helpers for DV-ETX seeding and tracking
+    void trackSentDestForOrigId(uint32_t origId, NodeNum dest);
+    void seedDvEtxFromReceipt(const meshtastic_MeshPacket &mp, const meshtastic_FwplusDtnReceipt &r);
 
     // Refactored helpers to keep main flows readable
     void triggerTracerouteIfNeededForSource(const Pending &p, bool lowConf);
