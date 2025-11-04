@@ -17,6 +17,9 @@
 class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<meshtastic_FwplusDtn>
 {
   public:
+    static constexpr size_t kDtnPayloadBytes =
+        sizeof(((meshtastic_FwplusDtnData_payload_t *)nullptr)->bytes);
+
     // Construct DTN overlay module
     DtnOverlayModule();
     // Apply latest ModuleConfig.dtn_overlay at runtime (hot-reload)
@@ -199,6 +202,23 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
         // PROBLEM: DELIVERED receipts use forward path logic → wrong route → dropped
         // SOLUTION: For receipts, use reverse custody_path as edge (return via same route)
         NodeNum forceEdge = 0; // If non-zero, selectForwardTarget uses this edge
+        //fw+ Return-chain hints propagated inside custody receipts for deterministic routing
+        uint8_t receiptReturnChain[16] = {0};
+        uint8_t receiptReturnLen = 0;
+        uint8_t receiptReturnIndex = 0;
+        bool hasReceiptReturnChain = false;
+        uint8_t receiptSelfIndex = 0;
+        uint8_t receiptHopRetries = 0;
+        uint32_t receiptHopStartMs = 0;
+        bool isReceiptVariant = false;
+        meshtastic_FwplusDtnReceipt receiptMsg = meshtastic_FwplusDtnReceipt_init_zero;
+        uint32_t receiptOrigId = 0;
+        bool usePki = false;
+        bool disablePki = false;
+        bool hasPlainPayload = false;
+        pb_size_t plainPayloadSize = 0;
+        uint8_t plainPayload[kDtnPayloadBytes] = {0};
+        bool originalIsEncrypted = false;
         //fw+ NEW: Track broadcast fallback attempts to prevent broadcast storms
         // PROBLEM: Far destinations (5+ hops) with no viable custody paths trigger broadcast on EVERY retry
         //          Example: 18 broadcasts in 4.5 minutes for single packet = massive airtime waste
@@ -210,7 +230,7 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
         //          Example: Node13 → Node12 → Node31 (progressive) vs Node13 → Node12 → Node1 (direct)
         // SOLUTION: Mark receipt custody, use learned chain/routing table instead of progressive relay
         // BENEFIT: Optimal return paths, higher delivery rate for DELIVERED receipts
-        bool isReceiptCustody = false; // True if this is a receipt sent via custody (magic [0xAC 0xDC])
+        bool isReceiptCustody = false; // True if this pending entry represents a receipt custody packet
         bool isReceiptSource = false;  // True if this receipt was emitted by this node
     };
     std::unordered_map<uint32_t, Pending> pendingById; // key: orig_id
@@ -221,6 +241,7 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     //                     Trigger broadcast fallback after try=1 if unicast fails
     // BENEFIT: Reliable receipt delivery even with unreachable reverse paths
     std::unordered_set<uint32_t> deliveredReceiptIds; // Receipt custody_ids (broadcast fallback after try=1)
+    std::unordered_map<NodeNum, uint32_t> pkiRetryAfterMs; // cooldown for nodes lacking PKI handshake
     
     // Process received FW+ DTN DATA; deliver locally or schedule and coordinate with peers
     void handleData(const meshtastic_MeshPacket &mp, const meshtastic_FwplusDtnData &d);
@@ -234,7 +255,7 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     // Lightweight FW+ presence probe
     void maybeProbeFwplus(NodeNum dest);
     // Unwrap payload for local delivery
-    void deliverLocal(const meshtastic_FwplusDtnData &d);
+    bool deliverLocal(const meshtastic_FwplusDtnData &d);
     // Optionally trigger traceroute to build route confidence
     void maybeTriggerTraceroute(NodeNum dest);
     // Select next hop FW+ neighbor for custody handoff (or return dest if none)
@@ -251,6 +272,9 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     // Loop detection helpers
     bool isCarrierLoop(Pending &p, NodeNum carrier) const;
     void trackCarrier(Pending &p, NodeNum carrier);
+    NodeNum applyReceiptReturnHop(Pending &p, uint8_t targetIdx, bool allowStale = false);
+    bool degradeReceiptReturnHop(uint32_t id, Pending &p);
+    bool refreshReceiptReturnHints(uint32_t origId, const meshtastic_FwplusDtnData &d);
     bool cleanupPendingFromReceipt(const meshtastic_FwplusDtnData &receipt, const char *contextLabel);
     
     // Time calculation helpers (avoid code duplication and overflow bugs)
@@ -268,8 +292,11 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     uint32_t configFallbackTailPercent = 20;
     bool configMilestonesEnabled = false;
     uint32_t configPerDestMinSpacingMs = 60000; //fw+ wider spacing
+    uint32_t configNextHopMinSpacingMs = 2000;   // minimum spacing per next-hop to smooth bursts [ms]
     uint32_t configMaxActiveDm = 1; //fw+ default: single active DM
     bool configProbeFwplusNearDeadline = false;
+    bool configEnableE2ePki = true; // enable end-to-end PKI wrapping of payloads when possible
+    uint32_t configPkiRetryDelayMs = 5UL * 60UL * 1000UL; // retry PKI after 5 minutes by default
     // Heuristics to reduce airtime while keeping custody
     uint32_t configGraceAckMs = 500;               //fw+ reduced grace period for faster delivery
     uint32_t configSuppressMsAfterForeign = 20000; // backoff when we see someone else carrying same id
@@ -292,7 +319,7 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     // SOLUTION: Require v75+ for custody handoff (prevent old nodes from custody chain)
     // BENEFIT: Network stability, no hash collisions, no receipt accumulation
     // NOTE: Old nodes can still RECEIVE (graceful degradation), but won't be used for custody
-    uint16_t configMinFwplusVersionForHandoff = 75; // require FW+ >= this version (was 45)
+    uint16_t configMinFwplusVersionForHandoff = 81; // require FW+ >= this version
     
     // Periodic FW+ version advertisement with staged warmup
     uint32_t configAdvertiseIntervalMs = 6UL * 60UL * 60UL * 1000UL;  // 6h (normal operation)
@@ -374,6 +401,7 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     std::unordered_map<NodeNum, uint32_t> fwplusSeenMs;
     std::unordered_map<NodeNum, uint16_t> fwplusVersionByNode; //fw+
     std::unordered_map<NodeNum, uint32_t> lastDestTxMs; // per-destination last tx time ms (bounded)
+    std::unordered_map<NodeNum, uint32_t> lastNextHopTxMs; // per-next-hop last tx time ms
     std::unordered_map<NodeNum, uint32_t> lastRouteProbeMs; // last proactive traceroute per dest
     // Per-origin hello-back rate limit state
     std::unordered_map<NodeNum, uint32_t> lastHelloBackToNodeMs;
@@ -404,6 +432,8 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     std::unordered_map<NodeNum, SuccessfulChain> learnedChainsByDest; // dest -> chain
     uint32_t configChainCacheTtlMs = 6 * 60 * 60 * 1000UL; // 6h TTL for learned chains
     void markFwplusSeen(NodeNum n) { fwplusSeenMs[n] = millis(); }
+    //fw+
+    void certifyFwplus(NodeNum n, const char *context = nullptr);
     //fw+ FIX #155: Comprehensive FW+ detection (checks both maps)
     // PROBLEM: isFwplus() only checked fwplusSeenMs (nodes that sent DTN DATA/RECEIPT)
     //          Result: Nodes discovered via beacons (fwplusVersionByNode) not detected as FW+
@@ -423,6 +453,9 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
         auto itVer = fwplusVersionByNode.find(n);
         return (itVer != fwplusVersionByNode.end());
     }
+    static constexpr uint32_t kMinReasonVersion = 45; // Minimum value identifying a FW+ version advertisement
+    bool isVersionReason(uint32_t reason) const { return reason >= kMinReasonVersion; }
+
     // Short-term tombstones per message id
     std::unordered_map<uint32_t, uint32_t> tombstoneUntilMs; // orig_id -> untilMs
     // Per-source milestone rate limit
@@ -468,6 +501,12 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
         // Low confidence (despite known hops) indicates NodeDB/Router mismatch
         return hasSufficientRouteConfidence(dest);
     }
+
+    //fw+
+    NodeNum resolveLowByteToNodeNum(uint8_t lowByte) const;
+
+    //fw+
+    uint32_t countActiveDataPendings() const;
 
 
     uint32_t computeAdaptiveGraceMs(int8_t rxSnr, NodeNum dest) const
