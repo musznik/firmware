@@ -946,7 +946,7 @@ void NodeDB::installDefaultModuleConfig()
 
     //fw+ removed HEARD/RAB defaults
     // Routing learning thresholds defaults (FW+)
-    moduleConfig.nodemodadmin.min_confidence_to_use = 1; // start using after first good observation
+    moduleConfig.nodemodadmin.min_confidence_to_use = 0; // start using after first good observation
     moduleConfig.nodemodadmin.hysteresis_cost_threshold_tenths = 5; // 0.5 cost units
 
     moduleConfig.has_neighbor_info = true;
@@ -958,32 +958,28 @@ void NodeDB::installDefaultModuleConfig()
     moduleConfig.detection_sensor.detection_trigger_type = meshtastic_ModuleConfig_DetectionSensorConfig_TriggerType_LOGIC_HIGH;
     moduleConfig.detection_sensor.minimum_broadcast_secs = 45;
 
-    //fw+ DTN overlay defaults (ensure APK sees post-install defaults)
-    // Synchronized with DtnOverlayModule.cpp fallback values for consistency
+    //fw+ DTN overlay defaults 
     moduleConfig.has_dtn_overlay = true;
     moduleConfig.dtn_overlay.enabled = false; //fw+ default OFF for safe testing
 #if ARCH_PORTDUINO
-    //fw+ For native/Portduino simulator builds, force-enable DTN overlay by default for testing
     moduleConfig.dtn_overlay.enabled = true;
 #endif
 
-    moduleConfig.dtn_overlay.ttl_minutes = 10;        // 10 minutes - realistic for multi-hop custody
-    moduleConfig.dtn_overlay.initial_delay_base_ms = 2000; // 2s - faster first attempt
-    //Fast custody chain forwarding (was 120000ms = 2min causing deadlocks)
-    moduleConfig.dtn_overlay.retry_backoff_ms = 5000;    // 5s - enables fluid multi-hop DTN delivery
-    moduleConfig.dtn_overlay.max_tries = 3;
+    moduleConfig.dtn_overlay.ttl_minutes = 5; // DTN custody TTL
+    moduleConfig.dtn_overlay.initial_delay_base_ms = 8000; 
+    moduleConfig.dtn_overlay.retry_backoff_ms = 40000;   
+    moduleConfig.dtn_overlay.max_tries = 2;
     moduleConfig.dtn_overlay.late_fallback_enabled = false;
     moduleConfig.dtn_overlay.fallback_tail_percent = 20;
-    //fw+ milestones default ON for development/testing; disable for production builds
+   
     #ifdef ARCH_PORTDUINO
-        moduleConfig.dtn_overlay.milestones_enabled = true;  // ON for simulator testing
+        moduleConfig.dtn_overlay.milestones_enabled = true;
     #else
-        moduleConfig.dtn_overlay.milestones_enabled = true; // ON for Arduino/T-Beam etc.
+        moduleConfig.dtn_overlay.milestones_enabled = true; 
     #endif
-    // Reduce per-dest spacing for concurrent custody transfers (was 60000ms = 1min)
-    moduleConfig.dtn_overlay.per_dest_min_spacing_ms = 10000; // 10s - allows multiple custody packets in flight
-    // CIncrease concurrent custody transfers for network throughput (was 1 = severe bottleneck)
-    moduleConfig.dtn_overlay.max_active_dm = 3; // allows multiple concurrent custody chains
+
+    moduleConfig.dtn_overlay.per_dest_min_spacing_ms = 30000;
+    moduleConfig.dtn_overlay.max_active_dm = 1; // allows multiple concurrent custody chains
     moduleConfig.dtn_overlay.probe_fwplus_near_deadline = false;
 
     // fw+ Broadcast Assist defaults
@@ -1430,12 +1426,12 @@ void NodeDB::loadFromDisk()
         bool mutated = false;
         moduleConfig.has_dtn_overlay = true; // ensure section is marked present
         auto &dtn = moduleConfig.dtn_overlay;
-        if (dtn.ttl_minutes == 0) { dtn.ttl_minutes = 15; mutated = true; }
-        if (dtn.initial_delay_base_ms == 0) { dtn.initial_delay_base_ms = 8000; mutated = true; }
-        if (dtn.retry_backoff_ms == 0) { dtn.retry_backoff_ms = 5000; mutated = true; }
+        if (dtn.ttl_minutes == 0) { dtn.ttl_minutes = 8; mutated = true; }
+        if (dtn.initial_delay_base_ms == 0) { dtn.initial_delay_base_ms = 2000; mutated = true; }
+        if (dtn.retry_backoff_ms == 0) { dtn.retry_backoff_ms = 30000; mutated = true; }
         if (dtn.max_tries == 0) { dtn.max_tries = 3; mutated = true; }
         if (dtn.fallback_tail_percent == 0) { dtn.fallback_tail_percent = 20; mutated = true; }
-        if (dtn.per_dest_min_spacing_ms == 0) { dtn.per_dest_min_spacing_ms = 10000; mutated = true; }
+        if (dtn.per_dest_min_spacing_ms == 0) { dtn.per_dest_min_spacing_ms = 30000; mutated = true; }
         if (dtn.max_active_dm == 0) { dtn.max_active_dm = 3; mutated = true; }
         // Booleans: do not force-enable module by default; respect existing setting
         // If field is absent/zero on upgrade, keep default OFF for safety; enable only by user action
