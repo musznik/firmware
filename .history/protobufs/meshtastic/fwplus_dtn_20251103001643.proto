@@ -1,0 +1,70 @@
+syntax = "proto3";
+
+package meshtastic; // keep under meshtastic package like other FW+ protos
+
+option csharp_namespace = "Meshtastic.Protobufs";
+option go_package = "github.com/meshtastic/go/generated";
+option java_outer_classname = "FwplusDtnProtos";
+option java_package = "org.meshtastic.proto";
+option swift_prefix = "";
+
+// fw+ DTN overlay messages. Transported over port FWPLUS_DTN_APP.
+message FwplusDtnData {
+  // Original MeshPacket id at source
+  uint32 orig_id = 1;
+  // Original source and destination node numbers
+  uint32 orig_from = 2;
+  uint32 orig_to = 3;
+  // Channel index the original packet used
+  uint32 channel = 4;
+  // Whether payload is encrypted ciphertext (true) or plaintext (false)
+  bool is_encrypted = 5;
+  // Allows late proxy fallback to native DM near deadline
+  bool allow_proxy_fallback = 6;
+  // Payload bytes: plaintext or ciphertext 1:1 from original
+  bytes payload = 7;
+  //fw+ CRITICAL FIX #4: Custody loop prevention - track custody chain
+  // List of nodes (last byte only) that have held custody (in order: source → relay1 → relay2 → ...)
+  // Each intermediate node MUST check if its chosen next hop is already in this list
+  // to prevent custody loops (e.g., A→B→C→B would create infinite loop)
+  // Max 16 hops in custody chain (increased from 8 for larger networks)
+  // Uses uint32 low byte (NodeNum & 0xFF) for compact encoding - saves 48 bytes vs full uint32!
+  repeated uint32 custody_path = 8;
+  //fw+ Relative TTL: Time-to-live in milliseconds (simple and universal)
+  // Source initializes: ttl_minutes * 60 * 1000
+  // Each hop checks: if (ttl_remaining_ms == 0) → EXPIRED
+  // Works in ALL scenarios (GPS/no-GPS, mixed network, different uptimes)
+  uint32 ttl_remaining_ms = 9;
+  // Indicates the payload has been wrapped end-to-end using PKI (payload holds ciphertext)
+  bool use_pki_encryption = 10;
+}
+
+enum FwplusDtnStatus {
+  FWPLUS_DTN_STATUS_UNKNOWN = 0;
+  FWPLUS_DTN_STATUS_DELIVERED = 1;
+  FWPLUS_DTN_STATUS_FAILED = 2;
+  FWPLUS_DTN_STATUS_EXPIRED = 3;
+  // Intermediate progress update (optional, for telemetry/debug)
+  FWPLUS_DTN_STATUS_PROGRESSED = 4;
+}
+
+message FwplusDtnReceipt {
+  uint32 orig_id = 1;
+  FwplusDtnStatus status = 2;
+  uint32 reason = 3; // optional routing error / failure reason
+  uint32 dest = 4;   // original source node that should receive this receipt
+  uint32 custody_id = 5; // hash used for DTN custody tracking of this receipt
+  uint32 ttl_remaining_ms = 6; // remaining TTL for custody retransmissions
+  bool allow_proxy_fallback = 7; // whether native fallback is permitted near deadline
+  repeated uint32 custody_path = 8; // forward custody chain (low byte NodeNum values)
+}
+
+// Top-level container for FW+ DTN app messages
+message FwplusDtn {
+  oneof variant {
+    FwplusDtnData data = 1;
+    FwplusDtnReceipt receipt = 2;
+  }
+}
+
+
