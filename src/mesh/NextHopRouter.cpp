@@ -139,7 +139,18 @@ void NextHopRouter::learnFromRouteDiscoveryPayload(const meshtastic_MeshPacket *
             int remainingHops = (int)rd.route_count;
             float observedCost = linkEtx + (remainingHops > 1 ? (remainingHops - 1) * 1.0f : 0.0f);
             learnRoute(destNode, firstHop, observedCost);
-            learnRoute(destNode, firstHop, observedCost);
+        } else {
+            // Fallback: if the declared first hop is not our direct neighbor, seed via the actual neighbor that delivered this packet
+            uint8_t viaHop = p->relay_node;
+            if (viaHop != 0 && isDirectNeighborLastByte(viaHop)) {
+                uint32_t destNode = rd.route[rd.route_count - 1];
+                float linkEtx = estimateEtxFromSnr(p->rx_snr);
+                int remainingHops = (int)rd.route_count;
+                float observedCost = linkEtx + (remainingHops > 1 ? (remainingHops - 1) * 1.0f : 0.0f);
+                learnRoute(destNode, viaHop, observedCost);
+                LOG_INFO("NextHop: FALLBACK LEARN (traceroute) dest=0x%x via=0x%x cost=%.1f [RELAY NODE]",
+                         destNode, viaHop, observedCost);
+            }
         }
     }
 }
@@ -156,6 +167,33 @@ void NextHopRouter::learnFromDtnCustodyPath(const uint32_t *path, size_t pathLen
     processPathAndLearn(path, pathLen, nullptr, 0, nullptr);
     
     LOG_INFO("NextHop: Learned from DTN custody chain (len=%u)", (unsigned)pathLen);
+
+    //fw+ If we are the final recipient of this custody hop, the chain does not include 'self'.
+    // In that case we can still learn a reliable reverse route TO THE SOURCE via the last carrier
+    // (which must be our bezpośredni sąsiad if we just received it).
+    // This accelerates building a next hop for replies and reduces flooding.
+    {
+        uint32_t selfNum = getNodeNum();
+        bool selfInPath = false;
+        for (size_t i = 0; i < pathLen; ++i) {
+            if (path[i] == selfNum) { selfInPath = true; break; }
+        }
+        if (!selfInPath) {
+            // Last carrier before us (8-bit last byte)
+            uint8_t viaHop = (uint8_t)(path[pathLen - 1] & 0xFF);
+            if (isDirectNeighborLastByte(viaHop)) {
+                // Source is the first element of custody chain
+                uint32_t sourceNode = path[0];
+                // Conservative cost estimate without SNR
+                float observedCost = 1.5f + (pathLen > 1 ? (float)(pathLen - 1) * 1.0f : 0.0f);
+                learnRoute(sourceNode, viaHop, observedCost);
+                LOG_INFO("NextHop: REVERSE LEARN (DTN) src=0x%x via=0x%x cost=%.1f [CUSTODY LAST HOP]",
+                         sourceNode, viaHop, observedCost);
+            } else {
+                LOG_DEBUG("NextHop: Skip REVERSE LEARN (DTN): last carrier 0x%x is not a direct neighbor", viaHop);
+            }
+        }
+    }
 }
 //fw+
 void NextHopRouter::learnFromRoutingPayload(const meshtastic_MeshPacket *p)
@@ -197,6 +235,8 @@ bool NextHopRouter::lookupRoute(uint32_t dest, RouteEntry &out)
 void NextHopRouter::learnRoute(uint32_t dest, uint8_t viaHop, float observedCost)
 {
     if (viaHop == NO_NEXT_HOP_PREFERENCE) return;
+    // Safety: never learn a route via a non-direct neighbor
+    if (!isDirectNeighborLastByte(viaHop)) return;
     RouteEntry &r = routes[dest];
     if (r.confidence == 0) {
         r.aggregated_cost = observedCost;
@@ -252,11 +292,11 @@ float NextHopRouter::getHysteresisThreshold() const
 //fw+
 uint8_t NextHopRouter::getMinConfidenceToUse() const
 {
-    uint8_t minConf = 1;
+    uint8_t minConf = 0;
     if (moduleConfig.has_nodemodadmin && moduleConfig.nodemodadmin.min_confidence_to_use) {
         minConf = moduleConfig.nodemodadmin.min_confidence_to_use;
     }
-    return minConf;
+    return 0; //TODO temp. remove this
 }
 //fw+ dv-etx
 float NextHopRouter::estimateEtxFromSnr(float snr) const
