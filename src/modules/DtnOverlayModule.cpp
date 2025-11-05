@@ -3428,14 +3428,15 @@ bool DtnOverlayModule::sendProxyFallback(uint32_t id, Pending &p)
     }
     
     //FIX #129: Copy Pending data BEFORE erase to avoid dangling reference
-    // PROBLEM: pendingById.erase(id) invalidates p reference (it's a reference to map entry!)
-    //          Using p.data.* after erase() → UNDEFINED BEHAVIOR → HEAP CORRUPTION!
-    // CRASH: ESP32 "assert failed: block_trim_free heap_tlsf.c:371"
-    // ROOT CAUSE: Accessing freed/moved memory via dangling reference
-    // EXAMPLE: dest 0x4357989c, progressive relay exhausted → fallback → erase → access p.data → CRASH!
-    // SOLUTION: Copy p.data to local variable BEFORE erase, use copy for fallback packet
-    // BENEFIT: Safe memory access, prevents heap corruption on ESP32
+    // Also copy plaintext buffer if present (for safe native DM fallback without PKI ciphertext)
     meshtastic_FwplusDtnData dataCopy = p.data; // Copy before erase!
+    bool hadPlain = p.hasPlainPayload;
+    pb_size_t plainSizeCopy = p.plainPayloadSize;
+    uint8_t plainTmp[sizeof(dataCopy.payload.bytes)] = {0};
+    if (hadPlain && plainSizeCopy > 0) {
+        if (plainSizeCopy > sizeof(plainTmp)) plainSizeCopy = sizeof(plainTmp);
+        memcpy(plainTmp, p.plainPayload, plainSizeCopy);
+    }
     
     // Erase DTN pending FIRST
     pendingById.erase(id);
@@ -3469,19 +3470,26 @@ bool DtnOverlayModule::sendProxyFallback(uint32_t id, Pending &p)
         LOG_DEBUG("DTN FIX #146: Set tombstone for fallback packet id=0x%x (prevent re-capture loop)", 
                  (unsigned)dm->id);
     }
-    if (dataCopy.is_encrypted) {       // (OK) Use copy, not p.data!
-        dm->which_payload_variant = meshtastic_MeshPacket_encrypted_tag;
-        memcpy(dm->encrypted.bytes, dataCopy.payload.bytes, dataCopy.payload.size);
-        dm->encrypted.size = dataCopy.payload.size;
+    // Always send fallback as native DM with plaintext payload; let Router apply PKI or PSK
+    dm->decoded.portnum = meshtastic_PortNum_TEXT_MESSAGE_APP;
+    const uint8_t *srcPtr = nullptr;
+    pb_size_t srcLen = 0;
+    if (hadPlain && plainSizeCopy > 0) {
+        srcPtr = plainTmp;
+        srcLen = plainSizeCopy;
     } else {
-        dm->decoded.portnum = meshtastic_PortNum_TEXT_MESSAGE_APP;
-        if (dataCopy.payload.size > sizeof(dm->decoded.payload.bytes))
-            dm->decoded.payload.size = sizeof(dm->decoded.payload.bytes);
-        else
-            dm->decoded.payload.size = dataCopy.payload.size;
-        memcpy(dm->decoded.payload.bytes, dataCopy.payload.bytes, dm->decoded.payload.size);
-        dm->decoded.want_response = false;
+        srcPtr = dataCopy.payload.bytes;
+        srcLen = dataCopy.payload.size;
     }
+    if (srcLen > sizeof(dm->decoded.payload.bytes))
+        dm->decoded.payload.size = sizeof(dm->decoded.payload.bytes);
+    else
+        dm->decoded.payload.size = srcLen;
+    if (dm->decoded.payload.size > 0)
+        memcpy(dm->decoded.payload.bytes, srcPtr, dm->decoded.payload.size);
+    dm->decoded.want_response = false;
+
+    // Do not force PKI here; let Router decide (auto PKC for DM if keys/constraints allow, else PSK)
     
     //FIX #106c: REMOVED broken FIX #105a/b/c (fallbackPacketId logic)
     // PROBLEM: Fallback DM was re-captured by DTN → infinite loop → 38 duplicates
