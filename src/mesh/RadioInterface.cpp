@@ -705,7 +705,9 @@ size_t RadioInterface::beginSending(meshtastic_MeshPacket *p)
     if (p->hop_limit > HOP_MAX) {
         LOG_WARN("hop limit %d is too high, setting to %d", p->hop_limit, HOP_RELIABLE);
         p->hop_limit = HOP_RELIABLE;
+        if (p->hop_start > p->hop_limit) p->hop_start = p->hop_limit;
     }
+    if (p->hop_start > HOP_MAX) p->hop_start = HOP_MAX;
     radioBuffer.header.flags =
         p->hop_limit | (p->want_ack ? PACKET_FLAGS_WANT_ACK_MASK : 0) | (p->via_mqtt ? PACKET_FLAGS_VIA_MQTT_MASK : 0);
     radioBuffer.header.flags |= (p->hop_start << PACKET_FLAGS_HOP_START_SHIFT) & PACKET_FLAGS_HOP_START_MASK;

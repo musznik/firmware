@@ -299,6 +299,7 @@ bool DtnOverlayModule::deliverLocal(const meshtastic_FwplusDtnData &d)
     // SOLUTION: Use realistic hop_start based on custody chain length for correct NodeDB routing
     //           Use rx_snr=-128.0f as new circular loop marker (impossible LoRa value)
     uint8_t estimatedHops = d.custody_path_count > 0 ? d.custody_path_count : 3;  // Minimum 3 if no chain
+    if (estimatedHops > HOP_MAX) estimatedHops = HOP_MAX; // clamp to radio header capacity
 
     auto sendDecodedToPhone = [&](const uint8_t *buf, size_t len, const char *tag) {
         if (len == 0 || buf == nullptr) {
@@ -3577,14 +3578,21 @@ void DtnOverlayModule::maybeTriggerTraceroute(NodeNum dest)
     p->decoded.payload.size = pb_encode_to_bytes(p->decoded.payload.bytes, sizeof(p->decoded.payload.bytes), 
                                                   &meshtastic_RouteDiscovery_msg, &req);
     
-    // Set hop_limit based on known distance (expanding ring)
-    // Response needs same hop_limit to return (double distance + margin)
-    meshtastic_NodeInfoLite *ninfo = nodeDB->getMeshNode(dest);
-    if (ninfo && ninfo->hops_away > 0) {
-        p->hop_limit = (ninfo->hops_away * 2) + 1; // Distance * 2 (out+back) + 1 margin
-    } else {
-        p->hop_limit = 7; // Default: allow 3-hop paths + response (3*2+1=7)
+    // Set hop_limit using NodeModAdmin expanding-ring policy (consistent with NextHopRouter)
+    uint32_t startHop = 1;
+    uint32_t maxHops = 3;
+    if (moduleConfig.has_nodemodadmin) {
+        if (moduleConfig.nodemodadmin.traceroute_expanding_ring_initial_hop)
+            startHop = moduleConfig.nodemodadmin.traceroute_expanding_ring_initial_hop;
+        if (moduleConfig.nodemodadmin.traceroute_expanding_ring_max_hops)
+            maxHops = moduleConfig.nodemodadmin.traceroute_expanding_ring_max_hops;
     }
+    if (maxHops > HOP_MAX) maxHops = HOP_MAX;
+    meshtastic_NodeInfoLite *ninfo = nodeDB->getMeshNode(dest);
+    if (ninfo && ninfo->hops_away)
+        p->hop_limit = (uint8_t)min((uint32_t)(ninfo->hops_away + 1), maxHops);
+    else
+        p->hop_limit = (uint8_t)startHop;
     
     p->priority = meshtastic_MeshPacket_Priority_BACKGROUND; // Background priority to avoid congestion
     
