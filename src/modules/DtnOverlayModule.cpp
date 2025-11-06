@@ -1192,6 +1192,29 @@ bool DtnOverlayModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, m
             } else {
                 LOG_DEBUG("DTN rx DATA (overhearing, not custody transfer) orig_to=0x%x mp.to=0x%x - let Router handle", 
                          (unsigned)msg->variant.data.orig_to, (unsigned)mp.to);
+                // If this custody DATA is for our original message, we can treat this as a real-world 'implicit ACK':
+                // we overheard a neighbor carrying our packet. Emit a local-only ACK once per orig_id.
+                if (msg->variant.data.orig_from == nodeDB->getNodeNum()) {
+                    auto itPend = pendingById.find(msg->variant.data.orig_id);
+                    if (itPend != pendingById.end()) {
+                        if (overhearAckedIds.find(msg->variant.data.orig_id) == overhearAckedIds.end()) {
+                            // Local-only ACK (hop_limit=0) to update UI without RF
+                            routingModule->sendAckNak(meshtastic_Routing_Error_NONE,
+                                                      nodeDB->getNodeNum(),
+                                                      msg->variant.data.orig_id,
+                                                      msg->variant.data.channel,
+                                                      0,
+                                                      false);
+                            overhearAckedIds.insert(msg->variant.data.orig_id);
+                            if (overhearAckedIds.size() > kMaxSentMapEntries) {
+                                auto itErase = overhearAckedIds.begin();
+                                overhearAckedIds.erase(itErase);
+                            }
+                            LOG_INFO("DTN: Overheard custody forward - sent implicit ACK for id=0x%x via neighbor 0x%x",
+                                     (unsigned)msg->variant.data.orig_id, (unsigned)getFrom(&mp));
+                        }
+                    }
+                }
                 return false; // Let Router handle as normal packet (we're just overhearing)
             }
         }
@@ -1492,6 +1515,7 @@ void DtnOverlayModule::handleData(const meshtastic_MeshPacket &mp, const meshtas
             auto existing = tombstoneUntilMs.find(d.orig_id);
             uint32_t minTombstone = (configRetryBackoffMs * 3);
             uint32_t tombstoneDuration = (d.ttl_remaining_ms > minTombstone) ? d.ttl_remaining_ms : minTombstone;
+            if (tombstoneDuration < configDeliveredTombstoneMs) tombstoneDuration = configDeliveredTombstoneMs;
             uint32_t newExpiry = millis() + tombstoneDuration;
             
             if (existing == tombstoneUntilMs.end() || newExpiry > existing->second) {
@@ -2115,6 +2139,22 @@ void DtnOverlayModule::handleReceipt(const meshtastic_MeshPacket &mp, const mesh
     // SOLUTION: When source receives DELIVERED receipt, send local native ACK to inform application
     // BENEFIT: Application gets standard ACK flow, DTN remains transparent to app layer
     
+    // If we are the source and we received a DELIVERED receipt for our orig_id, emit a local final ACK for app UX.
+    // This converts DTN-delivery into the standard ✓✓ flow without RF usage.
+    if (mp.to == nodeDB->getNodeNum() && r.status == meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_DELIVERED) {
+        auto itSrc = pendingById.find(r.orig_id);
+        if (itSrc != pendingById.end() && itSrc->second.data.orig_from == nodeDB->getNodeNum()) {
+            routingModule->sendAckNak(meshtastic_Routing_Error_NONE,
+                                      nodeDB->getNodeNum(),
+                                      r.orig_id,
+                                      itSrc->second.data.channel,
+                                      0,
+                                      false);
+            LOG_INFO("DTN: Delivered receipt → emitted local final ACK for id=0x%x (channel=%u)",
+                     (unsigned)r.orig_id, (unsigned)itSrc->second.data.channel);
+        }
+    }
+
     // Only erase pending for FINAL statuses (DELIVERED/FAILED/EXPIRED)
     // PROGRESSED (status=4) is milestone, not final delivery - keep pending active!
     bool isFinalStatus = (r.status == meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_DELIVERED ||
@@ -3782,12 +3822,7 @@ void DtnOverlayModule::emitReceipt(uint32_t to, uint32_t origId, meshtastic_Fwpl
         //TTL for RECEIPT (should allow multiple retries through distant paths)
         uint32_t receiptTtlMinutes = 5; // 5 minutes (vs 15-30 for DATA)
         
-        //FIX #164 + FIX #165: Robust custody_id hash (FNV-1a inspired mixing)
-        // PROBLEM: XOR-based hash causes collisions (0x2abc9ce7 vs 0x2fbc9ce7 → SAME custody_id!)
-        //          Example: Node13 emits receipt for 0x2abc9ce7 (status=4) → custody_id=0xf0112215
-        //                   Later emits receipt for 0x2fbc9ce7 (status=1) → custody_id=0xf0112215 (COLLISION!)
-        //          Result: Tombstone blocks second receipt → "custody queue full" → DELIVERED never sent ❌
-        // ROOT CAUSE: XOR is symmetric and weak (a^b^c can collide easily with different inputs)
+        // FIX #164 + FIX #165: Robust custody_id hash (FNV-1a inspired mixing)
         // SOLUTION: Use multiplicative hash mixing (fast, strong, no libraries needed)
         //           Mix: origId, status, to (destination), nodeNum with prime multipliers
         // BENEFIT: Extremely low collision rate (<0.0001%), works on ESP32/NRF, no extra RAM
