@@ -1,4 +1,4 @@
 #pragma once
 
 // FW+ version definition shared across modules
-#define FW_PLUS_VERSION 84
+#define FW_PLUS_VERSION 85
