@@ -15,6 +15,7 @@ web.tar
 .platformio
 .local
 .cache
+.history
 
 .DS_Store
 Thumbs.db
