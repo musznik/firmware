@@ -331,14 +331,14 @@ bool DtnOverlayModule::deliverLocal(const meshtastic_FwplusDtnData &d)
         if (!srcInfo || srcInfo->user.public_key.size != 32) {
             LOG_WARN("DTN: Missing source public key for PKI payload id=0x%x from=0x%x", d.orig_id, d.orig_from);
             emitReceipt(d.orig_from, d.orig_id, meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_FAILED,
-                       meshtastic_Routing_Error_PKI_FAILED, d.custody_path_count, d.custody_path);
+                       meshtastic_Routing_Error_PKI_FAILED, d.custody_path_count, d.custody_path, d.ttl_remaining_ms);
             return false;
         }
 
         if (d.payload.size <= MESHTASTIC_PKC_OVERHEAD) {
             LOG_WARN("DTN: PKI payload too small id=0x%x size=%u", d.orig_id, (unsigned)d.payload.size);
             emitReceipt(d.orig_from, d.orig_id, meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_FAILED,
-                       meshtastic_Routing_Error_PKI_FAILED, d.custody_path_count, d.custody_path);
+                       meshtastic_Routing_Error_PKI_FAILED, d.custody_path_count, d.custody_path, d.ttl_remaining_ms);
             return false;
         }
 
@@ -348,7 +348,7 @@ bool DtnOverlayModule::deliverLocal(const meshtastic_FwplusDtnData &d)
         if (!decrypted) {
             LOG_WARN("DTN: PKI decrypt failed id=0x%x from=0x%x", d.orig_id, d.orig_from);
             emitReceipt(d.orig_from, d.orig_id, meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_FAILED,
-                       meshtastic_Routing_Error_PKI_FAILED, d.custody_path_count, d.custody_path);
+                       meshtastic_Routing_Error_PKI_FAILED, d.custody_path_count, d.custody_path, d.ttl_remaining_ms);
             memset(plaintext, 0, sizeof(plaintext));
             return false;
         }
@@ -450,13 +450,12 @@ DtnOverlayModule::DtnOverlayModule()
     encryptedOk = true;
 
     //read config with sensible defaults (moduleConfig.dtn_overlay may not exist yet; use defaults)
-    //clarify: documented purpose/units for defaults below
     configEnabled = false; // Default: disabled (will be set by env/moduleConfig below)
     configTtlMinutes = 6; // DTN custody TTL [minutes] for overlay items; balanced window for multi-hop delivery
     configInitialDelayBaseMs = 8000; //reduced base delay before first attempt [ms] for faster delivery
     //soften: larger retry backoff to reduce overlay traffic rate
     configRetryBackoffMs = 50000; // FIX #46: 40s balanced for mesh (was 120s)
-    configMaxTries = 2; // FIX #36: Increased from 2 to 3 for better long-path reliability
+    configMaxTries = 2; // Increased from 2 to 3 for better long-path reliability
     configLateFallback = false; // enable late native-DM fallback near TTL tail
     configFallbackTailPercent = 20; // start fallback in the last X% of TTL [%]
     configMilestonesEnabled = false; // emit sparse PROGRESSED milestones (telemetry); default OFF
@@ -465,7 +464,7 @@ DtnOverlayModule::DtnOverlayModule()
     configMaxActiveDm = 2; // global cap of active DTN attempts per scheduler pass
     configProbeFwplusNearDeadline = false; // send lightweight FW+ probe near TTL tail before fallback
     //conservative airtime heuristics
-    configGraceAckMs = 500;                   //reduced grace window for faster delivery [ms]
+    configGraceAckMs = 1500;                   //reduced grace window for faster delivery [ms]
     configSuppressMsAfterForeign = 35000;     // suppression after hearing foreign overlay DATA [ms] (be polite)
     configSuppressIfDestNeighbor = true;      // add extra delay when destination is our direct neighbor
     configPreferBestRouteSlotting = true;     // start earlier if DV-ETX route confidence is good
@@ -489,7 +488,7 @@ DtnOverlayModule::DtnOverlayModule()
         configProbeFwplusNearDeadline = moduleConfig.dtn_overlay.probe_fwplus_near_deadline;
     }
 #ifdef ARCH_PORTDUINO
-    // FIX #47: Force test config for simulator (override any saved NodeDB settings)
+    // Force test config for simulator (override any saved NodeDB settings)
     // This ensures our test values are used regardless of NodeDB/prefs state
     LOG_WARN("DTN: FORCING simulator config (override NodeDB): backoffMs=40000 maxTries=3");
     //configRetryBackoffMs = 40000;  // FIX #46: 40s balanced
@@ -577,7 +576,7 @@ DtnOverlayModule::DtnOverlayModule()
     
     // Add random jitter 0-60s to first beacon to prevent synchronization when multiple nodes start simultaneously
     // (e.g., after power outage) - this spreads discovery traffic across time
-    uint32_t firstBeaconJitter = (uint32_t)random(60001); // 0-60000ms (0-60s)
+    uint32_t firstBeaconJitter = (uint32_t)random(90001); // 0-60000ms (0-60s)
     configFirstAdvertiseDelayMs += firstBeaconJitter;
     
     LOG_INFO("DTN: Module created, first beacon in %u ms (base 2min + random %u sec jitter)", 
@@ -608,9 +607,7 @@ int32_t DtnOverlayModule::runOnce()
     
     uint32_t now = millis();
     
-    // NOTE: Immediate neighbor probing removed - discovery via passive broadcast beacons only
-    
-    // Debug: log pending count
+
     static uint32_t lastDebugMs = 0;
     if (pendingById.size() > 0 && (now - lastDebugMs) > 5000) {
         LOG_INFO("DTN runOnce: %u pending messages", (unsigned)pendingById.size());
@@ -651,7 +648,7 @@ int32_t DtnOverlayModule::runOnce()
         if (p.data.ttl_remaining_ms == 0) {
             // TTL expired - emit EXPIRED receipt to source and drop
             LOG_WARN("DTN expire id=0x%x ttl_remaining=0", currentId);
-            emitReceipt(p.data.orig_from, currentId, meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_EXPIRED, 0);
+            emitReceipt(p.data.orig_from, currentId, meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_EXPIRED, 0, 0, nullptr, p.data.ttl_remaining_ms);
             ctrExpired++;
             //create tombstone to avoid immediate milestone after expiry if others still carry it
             if (configTombstoneMs) tombstoneUntilMs[currentId] = millis() + configTombstoneMs;
@@ -881,7 +878,7 @@ void DtnOverlayModule::processMilestoneEmission(const meshtastic_MeshPacket &mp,
     // All checks passed - emit milestone
     uint32_t via = nodeDB->getNodeNum() & 0xFFu;
     emitReceipt(data.orig_from, data.orig_id,
-               meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_PROGRESSED, via);
+               meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_PROGRESSED, via, 0, nullptr, data.ttl_remaining_ms);
     ctrMilestonesSent++;
     lastProgressEmitMsBySource[data.orig_from] = nowMs;
     lastGlobalMilestoneMs = nowMs; // Update global rate limiter
@@ -1351,7 +1348,7 @@ bool DtnOverlayModule::enqueueFromCaptured(uint32_t origId, uint32_t origFrom, u
     //FIX #105b: Tombstone must block ALL local packets (including fallback loop)
     // PROBLEM: isSourceRetry exemption allows fallback DM re-capture → infinite loop!
     //          Fallback DM: sendToMesh() → Router → DTN intercept → enqueueFromCaptured()
-    //          → isSourceRetry=true (from=us) → tombstone bypassed → RE-CAPTURED! 😱
+    //          → isSourceRetry=true (from=us) → tombstone bypassed → RE-CAPTURED!
     // SOLUTION: Check tombstone for ALL packets (no isSourceRetry exemption)
     //           Source retry is handled by checking if packet exists in pendingById
     auto itTs = tombstoneUntilMs.find(origId);
@@ -1550,7 +1547,7 @@ void DtnOverlayModule::handleData(const meshtastic_MeshPacket &mp, const meshtas
                  (unsigned)d.orig_id, (unsigned)nodeDB->getNodeNum(), (unsigned)d.orig_from);
         
         emitReceipt(d.orig_from, d.orig_id, meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_DELIVERED, via, 
-                   d.custody_path_count, d.custody_path);
+                   d.custody_path_count, d.custody_path, d.ttl_remaining_ms);
         
         auto itStock = stockKnownMs.find(nodeDB->getNodeNum());
         if (itStock != stockKnownMs.end()) {
@@ -1604,7 +1601,7 @@ void DtnOverlayModule::handleData(const meshtastic_MeshPacket &mp, const meshtas
         emitReceipt(d.orig_from, d.orig_id,
                     meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_FAILED,
                     meshtastic_Routing_Error_NO_ROUTE,
-                    d.custody_path_count, d.custody_path);
+                    d.custody_path_count, d.custody_path, d.ttl_remaining_ms);
 
         return; // REJECT custody - packet already passed through us!
     }
@@ -1616,7 +1613,7 @@ void DtnOverlayModule::handleData(const meshtastic_MeshPacket &mp, const meshtas
             emitReceipt(d.orig_from, d.orig_id,
                         meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_FAILED,
                         meshtastic_Routing_Error_NO_ROUTE,
-                        d.custody_path_count, d.custody_path);
+                        d.custody_path_count, d.custody_path, d.ttl_remaining_ms);
             return;
         }
     }
@@ -1659,7 +1656,7 @@ void DtnOverlayModule::handleData(const meshtastic_MeshPacket &mp, const meshtas
             
             emitReceipt(d.orig_from, d.orig_id, meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_FAILED, 
                        0x01, // reason: overload (custom reason code)
-                       0, nullptr);
+                       0, nullptr, d.ttl_remaining_ms);
             
             ctrDuplicatesSuppressed++;
             return;
@@ -2346,7 +2343,7 @@ void DtnOverlayModule::handleReceipt(const meshtastic_MeshPacket &mp, const mesh
                         if (channelOk) {
                             // reason carries version; use full FW_PLUS_VERSION (lower 16 bits are used on RX)
                             uint32_t reason = (uint32_t)FW_PLUS_VERSION;
-                            emitReceipt(origin, 0, meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_PROGRESSED, reason);
+                            emitReceipt(origin, 0, meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_PROGRESSED, reason, 0, nullptr, 0);
                             lastHelloBackToNodeMs[origin] = nowMs;
                             updateGlobalProbeTimestamp();
                             LOG_INFO("DTN: Hello-back sent to origin=0x%x (discovered FW+ nodes: %u)", 
@@ -2785,7 +2782,7 @@ void DtnOverlayModule::tryForward(uint32_t id, Pending &p)
             hasReceiptHash = true;
         }
 
-        emitReceipt(origFrom, id, meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_EXPIRED, 0);
+        emitReceipt(origFrom, id, meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_EXPIRED, 0, 0, nullptr, ttlRemaining);
 
         //prevent immediate re-capture once we abandon this id
         uint32_t tombstoneDuration = configTombstoneMs;
@@ -3000,11 +2997,10 @@ void DtnOverlayModule::tryForward(uint32_t id, Pending &p)
     
     //
     // FIX: Intermediate nodes also need progressive relay for unknown destinations
-    // PROBLEM: Node6 receives custody for dest=0x1d (unknown, hops=255)
+    // PROBLEM: node receives custody for dest=0x1d (unknown, hops=255)
     //          Only source nodes (isFromSource) call chooseProgressiveRelay() above
     //          Intermediate nodes skip directly to fallback → no progressive relay!
-    //          Result: Node6 tries direct send + broadcast, never tries progressive relay
-    // ROOT CAUSE: Progressive relay logic (line 2214-2347) is ONLY for isFromSource
+    // ROOT CAUSE: Progressive relay logic  is ONLY for isFromSource
     //             Intermediate nodes need progressive relay too for unknown/far destinations
     // SOLUTION: Add progressive relay check for intermediate nodes before fallback
     // BENEFIT: Full DTN custody chain works - each hop can choose next best relay
@@ -3150,7 +3146,7 @@ void DtnOverlayModule::tryForward(uint32_t id, Pending &p)
         
         emitReceipt(p.data.orig_from, p.data.orig_id,
                    meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_FAILED,
-                   meshtastic_Routing_Error_NO_ROUTE);
+                   meshtastic_Routing_Error_NO_ROUTE, 0, nullptr, p.data.ttl_remaining_ms);
         
         pendingById.erase(id);
         return; // Don't retry - DTN can't help Stock destinations
@@ -3176,7 +3172,7 @@ void DtnOverlayModule::tryForward(uint32_t id, Pending &p)
 
                 emitReceipt(p.data.orig_from, p.data.orig_id,
                             meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_FAILED,
-                            meshtastic_Routing_Error_NO_ROUTE);
+                            meshtastic_Routing_Error_NO_ROUTE, 0, nullptr, p.data.ttl_remaining_ms);
 
                 if (configTombstoneMs) {
                     tombstoneUntilMs[id] = now + configTombstoneMs;
@@ -3206,7 +3202,7 @@ void DtnOverlayModule::tryForward(uint32_t id, Pending &p)
     // Double-check TTL after decrement
     if (p.data.ttl_remaining_ms == 0) {
         LOG_WARN("DTN: Packet id=0x%x expired after TTL decrement (elapsed=%u)", id, elapsed);
-        emitReceipt(p.data.orig_from, id, meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_EXPIRED, 0);
+        emitReceipt(p.data.orig_from, id, meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_EXPIRED, 0, 0, nullptr, p.data.ttl_remaining_ms);
         pendingById.erase(id);
         ctrExpired++;
         return;
@@ -3357,7 +3353,7 @@ void DtnOverlayModule::tryForward(uint32_t id, Pending &p)
         // Send TRANSMITTED receipt (reason=0 indicates "transmitted by source")
         emitReceipt(p.data.orig_from, p.data.orig_id, 
                    meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_PROGRESSED,
-                   0); // reason=0 = transmitted by source
+                   0, 0, nullptr, p.data.ttl_remaining_ms); // reason=0 = transmitted by source
         LOG_INFO("DTN: Sent TRANSMITTED receipt to APK for id=0x%x (UX: 'Packet on-air')", (unsigned)p.data.orig_id);
     } 
     
@@ -3430,7 +3426,8 @@ bool DtnOverlayModule::sendProxyFallback(uint32_t id, Pending &p)
                  (unsigned)p.data.orig_to);
         emitReceipt(p.data.orig_from, p.data.orig_id, 
                    meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_FAILED,
-                   meshtastic_Routing_Error_NO_ROUTE);
+                   meshtastic_Routing_Error_NO_ROUTE,
+                   p.data.custody_path_count, p.data.custody_path, p.data.ttl_remaining_ms);
         pendingById.erase(id);
         return false; // Don't retry
     }
@@ -3555,7 +3552,7 @@ bool DtnOverlayModule::sendProxyFallback(uint32_t id, Pending &p)
     // BENEFIT: User gets feedback that message was sent (not stuck)
     emitReceipt(dataCopy.orig_from, dataCopy.orig_id, 
                meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_FAILED,
-               0); // reason=0 = Stock fallback (not error)
+               0, 0, nullptr, dataCopy.ttl_remaining_ms); // reason=0 = Stock fallback (not error)
     
     LOG_INFO("DTN: Source fallback to Stock 0x%x (fresh native DM, DTN aborted)", 
              (unsigned)dataCopy.orig_to);  // (OK) Use copy, not p.data!
@@ -3649,7 +3646,8 @@ void DtnOverlayModule::maybeTriggerTraceroute(NodeNum dest)
 // SOLUTION: For distant destinations (hops > HOP_RELIABLE), use DTN custody in reverse
 // BENEFIT: RECEIPTs reach source even through complex mesh topology
 void DtnOverlayModule::emitReceipt(uint32_t to, uint32_t origId, meshtastic_FwplusDtnStatus status, uint32_t reason, 
-                                    uint8_t custodyPathCount, const uint8_t *custodyPath)
+                                    uint8_t custodyPathCount, const uint8_t *custodyPath,
+                                    uint32_t origRemainingTtlMs)
 {
     // Guard: don't emit receipts if DTN is disabled (don't advertise as FW+ capable)
     if (!configEnabled) return;
@@ -3819,8 +3817,27 @@ void DtnOverlayModule::emitReceipt(uint32_t to, uint32_t origId, meshtastic_Fwpl
                 returnChain[returnLen++] = hop;
             }
         }
-        //TTL for RECEIPT (should allow multiple retries through distant paths)
-        uint32_t receiptTtlMinutes = 5; // 5 minutes (vs 15-30 for DATA)
+        //TTL for RECEIPT (status-based) with optional cap vs remaining DATA TTL + slack
+        uint32_t baseTtlMs = 0;
+        switch (status) {
+            case meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_DELIVERED:
+            case meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_FAILED:
+                baseTtlMs = configReceiptTtlDeliveredFailedMin * 60UL * 1000UL; // minutes → ms
+                break;
+            case meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_EXPIRED:
+                baseTtlMs = configReceiptTtlExpiredMs; // ms
+                break;
+            case meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_PROGRESSED:
+            default:
+                baseTtlMs = configReceiptTtlProgressedMs; // ms
+                break;
+        }
+        uint32_t cappedTtlMs = baseTtlMs;
+        {
+            uint64_t cap64 = (uint64_t)origRemainingTtlMs + (uint64_t)configReceiptTtlSlackMs;
+            uint32_t capMs = (cap64 > 0xFFFFFFFFULL) ? 0xFFFFFFFFu : (uint32_t)cap64;
+            if (capMs > 0 && capMs < cappedTtlMs) cappedTtlMs = capMs;
+        }
         
         // FIX #164 + FIX #165: Robust custody_id hash (FNV-1a inspired mixing)
         // SOLUTION: Use multiplicative hash mixing (fast, strong, no libraries needed)
@@ -3844,7 +3861,7 @@ void DtnOverlayModule::emitReceipt(uint32_t to, uint32_t origId, meshtastic_Fwpl
         receiptMsg.reason = reason;
         receiptMsg.dest = to;
         receiptMsg.custody_id = receiptCustodyId;
-        receiptMsg.ttl_remaining_ms = receiptTtlMinutes * 60UL * 1000UL;
+        receiptMsg.ttl_remaining_ms = cappedTtlMs;
         receiptMsg.allow_proxy_fallback = allowFallback;
         if (custodyPath != nullptr && custodyPathCount > 0) {
             pb_size_t copyCount = std::min<pb_size_t>(custodyPathCount, (pb_size_t)sizeof(receiptMsg.custody_path));
@@ -5185,7 +5202,7 @@ void DtnOverlayModule::observeOnDemandResponse(const meshtastic_MeshPacket &mp)
                 node->last_heard = getTime();
             }
             
-            // fw+ Proactively probe this DTN-enabled node to get its actual FW+ version
+            // Proactively probe this DTN-enabled node to get its actual FW+ version
             // This helps us learn the real version instead of using placeholder
             
             // Global rate limiter
@@ -6641,7 +6658,7 @@ void DtnOverlayModule::processScheduledHellobacks()
         
         // Send hello-back!
         uint32_t reason = (uint32_t)FW_PLUS_VERSION;
-        emitReceipt(target, 0, meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_PROGRESSED, reason);
+        emitReceipt(target, 0, meshtastic_FwplusDtnStatus_FWPLUS_DTN_STATUS_PROGRESSED, reason, 0, nullptr, 0);
         lastHelloBackToNodeMs[target] = nowMs;
         updateGlobalProbeTimestamp();
         LOG_INFO("DTN: Sent scheduled hello-back to 0x%x (random delay expired)",

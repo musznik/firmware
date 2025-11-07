@@ -142,7 +142,8 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     // Usage: PhoneAPI calls this after DTN intercepts a message from phone
     //FIX #116: Added custodyPath parameter for return path optimization
     void emitReceipt(uint32_t to, uint32_t origId, meshtastic_FwplusDtnStatus status, uint32_t reason = 0, 
-                     uint8_t custodyPathCount = 0, const uint8_t *custodyPath = nullptr);
+                     uint8_t custodyPathCount = 0, const uint8_t *custodyPath = nullptr,
+                     uint32_t origRemainingTtlMs = 0);
 
   protected:
     // Scheduler tick
@@ -304,6 +305,13 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     bool configPreferBestRouteSlotting = true;     // earlier slotting if DV-ETX confidence
     uint8_t configMilestoneChUtilMaxPercent = 60;  // suppress milestones when channel utilization high
     uint32_t configTombstoneMs = 30000;            // ignore re-captures for this id for a short period
+    // Receipt TTL policy
+    // PROGRESSED: short telemetry lifetime; EXPIRED: brief notification; DELIVERED/FAILED: longer for reliability
+    uint32_t configReceiptTtlProgressedMs = 60000;      // 60s default
+    uint32_t configReceiptTtlExpiredMs = 90000;         // 90s default
+    uint32_t configReceiptTtlDeliveredFailedMin = 5;    // 5 minutes default
+    // Cap receipts relative to remaining DATA TTL plus slack to avoid very late receipts
+    uint32_t configReceiptTtlSlackMs = 60000;           // +60s beyond remaining DATA TTL
     // Topology-aware throttles
     uint8_t configMaxRingsToAct = 4;               //increased action radius for mobile nodes
     uint8_t configMilestoneMaxRing = 1;            // milestone only if min(hops to src/dst) <= N
@@ -430,14 +438,10 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     std::unordered_map<NodeNum, SuccessfulChain> learnedChainsByDest; // dest -> chain
     uint32_t configChainCacheTtlMs = 6 * 60 * 60 * 1000UL; // 6h TTL for learned chains
     void markFwplusSeen(NodeNum n) { fwplusSeenMs[n] = millis(); }
-    //fw+
     void certifyFwplus(NodeNum n, const char *context = nullptr);
     //FIX #155: Comprehensive FW+ detection (checks both maps)
     // PROBLEM: isFwplus() only checked fwplusSeenMs (nodes that sent DTN DATA/RECEIPT)
     //          Result: Nodes discovered via beacons (fwplusVersionByNode) not detected as FW+
-    //          Example: Serwisowy (0x4357989c) sent beacon → fwplusVersionByNode ✅
-    //                   BUT: never sent DTN DATA → fwplusSeenMs ❌
-    //                   Result: isFwplus() = false → Stock fallback despite being FW+!
     // SOLUTION: Check BOTH fwplusSeenMs (24h TTL) AND fwplusVersionByNode (beacon discovery)
     // BENEFIT: Consistent FW+ detection, aligns with sendProxyFallback logic (line 2486-2488)
     bool isFwplus(NodeNum n) const {
@@ -504,12 +508,9 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
         return hasSufficientRouteConfidence(dest);
     }
 
-    //fw+
     NodeNum resolveLowByteToNodeNum(uint8_t lowByte) const;
 
-    //fw+
     uint32_t countActiveDataPendings() const;
-
 
     uint32_t computeAdaptiveGraceMs(int8_t rxSnr, NodeNum dest) const
     {
@@ -554,17 +555,13 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     uint32_t configTelemetryProbeCooldownMs = 2UL * 60UL * 60UL * 1000UL; // per-origin cooldown 2h
     std::unordered_map<NodeNum, uint32_t> lastTelemetryProbeToNodeMs;
     
-    // NOTE: Aggressive discovery removed - rely exclusively on passive broadcast beacons
-    
-    // CRITICAL: Global probe rate limiter to prevent bursts
+    // Global probe rate limiter to prevent bursts
     // Ensures MINIMUM 90 seconds between ANY probes (not just per-node)
     uint32_t lastGlobalProbeMs = 0;
     uint32_t configGlobalProbeMinIntervalMs = 90000; // Absolute minimum 90s between probes
     uint32_t configMaxNodeAgeSec = 24UL * 60UL * 60UL; // Only probe nodes seen within 24h (not dead nodes)
     
-    // NOTE: Immediate neighbor probing removed - rely exclusively on passive broadcast beacons
-    
-    // CRITICAL: Global probe rate limiter helpers
+
     bool isGlobalProbeCooldownActive() const {
         if (lastGlobalProbeMs == 0) return false;
         uint32_t nowMs = millis();
@@ -612,9 +609,7 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     
     // OnDemand response observation for DTN discovery
     void observeOnDemandResponse(const meshtastic_MeshPacket &mp);
-    
-    // NOTE: Aggressive discovery removed - rely exclusively on passive broadcast beacons
-    
+
     // Check if DTN nodes can help reach destination (proximity analysis)
     bool canDtnHelpWithDestination(NodeNum dest) const;
     
