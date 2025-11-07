@@ -455,18 +455,10 @@ ErrorCode Router::send(meshtastic_MeshPacket *p)
             bool enqueued = dtnOverlayModule->enqueueFromCaptured(p->id, getFrom(p), p->to, p->channel, ttlMinutes,
                                                                   false, p->decoded.payload.bytes, p->decoded.payload.size, true);
             if (enqueued) {
-                //fw+ FIX #102f: Send implicit ACK when DTN intercepts message (UX: "Forwarded by other node")
-                // PROBLEM: Android app expects 2 ACKs for DTN delivery:
-                //   1. Implicit ACK (from=self) → MessageStatus.DELIVERED → "Forwarded by other node"
-                //   2. Final ACK (from=dest) → MessageStatus.RECEIVED → "Delivery confirmed"
-                // SOLUTION: Send implicit ACK here, DTN will send final ACK when DELIVERED receipt arrives
-                // NOTE: hopLimit=0 ensures ACK is LOCAL only (guarded by FIX #102d)
-                
-                // Send implicit ACK to source app (from=self, so Kotlin shows DELIVERED not RECEIVED)
-                routingModule->sendAckNak(meshtastic_Routing_Error_NONE, getFrom(p), p->id, p->channel, 0, false);
-                LOG_INFO("DTN: Sent implicit ACK for intercepted message id=0x%x (UX: 'Forwarded by other node')",
-                         (unsigned)p->id);
-                
+                // Disable synthetic local implicit ACK to avoid UI confusion; rely on DTN receipts (ACCEPTED/TRANSMITTED/DELIVERED)
+                // Cancel any Router retransmission for this packet ID (we took DTN custody)
+                cancelSending(getFrom(p), p->id);
+                LOG_DEBUG("DTN: Intercepted id=0x%x - cancelled Router retransmission, no local implicit ACK", (unsigned)p->id);
                 packetPool.release(p);
                 return meshtastic_Routing_Error_NONE;
             }

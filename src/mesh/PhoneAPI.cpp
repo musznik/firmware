@@ -874,17 +874,7 @@ bool PhoneAPI::handleToRadioPacket(meshtastic_MeshPacket &p)
                 LOG_DEBUG("DTN: Cancelled Router retransmission for id=0x%x", (unsigned)p.id);
             }
             
-            //fw+ FIX #102f: Send implicit ACK when DTN intercepts PhoneAPI message
-            // PROBLEM: Android app expects 2 ACKs for DTN delivery:
-            //   1. Implicit ACK (from=self) → MessageStatus.DELIVERED → "Forwarded by other node" ✓
-            //   2. Final ACK (from=dest) → MessageStatus.RECEIVED → "Delivery confirmed" ✓✓
-            // SOLUTION: Send implicit ACK immediately after DTN intercept
-            // NOTE: hopLimit=0 ensures ACK is LOCAL only (guarded by Router.cpp FIX #102d)
-            if (routingModule) {
-                routingModule->sendAckNak(meshtastic_Routing_Error_NONE, nodeDB->getNodeNum(), p.id, p.channel, 0, false);
-                LOG_INFO("DTN: Sent implicit ACK for PhoneAPI intercept id=0x%x (UX: 'Forwarded by other node')",
-                         (unsigned)p.id);
-            }
+            // Disable synthetic local implicit ACK to avoid UI confusion; rely on DTN receipts (ACCEPTED/TRANSMITTED/DELIVERED)
             
             //fw+ FIX #108a: Send DTN ACCEPTED receipt to APK
             // PROBLEM: APK shows "sent" but user doesn't know DTN accepted custody
