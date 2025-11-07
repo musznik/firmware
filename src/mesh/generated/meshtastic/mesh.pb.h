@@ -1132,8 +1132,10 @@ typedef struct _meshtastic_DeviceMetadata {
     /* Bit field of boolean for excluded modules
  (bitwise OR of ExcludedModules) */
     uint32_t excluded_modules;
+    bool hasNodeMod;
     bool hasFwPlus;
-    bool hasNodemod;
+    bool hasDtn;
+    bool hasBroadcastAssistant;
 } meshtastic_DeviceMetadata;
 
 /* Packets from the radio to the phone will appear on the fromRadio characteristic.
@@ -1392,7 +1394,7 @@ extern "C" {
 #define meshtastic_Compressed_init_default       {_meshtastic_PortNum_MIN, {0, {0}}}
 #define meshtastic_NeighborInfo_init_default     {0, 0, 0, 0, {meshtastic_Neighbor_init_default, meshtastic_Neighbor_init_default, meshtastic_Neighbor_init_default, meshtastic_Neighbor_init_default, meshtastic_Neighbor_init_default, meshtastic_Neighbor_init_default, meshtastic_Neighbor_init_default, meshtastic_Neighbor_init_default, meshtastic_Neighbor_init_default, meshtastic_Neighbor_init_default}}
 #define meshtastic_Neighbor_init_default         {0, 0, 0, 0}
-#define meshtastic_DeviceMetadata_init_default   {"", 0, 0, 0, 0, 0, _meshtastic_Config_DeviceConfig_Role_MIN, 0, _meshtastic_HardwareModel_MIN, 0, 0, 0, 0, 0}
+#define meshtastic_DeviceMetadata_init_default   {"", 0, 0, 0, 0, 0, _meshtastic_Config_DeviceConfig_Role_MIN, 0, _meshtastic_HardwareModel_MIN, 0, 0, 0, 0, 0, 0, 0}
 #define meshtastic_Heartbeat_init_default        {0}
 #define meshtastic_NodeRemoteHardwarePin_init_default {0, false, meshtastic_RemoteHardwarePin_init_default}
 #define meshtastic_ChunkedPayload_init_default   {0, 0, 0, {0, {0}}}
@@ -1423,7 +1425,7 @@ extern "C" {
 #define meshtastic_Compressed_init_zero          {_meshtastic_PortNum_MIN, {0, {0}}}
 #define meshtastic_NeighborInfo_init_zero        {0, 0, 0, 0, {meshtastic_Neighbor_init_zero, meshtastic_Neighbor_init_zero, meshtastic_Neighbor_init_zero, meshtastic_Neighbor_init_zero, meshtastic_Neighbor_init_zero, meshtastic_Neighbor_init_zero, meshtastic_Neighbor_init_zero, meshtastic_Neighbor_init_zero, meshtastic_Neighbor_init_zero, meshtastic_Neighbor_init_zero}}
 #define meshtastic_Neighbor_init_zero            {0, 0, 0, 0}
-#define meshtastic_DeviceMetadata_init_zero      {"", 0, 0, 0, 0, 0, _meshtastic_Config_DeviceConfig_Role_MIN, 0, _meshtastic_HardwareModel_MIN, 0, 0, 0, 0, 0}
+#define meshtastic_DeviceMetadata_init_zero      {"", 0, 0, 0, 0, 0, _meshtastic_Config_DeviceConfig_Role_MIN, 0, _meshtastic_HardwareModel_MIN, 0, 0, 0, 0, 0, 0, 0}
 #define meshtastic_Heartbeat_init_zero           {0}
 #define meshtastic_NodeRemoteHardwarePin_init_zero {0, false, meshtastic_RemoteHardwarePin_init_zero}
 #define meshtastic_ChunkedPayload_init_zero      {0, 0, 0, {0, {0}}}
@@ -1584,8 +1586,10 @@ extern "C" {
 #define meshtastic_DeviceMetadata_hasRemoteHardware_tag 10
 #define meshtastic_DeviceMetadata_hasPKC_tag     11
 #define meshtastic_DeviceMetadata_excluded_modules_tag 12
+#define meshtastic_DeviceMetadata_hasNodeMod_tag 19
 #define meshtastic_DeviceMetadata_hasFwPlus_tag  20
-#define meshtastic_DeviceMetadata_hasNodemod_tag 21
+#define meshtastic_DeviceMetadata_hasDtn_tag     22
+#define meshtastic_DeviceMetadata_hasBroadcastAssistant_tag 23
 #define meshtastic_FromRadio_id_tag              1
 #define meshtastic_FromRadio_packet_tag          2
 #define meshtastic_FromRadio_my_info_tag         3
@@ -1932,8 +1936,10 @@ X(a, STATIC,   SINGULAR, UENUM,    hw_model,          9) \
 X(a, STATIC,   SINGULAR, BOOL,     hasRemoteHardware,  10) \
 X(a, STATIC,   SINGULAR, BOOL,     hasPKC,           11) \
 X(a, STATIC,   SINGULAR, UINT32,   excluded_modules,  12) \
+X(a, STATIC,   SINGULAR, BOOL,     hasNodeMod,       19) \
 X(a, STATIC,   SINGULAR, BOOL,     hasFwPlus,        20) \
-X(a, STATIC,   SINGULAR, BOOL,     hasNodemod,       21)
+X(a, STATIC,   SINGULAR, BOOL,     hasDtn,           22) \
+X(a, STATIC,   SINGULAR, BOOL,     hasBroadcastAssistant,  23)
 #define meshtastic_DeviceMetadata_CALLBACK NULL
 #define meshtastic_DeviceMetadata_DEFAULT NULL
 
@@ -2044,7 +2050,7 @@ extern const pb_msgdesc_t meshtastic_ChunkedPayloadResponse_msg;
 #define meshtastic_ClientNotification_size       482
 #define meshtastic_Compressed_size               239
 #define meshtastic_Data_size                     269
-#define meshtastic_DeviceMetadata_size           60
+#define meshtastic_DeviceMetadata_size           66
 #define meshtastic_DuplicatedPublicKey_size      0
 #define meshtastic_FileInfo_size                 236
 #define meshtastic_FromRadio_size                510
