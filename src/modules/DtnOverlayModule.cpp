@@ -6604,8 +6604,39 @@ void DtnOverlayModule::runPeriodicMaintenance()
     // Maintain path reliability data
     maintainPathReliability();
     
+    // Cleanup expired and excess tombstones to prevent long-term memory growth
+    pruneTombstones();
+    
     // Log comprehensive statistics
     logAdaptiveRoutingStatistics();
+}
+// Prune expired/oversized tombstone entries to bound memory usage over time
+void DtnOverlayModule::pruneTombstones()
+{
+    if (tombstoneUntilMs.empty()) return;
+    uint32_t now = millis();
+    
+    // 1) Remove expired entries
+    for (auto it = tombstoneUntilMs.begin(); it != tombstoneUntilMs.end(); ) {
+        if (it->second <= now) {
+            it = tombstoneUntilMs.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    
+    // 2) Enforce an upper bound by dropping oldest expiries first
+    // Keep this modest to respect constrained targets
+    const size_t kMaxTombstones = 512;
+    while (tombstoneUntilMs.size() > kMaxTombstones) {
+        auto oldest = tombstoneUntilMs.begin();
+        for (auto it = tombstoneUntilMs.begin(); it != tombstoneUntilMs.end(); ++it) {
+            if (it->second < oldest->second) oldest = it;
+        }
+        tombstoneUntilMs.erase(oldest);
+    }
+    
+    LOG_INFO("DTN: Tombstones after prune = %u", (unsigned)tombstoneUntilMs.size());
 }
 //Process scheduled hello-backs (RF collision prevention)
 void DtnOverlayModule::processScheduledHellobacks()

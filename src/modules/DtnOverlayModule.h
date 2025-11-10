@@ -775,6 +775,7 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
     void logAdaptiveRoutingStatistics();
     //FIX #127: Process scheduled hello-backs with random delay
     void processScheduledHellobacks();
+    void pruneTombstones();
     std::string formatHopList(const std::vector<NodeNum>& hops) const;
 
     // Link health monitoring
