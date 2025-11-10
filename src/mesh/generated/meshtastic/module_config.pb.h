@@ -655,7 +655,6 @@ typedef struct _meshtastic_ModuleConfig {
         meshtastic_ModuleConfig_NodeModAdminConfig node_mod_admin;
         meshtastic_ModuleConfig_IdleGameConfig idle_game;
         meshtastic_ModuleConfig_DtnOverlayConfig dtn_overlay;
-        /* fw+ Broadcast Assist module config */
         meshtastic_ModuleConfig_BroadcastAssistConfig broadcast_assist;
     } payload_variant;
 } meshtastic_ModuleConfig;

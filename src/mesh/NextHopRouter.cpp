@@ -284,8 +284,8 @@ void NextHopRouter::invalidateRoute(uint32_t dest, float penalty)
 float NextHopRouter::getHysteresisThreshold() const
 {
     float thr = 0.5f;
-    if (moduleConfig.has_nodemodadmin && moduleConfig.nodemodadmin.hysteresis_cost_threshold_tenths) {
-        thr = (float)moduleConfig.nodemodadmin.hysteresis_cost_threshold_tenths / 10.0f;
+    if (moduleConfig.has_node_mod_admin && moduleConfig.node_mod_admin.hysteresis_cost_threshold_tenths) {
+        thr = (float)moduleConfig.node_mod_admin.hysteresis_cost_threshold_tenths / 10.0f;
     }
     return thr;
 }
@@ -293,8 +293,8 @@ float NextHopRouter::getHysteresisThreshold() const
 uint8_t NextHopRouter::getMinConfidenceToUse() const
 {
     uint8_t minConf = 0;
-    if (moduleConfig.has_nodemodadmin && moduleConfig.nodemodadmin.min_confidence_to_use) {
-        minConf = moduleConfig.nodemodadmin.min_confidence_to_use;
+    if (moduleConfig.has_node_mod_admin && moduleConfig.node_mod_admin.min_confidence_to_use) {
+        minConf = moduleConfig.node_mod_admin.min_confidence_to_use;
     }
     return 0; //TODO temp. remove this
 }
@@ -519,14 +519,14 @@ void NextHopRouter::sniffReceived(const meshtastic_MeshPacket *p, const meshtast
 //fw+
 bool NextHopRouter::canProbeGlobal(uint32_t now) const
 {
-    if (!moduleConfig.has_nodemodadmin || !moduleConfig.nodemodadmin.proactive_traceroute_enabled) return false;
-    uint32_t cooldownH = moduleConfig.nodemodadmin.traceroute_global_cooldown_hours ?: 12;
-    uint32_t maxPerDay = moduleConfig.nodemodadmin.traceroute_max_per_day ?: 6;
+    if (!moduleConfig.has_node_mod_admin || !moduleConfig.node_mod_admin.proactive_traceroute_enabled) return false;
+    uint32_t cooldownH = moduleConfig.node_mod_admin.traceroute_global_cooldown_hours ?: 12;
+    uint32_t maxPerDay = moduleConfig.node_mod_admin.traceroute_max_per_day ?: 6;
     bool cooldownOk = (lastHeardTracerouteMs == 0 || (now - lastHeardTracerouteMs) >= cooldownH * 3600000UL) &&
                       (lastProbeGlobalMs == 0 || (now - lastProbeGlobalMs) >= cooldownH * 3600000UL);
     bool dayBudgetOk = (probesTodayCounter < maxPerDay);
     float util = airTime->channelUtilizationPercent();
-    uint32_t utilThr = moduleConfig.nodemodadmin.traceroute_chanutil_threshold_percent ?: 15;
+    uint32_t utilThr = moduleConfig.node_mod_admin.traceroute_chanutil_threshold_percent ?: 15;
     bool utilOk = util < (float)utilThr;
     return cooldownOk && dayBudgetOk && utilOk;
 }
@@ -571,18 +571,18 @@ bool NextHopRouter::canProbeDest(uint32_t dest, uint32_t now) const
 {
     auto it = perDestLastProbeMs.find(dest);
     uint32_t lastP = (it == perDestLastProbeMs.end()) ? 0 : it->second;
-    uint32_t perH = moduleConfig.nodemodadmin.traceroute_per_dest_cooldown_hours ?: 12;
+    uint32_t perH = moduleConfig.node_mod_admin.traceroute_per_dest_cooldown_hours ?: 12;
     if (lastP && (now - lastP) < perH * 3600000UL) return false;
     auto it2 = perDestLastHeardRouteMs.find(dest);
     uint32_t lastH = (it2 == perDestLastHeardRouteMs.end()) ? 0 : it2->second;
-    uint32_t globH = moduleConfig.nodemodadmin.traceroute_global_cooldown_hours ?: 12;
+    uint32_t globH = moduleConfig.node_mod_admin.traceroute_global_cooldown_hours ?: 12;
     if (lastH && (now - lastH) < globH * 3600000UL) return false;
     return true;
 }
 //fw+
 bool NextHopRouter::maybeScheduleTraceroute(uint32_t now)
 {
-    if (!moduleConfig.has_nodemodadmin || !moduleConfig.nodemodadmin.proactive_traceroute_enabled) return false;
+    if (!moduleConfig.has_node_mod_admin || !moduleConfig.node_mod_admin.proactive_traceroute_enabled) return false;
 
     if (probesDayStartMs == 0 || now - probesDayStartMs > 24UL * 60UL * 60UL * 1000UL) {
         probesDayStartMs = now;
@@ -590,7 +590,7 @@ bool NextHopRouter::maybeScheduleTraceroute(uint32_t now)
     }
 
     float staleRatio = computeStaleRatio(now);
-    uint32_t thr = moduleConfig.nodemodadmin.traceroute_stale_ratio_threshold_percent ?: 30;
+    uint32_t thr = moduleConfig.node_mod_admin.traceroute_stale_ratio_threshold_percent ?: 30;
     if (staleRatio < (float)thr) return false;
     if (!canProbeGlobal(now)) return false;
 
@@ -625,8 +625,8 @@ bool NextHopRouter::sendTracerouteTo(uint32_t dest)
     meshtastic_RouteDiscovery req = meshtastic_RouteDiscovery_init_zero;
     p->decoded.payload.size = pb_encode_to_bytes(p->decoded.payload.bytes, sizeof(p->decoded.payload.bytes), &meshtastic_RouteDiscovery_msg, &req);
 
-    uint32_t startHop = moduleConfig.nodemodadmin.traceroute_expanding_ring_initial_hop ?: 1;
-    uint32_t maxHops = moduleConfig.nodemodadmin.traceroute_expanding_ring_max_hops ?: 3;
+    uint32_t startHop = moduleConfig.node_mod_admin.traceroute_expanding_ring_initial_hop ?: 1;
+    uint32_t maxHops = moduleConfig.node_mod_admin.traceroute_expanding_ring_max_hops ?: 3;
     meshtastic_NodeInfoLite *ninfo = nodeDB->getMeshNode(dest);
     if (ninfo && ninfo->hops_away)
         p->hop_limit = min((uint32_t)(ninfo->hops_away + 1), maxHops);
@@ -634,7 +634,7 @@ bool NextHopRouter::sendTracerouteTo(uint32_t dest)
         p->hop_limit = startHop;
 
     p->priority = meshtastic_MeshPacket_Priority_BACKGROUND;
-    uint32_t jitter = moduleConfig.nodemodadmin.traceroute_probe_jitter_ms ?: 5000;
+    uint32_t jitter = moduleConfig.node_mod_admin.traceroute_probe_jitter_ms ?: 5000;
     if (jitter) p->tx_after = millis() + (random(jitter + 1));
 
     service->sendToMesh(p, RX_SRC_LOCAL, false);

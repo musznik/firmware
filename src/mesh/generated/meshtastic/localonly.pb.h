@@ -88,11 +88,11 @@ typedef struct _meshtastic_LocalModuleConfig {
     bool has_paxcounter;
     meshtastic_ModuleConfig_PaxcounterConfig paxcounter;
     /* Nodestatus Config */
-    bool has_nodemod;
-    meshtastic_ModuleConfig_NodeModConfig nodemod;
+    bool has_node_mod;
+    meshtastic_ModuleConfig_NodeModConfig node_mod;
     /* NodeModAdmin Config */
-    bool has_nodemodadmin;
-    meshtastic_ModuleConfig_NodeModAdminConfig nodemodadmin;
+    bool has_node_mod_admin;
+    meshtastic_ModuleConfig_NodeModAdminConfig node_mod_admin;
     /* IdleGameConfig Config */
     bool has_idlegame;
     meshtastic_ModuleConfig_IdleGameConfig idlegame;
@@ -139,8 +139,8 @@ extern "C" {
 #define meshtastic_LocalModuleConfig_ambient_lighting_tag 12
 #define meshtastic_LocalModuleConfig_detection_sensor_tag 13
 #define meshtastic_LocalModuleConfig_paxcounter_tag 14
-#define meshtastic_LocalModuleConfig_nodemod_tag 20
-#define meshtastic_LocalModuleConfig_nodemodadmin_tag 21
+#define meshtastic_LocalModuleConfig_node_mod_tag 20
+#define meshtastic_LocalModuleConfig_node_mod_admin_tag 21
 #define meshtastic_LocalModuleConfig_idlegame_tag 22
 #define meshtastic_LocalModuleConfig_dtn_overlay_tag 23
 #define meshtastic_LocalModuleConfig_broadcast_assist_tag 24
@@ -182,8 +182,8 @@ X(a, STATIC,   OPTIONAL, MESSAGE,  neighbor_info,    11) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  ambient_lighting,  12) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  detection_sensor,  13) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  paxcounter,       14) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  nodemod,          20) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  nodemodadmin,     21) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  node_mod,         20) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  node_mod_admin,   21) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  idlegame,         22) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  dtn_overlay,      23) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  broadcast_assist,  24)
@@ -202,8 +202,8 @@ X(a, STATIC,   OPTIONAL, MESSAGE,  broadcast_assist,  24)
 #define meshtastic_LocalModuleConfig_ambient_lighting_MSGTYPE meshtastic_ModuleConfig_AmbientLightingConfig
 #define meshtastic_LocalModuleConfig_detection_sensor_MSGTYPE meshtastic_ModuleConfig_DetectionSensorConfig
 #define meshtastic_LocalModuleConfig_paxcounter_MSGTYPE meshtastic_ModuleConfig_PaxcounterConfig
-#define meshtastic_LocalModuleConfig_nodemod_MSGTYPE meshtastic_ModuleConfig_NodeModConfig
-#define meshtastic_LocalModuleConfig_nodemodadmin_MSGTYPE meshtastic_ModuleConfig_NodeModAdminConfig
+#define meshtastic_LocalModuleConfig_node_mod_MSGTYPE meshtastic_ModuleConfig_NodeModConfig
+#define meshtastic_LocalModuleConfig_node_mod_admin_MSGTYPE meshtastic_ModuleConfig_NodeModAdminConfig
 #define meshtastic_LocalModuleConfig_idlegame_MSGTYPE meshtastic_ModuleConfig_IdleGameConfig
 #define meshtastic_LocalModuleConfig_dtn_overlay_MSGTYPE meshtastic_ModuleConfig_DtnOverlayConfig
 #define meshtastic_LocalModuleConfig_broadcast_assist_MSGTYPE meshtastic_ModuleConfig_BroadcastAssistConfig

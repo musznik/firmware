@@ -51,7 +51,7 @@ bool RoutingModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, mesh
         service->handleFromRadio(&mp);
     } else {
         // fw+ sniffer: forward transit (not to us, not local broadcast) once
-        if (moduleConfig.has_nodemodadmin && moduleConfig.nodemodadmin.sniffer_enabled && (mp.from != 0) && !fromUs) {
+        if (moduleConfig.has_node_mod_admin && moduleConfig.node_mod_admin.sniffer_enabled && (mp.from != 0) && !fromUs) {
             //fw+ guard pool exhaustion on sniffer copy
             meshtastic_MeshPacket *copyPtr = packetPool.allocCopy(mp);
             if (copyPtr) {
@@ -78,7 +78,7 @@ void RoutingModule::sendAckNak(meshtastic_Routing_Error err, NodeNum to, PacketI
 {
     auto p = allocAckNak(err, to, idFrom, chIndex, hopLimit);
     router->packetErrorCounters[static_cast<uint32_t>(err)]++;
-    if(moduleConfig.nodemodadmin.sniffer_enabled && moduleConfig.has_nodemodadmin){
+    if(moduleConfig.node_mod_admin.sniffer_enabled && moduleConfig.has_node_mod_admin){
         //fw+ guard pool exhaustion on sniffer copy
         meshtastic_MeshPacket *copyPtr = packetPool.allocCopy(*p);
         if (copyPtr) {

@@ -468,7 +468,7 @@ size_t PhoneAPI::getFromRadio(uint8_t *buf)
         case meshtastic_ModuleConfig_node_mod_tag:
             LOG_DEBUG("Send module config: nodemod");
             fromRadioScratch.moduleConfig.which_payload_variant = meshtastic_ModuleConfig_node_mod_tag;
-            fromRadioScratch.moduleConfig.payload_variant.node_mod = moduleConfig.nodemod;
+            fromRadioScratch.moduleConfig.payload_variant.node_mod = moduleConfig.node_mod;
             break;
         default:
             LOG_ERROR("Unknown module config type %d", config_state);

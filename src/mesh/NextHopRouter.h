@@ -272,10 +272,10 @@ class NextHopRouter : public FloodingRouter
         uint32_t baseMs = ROUTE_TTL_BASE_MS;
         uint32_t perConfMs = ROUTE_TTL_PER_CONF_MS;
         uint32_t maxMs = ROUTE_TTL_MAX_MS;
-        if (moduleConfig.has_nodemodadmin) {
-            if (moduleConfig.nodemodadmin.route_ttl_base_hours) baseMs = moduleConfig.nodemodadmin.route_ttl_base_hours * 3600000UL;
-            if (moduleConfig.nodemodadmin.route_ttl_per_conf_hours) perConfMs = moduleConfig.nodemodadmin.route_ttl_per_conf_hours * 3600000UL;
-            if (moduleConfig.nodemodadmin.route_ttl_max_hours) maxMs = moduleConfig.nodemodadmin.route_ttl_max_hours * 3600000UL;
+        if (moduleConfig.has_node_mod_admin) {
+            if (moduleConfig.node_mod_admin.route_ttl_base_hours) baseMs = moduleConfig.node_mod_admin.route_ttl_base_hours * 3600000UL;
+            if (moduleConfig.node_mod_admin.route_ttl_per_conf_hours) perConfMs = moduleConfig.node_mod_admin.route_ttl_per_conf_hours * 3600000UL;
+            if (moduleConfig.node_mod_admin.route_ttl_max_hours) maxMs = moduleConfig.node_mod_admin.route_ttl_max_hours * 3600000UL;
         }
         uint64_t ttl = baseMs + (uint64_t)confidence * perConfMs;
         if (ttl > maxMs) ttl = maxMs;

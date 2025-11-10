@@ -902,52 +902,52 @@ void NodeDB::installDefaultModuleConfig()
 #else
     moduleConfig.mqtt.enabled = false;
 #endif
-    moduleConfig.nodemodadmin.do_not_send_prv_over_mqtt = true;
-    moduleConfig.nodemodadmin.sniffer_enabled = default_sniffer_enabled;
-    moduleConfig.nodemodadmin.auto_responder_enabled = default_autoresponder_enabled;
-    moduleConfig.nodemodadmin.auto_redirect_messages = default_autoredirect_messages_enabled;
-    moduleConfig.nodemodadmin.local_stats_over_mesh_enabled = default_local_stats_over_mesh_enabled;
-    moduleConfig.nodemodadmin.local_stats_extended_over_mesh_enabled = default_local_stats_extended_over_mesh_enabled;
-    moduleConfig.nodemodadmin.additional_chutil = default_chanutil_user_additional;
-    moduleConfig.nodemodadmin.additional_txutil = default_chantxutil_user_additional;
+    moduleConfig.node_mod_admin.do_not_send_prv_over_mqtt = true;
+    moduleConfig.node_mod_admin.sniffer_enabled = default_sniffer_enabled;
+    moduleConfig.node_mod_admin.auto_responder_enabled = default_autoresponder_enabled;
+    moduleConfig.node_mod_admin.auto_redirect_messages = default_autoredirect_messages_enabled;
+    moduleConfig.node_mod_admin.local_stats_over_mesh_enabled = default_local_stats_over_mesh_enabled;
+    moduleConfig.node_mod_admin.local_stats_extended_over_mesh_enabled = default_local_stats_extended_over_mesh_enabled;
+    moduleConfig.node_mod_admin.additional_chutil = default_chanutil_user_additional;
+    moduleConfig.node_mod_admin.additional_txutil = default_chantxutil_user_additional;
     // telemetry limiter defaults
-    moduleConfig.nodemodadmin.telemetry_limiter_enabled = false;
-    moduleConfig.nodemodadmin.telemetry_limiter_packets_per_minute = 8;
-    moduleConfig.nodemodadmin.telemetry_limiter_auto_chanutil_enabled = true;
-    moduleConfig.nodemodadmin.telemetry_limiter_auto_chanutil_threshold = 30; // percent
+    moduleConfig.node_mod_admin.telemetry_limiter_enabled = false;
+    moduleConfig.node_mod_admin.telemetry_limiter_packets_per_minute = 8;
+    moduleConfig.node_mod_admin.telemetry_limiter_auto_chanutil_enabled = true;
+    moduleConfig.node_mod_admin.telemetry_limiter_auto_chanutil_threshold = 30; // percent
     // position limiter defaults
-    moduleConfig.nodemodadmin.position_limiter_enabled = false;
-    moduleConfig.nodemodadmin.position_limiter_time_minutes_threshold = 60;
+    moduleConfig.node_mod_admin.position_limiter_enabled = false;
+    moduleConfig.node_mod_admin.position_limiter_time_minutes_threshold = 60;
 
     // opportunistic flooding defaults
-    moduleConfig.has_nodemodadmin = true; // ensure presence
-    moduleConfig.nodemodadmin.opportunistic_flooding_enabled = true;
-    moduleConfig.nodemodadmin.opportunistic_auto = true;
-    moduleConfig.nodemodadmin.opportunistic_base_delay_ms = 120;
-    moduleConfig.nodemodadmin.opportunistic_hop_delay_ms = 40;
-    moduleConfig.nodemodadmin.opportunistic_snr_gain_ms = 10;
-    moduleConfig.nodemodadmin.opportunistic_jitter_ms = 60;
-    moduleConfig.nodemodadmin.opportunistic_cancel_on_first_hear = false; // disabled by default - sparse network safety
+    moduleConfig.has_node_mod_admin = true; // ensure presence
+    moduleConfig.node_mod_admin.opportunistic_flooding_enabled = true;
+    moduleConfig.node_mod_admin.opportunistic_auto = true;
+    moduleConfig.node_mod_admin.opportunistic_base_delay_ms = 120;
+    moduleConfig.node_mod_admin.opportunistic_hop_delay_ms = 40;
+    moduleConfig.node_mod_admin.opportunistic_snr_gain_ms = 10;
+    moduleConfig.node_mod_admin.opportunistic_jitter_ms = 60;
+    moduleConfig.node_mod_admin.opportunistic_cancel_on_first_hear = false; // disabled by default - sparse network safety
 
     // proactive traceroute defaults (FW+)
-    moduleConfig.nodemodadmin.proactive_traceroute_enabled = true;
-    moduleConfig.nodemodadmin.traceroute_stale_ratio_threshold_percent = 30; // percent
-    moduleConfig.nodemodadmin.traceroute_global_cooldown_hours = 8;        // hours
-    moduleConfig.nodemodadmin.traceroute_per_dest_cooldown_hours = 8;      // hours
-    moduleConfig.nodemodadmin.traceroute_chanutil_threshold_percent = 15;   // percent
-    moduleConfig.nodemodadmin.traceroute_max_per_day = 4;                   // per day
-    moduleConfig.nodemodadmin.traceroute_expanding_ring_initial_hop = 1;
-    moduleConfig.nodemodadmin.traceroute_expanding_ring_max_hops = 3;
-    moduleConfig.nodemodadmin.traceroute_probe_jitter_ms = 5000;            // ms
+    moduleConfig.node_mod_admin.proactive_traceroute_enabled = true;
+    moduleConfig.node_mod_admin.traceroute_stale_ratio_threshold_percent = 30; // percent
+    moduleConfig.node_mod_admin.traceroute_global_cooldown_hours = 8;        // hours
+    moduleConfig.node_mod_admin.traceroute_per_dest_cooldown_hours = 8;      // hours
+    moduleConfig.node_mod_admin.traceroute_chanutil_threshold_percent = 15;   // percent
+    moduleConfig.node_mod_admin.traceroute_max_per_day = 4;                   // per day
+    moduleConfig.node_mod_admin.traceroute_expanding_ring_initial_hop = 1;
+    moduleConfig.node_mod_admin.traceroute_expanding_ring_max_hops = 3;
+    moduleConfig.node_mod_admin.traceroute_probe_jitter_ms = 5000;            // ms
     // TTL override (0 means use firmware defaults)
-    moduleConfig.nodemodadmin.route_ttl_base_hours = 168;     // 3 days
-    moduleConfig.nodemodadmin.route_ttl_per_conf_hours = 24; // +1 day per confidence
-    moduleConfig.nodemodadmin.route_ttl_max_hours = 720;     // 30 days
+    moduleConfig.node_mod_admin.route_ttl_base_hours = 168;     // 3 days
+    moduleConfig.node_mod_admin.route_ttl_per_conf_hours = 24; // +1 day per confidence
+    moduleConfig.node_mod_admin.route_ttl_max_hours = 720;     // 30 days
 
     //fw+ removed HEARD/RAB defaults
     // Routing learning thresholds defaults (FW+)
-    moduleConfig.nodemodadmin.min_confidence_to_use = 0; // start using after first good observation
-    moduleConfig.nodemodadmin.hysteresis_cost_threshold_tenths = 5; // 0.5 cost units
+    moduleConfig.node_mod_admin.min_confidence_to_use = 0; // start using after first good observation
+    moduleConfig.node_mod_admin.hysteresis_cost_threshold_tenths = 5; // 0.5 cost units
 
     moduleConfig.has_neighbor_info = true;
     moduleConfig.neighbor_info.enabled = true;
@@ -1492,41 +1492,41 @@ void NodeDB::loadFromDisk()
     // Normalize NodeModAdmin defaults on upgrade without factory reset (only fill unset/invalid values)
     {
         bool mutated = false;
-        moduleConfig.has_nodemodadmin = true; // ensure section is marked present
+        moduleConfig.has_node_mod_admin = true; // ensure section is marked present
 
         // 1) telemetry_limiter_packets_per_minute: treat 0 as not set → default to 8
-        if (moduleConfig.nodemodadmin.telemetry_limiter_packets_per_minute == 0) {
-            moduleConfig.nodemodadmin.telemetry_limiter_packets_per_minute = 8;
+        if (moduleConfig.node_mod_admin.telemetry_limiter_packets_per_minute == 0) {
+            moduleConfig.node_mod_admin.telemetry_limiter_packets_per_minute = 8;
             mutated = true;
         }
 
         // 2) telemetry_limiter_auto_chanutil_threshold: 0 is invalid/unset → default to 30; clamp to [1..100]
-        uint32_t thr = moduleConfig.nodemodadmin.telemetry_limiter_auto_chanutil_threshold;
+        uint32_t thr = moduleConfig.node_mod_admin.telemetry_limiter_auto_chanutil_threshold;
         if (thr == 0) {
             // default auto enable only when previously unset
-            if (moduleConfig.nodemodadmin.telemetry_limiter_auto_chanutil_enabled == 0) {
-                moduleConfig.nodemodadmin.telemetry_limiter_auto_chanutil_enabled = true;
+            if (moduleConfig.node_mod_admin.telemetry_limiter_auto_chanutil_enabled == 0) {
+                moduleConfig.node_mod_admin.telemetry_limiter_auto_chanutil_enabled = true;
             }
-            moduleConfig.nodemodadmin.telemetry_limiter_auto_chanutil_threshold = 30;
+            moduleConfig.node_mod_admin.telemetry_limiter_auto_chanutil_threshold = 30;
             mutated = true;
         } else if (thr > 100) {
-            moduleConfig.nodemodadmin.telemetry_limiter_auto_chanutil_threshold = 100;
+            moduleConfig.node_mod_admin.telemetry_limiter_auto_chanutil_threshold = 100;
             mutated = true;
         }
 
         // 3) proactive traceroute defaults (fill unset only)
-        if (!moduleConfig.nodemodadmin.proactive_traceroute_enabled) { moduleConfig.nodemodadmin.proactive_traceroute_enabled = true; mutated = true; }
-        if (moduleConfig.nodemodadmin.traceroute_stale_ratio_threshold_percent == 0) { moduleConfig.nodemodadmin.traceroute_stale_ratio_threshold_percent = 30; mutated = true; }
-        if (moduleConfig.nodemodadmin.traceroute_global_cooldown_hours == 0) { moduleConfig.nodemodadmin.traceroute_global_cooldown_hours = 12; mutated = true; }
-        if (moduleConfig.nodemodadmin.traceroute_per_dest_cooldown_hours == 0) { moduleConfig.nodemodadmin.traceroute_per_dest_cooldown_hours = 12; mutated = true; }
-        if (moduleConfig.nodemodadmin.traceroute_chanutil_threshold_percent == 0) { moduleConfig.nodemodadmin.traceroute_chanutil_threshold_percent = 15; mutated = true; }
-        if (moduleConfig.nodemodadmin.traceroute_max_per_day == 0) { moduleConfig.nodemodadmin.traceroute_max_per_day = 6; mutated = true; }
-        if (moduleConfig.nodemodadmin.traceroute_expanding_ring_initial_hop == 0) { moduleConfig.nodemodadmin.traceroute_expanding_ring_initial_hop = 1; mutated = true; }
-        if (moduleConfig.nodemodadmin.traceroute_expanding_ring_max_hops == 0) { moduleConfig.nodemodadmin.traceroute_expanding_ring_max_hops = 3; mutated = true; }
-        if (moduleConfig.nodemodadmin.traceroute_probe_jitter_ms == 0) { moduleConfig.nodemodadmin.traceroute_probe_jitter_ms = 5000; mutated = true; }
-        if (moduleConfig.nodemodadmin.route_ttl_base_hours == 0) { moduleConfig.nodemodadmin.route_ttl_base_hours = 72; mutated = true; }
-        if (moduleConfig.nodemodadmin.route_ttl_per_conf_hours == 0) { moduleConfig.nodemodadmin.route_ttl_per_conf_hours = 24; mutated = true; }
-        if (moduleConfig.nodemodadmin.route_ttl_max_hours == 0) { moduleConfig.nodemodadmin.route_ttl_max_hours = 720; mutated = true; }
+        if (!moduleConfig.node_mod_admin.proactive_traceroute_enabled) { moduleConfig.node_mod_admin.proactive_traceroute_enabled = true; mutated = true; }
+        if (moduleConfig.node_mod_admin.traceroute_stale_ratio_threshold_percent == 0) { moduleConfig.node_mod_admin.traceroute_stale_ratio_threshold_percent = 30; mutated = true; }
+        if (moduleConfig.node_mod_admin.traceroute_global_cooldown_hours == 0) { moduleConfig.node_mod_admin.traceroute_global_cooldown_hours = 12; mutated = true; }
+        if (moduleConfig.node_mod_admin.traceroute_per_dest_cooldown_hours == 0) { moduleConfig.node_mod_admin.traceroute_per_dest_cooldown_hours = 12; mutated = true; }
+        if (moduleConfig.node_mod_admin.traceroute_chanutil_threshold_percent == 0) { moduleConfig.node_mod_admin.traceroute_chanutil_threshold_percent = 15; mutated = true; }
+        if (moduleConfig.node_mod_admin.traceroute_max_per_day == 0) { moduleConfig.node_mod_admin.traceroute_max_per_day = 6; mutated = true; }
+        if (moduleConfig.node_mod_admin.traceroute_expanding_ring_initial_hop == 0) { moduleConfig.node_mod_admin.traceroute_expanding_ring_initial_hop = 1; mutated = true; }
+        if (moduleConfig.node_mod_admin.traceroute_expanding_ring_max_hops == 0) { moduleConfig.node_mod_admin.traceroute_expanding_ring_max_hops = 3; mutated = true; }
+        if (moduleConfig.node_mod_admin.traceroute_probe_jitter_ms == 0) { moduleConfig.node_mod_admin.traceroute_probe_jitter_ms = 5000; mutated = true; }
+        if (moduleConfig.node_mod_admin.route_ttl_base_hours == 0) { moduleConfig.node_mod_admin.route_ttl_base_hours = 72; mutated = true; }
+        if (moduleConfig.node_mod_admin.route_ttl_per_conf_hours == 0) { moduleConfig.node_mod_admin.route_ttl_per_conf_hours = 24; mutated = true; }
+        if (moduleConfig.node_mod_admin.route_ttl_max_hours == 0) { moduleConfig.node_mod_admin.route_ttl_max_hours = 720; mutated = true; }
 
         if (mutated) {
             saveToDisk(SEGMENT_MODULECONFIG);
@@ -1562,14 +1562,14 @@ void NodeDB::loadFromDisk()
     // Normalize Position limiter defaults similarly (fill unset only)
     {
         bool mutated = false;
-        moduleConfig.has_nodemodadmin = true;
+        moduleConfig.has_node_mod_admin = true;
 
-        uint32_t posThr = moduleConfig.nodemodadmin.position_limiter_time_minutes_threshold;
+        uint32_t posThr = moduleConfig.node_mod_admin.position_limiter_time_minutes_threshold;
         if (posThr == 0) {
-            moduleConfig.nodemodadmin.position_limiter_time_minutes_threshold = 90; // default 5 min
+            moduleConfig.node_mod_admin.position_limiter_time_minutes_threshold = 90; // default 5 min
             mutated = true;
         } else if (posThr > 1440) { // clamp to 1 day
-            moduleConfig.nodemodadmin.position_limiter_time_minutes_threshold = 1440;
+            moduleConfig.node_mod_admin.position_limiter_time_minutes_threshold = 1440;
             mutated = true;
         }
 
@@ -1582,8 +1582,8 @@ void NodeDB::loadFromDisk()
     // fw+: Normalize Opportunistic/Selective Flooding defaults (numeric only, never flip user toggles)
     {
         bool mutated = false;
-        moduleConfig.has_nodemodadmin = true;
-        auto &adm = moduleConfig.nodemodadmin;
+        moduleConfig.has_node_mod_admin = true;
+        auto &adm = moduleConfig.node_mod_admin;
 
 
         // Only backfill numeric parameters when they are zero (unset in prior versions).
@@ -1741,8 +1741,8 @@ bool NodeDB::saveToDiskNoRetry(int saveWhat)
         moduleConfig.has_ambient_lighting = true;
         moduleConfig.has_audio = true;
         moduleConfig.has_paxcounter = true;
-        moduleConfig.has_nodemodadmin = true;
-        moduleConfig.has_nodemod = true;
+        moduleConfig.has_node_mod_admin = true;
+        moduleConfig.has_node_mod = true;
 
         success &=
             saveProto(moduleConfigFileName, meshtastic_LocalModuleConfig_size, &meshtastic_LocalModuleConfig_msg, &moduleConfig);

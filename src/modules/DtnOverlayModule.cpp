@@ -603,7 +603,7 @@ DtnOverlayModule::DtnOverlayModule()
 // Returns: milliseconds until next desired wake (clamped 100..2000 ms when enabled).
 int32_t DtnOverlayModule::runOnce()
 {
-    if (!configEnabled) return 1000; //disabled: idle
+    if (!configEnabled) return 9000; //disabled: idle
     
     uint32_t now = millis();
     
@@ -3618,11 +3618,11 @@ void DtnOverlayModule::maybeTriggerTraceroute(NodeNum dest)
     // Set hop_limit using NodeModAdmin expanding-ring policy (consistent with NextHopRouter)
     uint32_t startHop = 1;
     uint32_t maxHops = 3;
-    if (moduleConfig.has_nodemodadmin) {
-        if (moduleConfig.nodemodadmin.traceroute_expanding_ring_initial_hop)
-            startHop = moduleConfig.nodemodadmin.traceroute_expanding_ring_initial_hop;
-        if (moduleConfig.nodemodadmin.traceroute_expanding_ring_max_hops)
-            maxHops = moduleConfig.nodemodadmin.traceroute_expanding_ring_max_hops;
+    if (moduleConfig.has_node_mod_admin) {
+        if (moduleConfig.node_mod_admin.traceroute_expanding_ring_initial_hop)
+            startHop = moduleConfig.node_mod_admin.traceroute_expanding_ring_initial_hop;
+        if (moduleConfig.node_mod_admin.traceroute_expanding_ring_max_hops)
+            maxHops = moduleConfig.node_mod_admin.traceroute_expanding_ring_max_hops;
     }
     if (maxHops > HOP_MAX) maxHops = HOP_MAX;
     meshtastic_NodeInfoLite *ninfo = nodeDB->getMeshNode(dest);

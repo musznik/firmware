@@ -1531,9 +1531,9 @@ extern meshtastic_DeviceMetadata getDeviceMetadata()
     deviceMetadata.hw_model = HW_VENDOR;
     deviceMetadata.hasRemoteHardware = moduleConfig.remote_hardware.enabled;
     deviceMetadata.hasFwPlus = true;
-    deviceMetadata.hasNodeMod = true;
-    deviceMetadata.hasBroadcastAssistant = true;
-    deviceMetadata.hasDtn = true;
+    deviceMetadata.hasNodemod = true;
+    // deviceMetadata.hasBroadcastAssistant = true;
+    // deviceMetadata.hasDtn = true;
     
     deviceMetadata.excluded_modules = 0;
 #if MESHTASTIC_EXCLUDE_REMOTEHARDWARE

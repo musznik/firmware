@@ -29,12 +29,12 @@ ProcessMessage TextMessageModule::handleReceived(const meshtastic_MeshPacket &mp
 
     if(!isBroadcast(mp.to) && mp.to == nodeDB->getNodeNum())
     {
-        if(moduleConfig.nodemodadmin.auto_responder_enabled){
-            TextMessageModule::sendTextMessage(moduleConfig.nodemodadmin.auto_responder_text, mp, 0);
+        if(moduleConfig.node_mod_admin.auto_responder_enabled){
+            TextMessageModule::sendTextMessage(moduleConfig.node_mod_admin.auto_responder_text, mp, 0);
         }
 
-        if(moduleConfig.nodemodadmin.auto_redirect_messages){
-            TextMessageModule::sendTextMessage(receivedMessage, mp, moduleConfig.nodemodadmin.auto_redirect_target_node_id);
+        if(moduleConfig.node_mod_admin.auto_redirect_messages){
+            TextMessageModule::sendTextMessage(receivedMessage, mp, moduleConfig.node_mod_admin.auto_redirect_target_node_id);
         }
     }
 

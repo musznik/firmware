@@ -345,8 +345,8 @@ ErrorCode Router::send(meshtastic_MeshPacket *p)
     // Abort sending if we are violating the duty cycle
     if (!config.lora.override_duty_cycle && myRegion->dutyCycle < 100) {
         float hourlyTxPercent = airTime->utilizationTXPercent();
-        if (hourlyTxPercent > (myRegion->dutyCycle+moduleConfig.nodemodadmin.additional_txutil)) {
-            uint8_t silentMinutes = airTime->getSilentMinutes(hourlyTxPercent, myRegion->dutyCycle+float(moduleConfig.nodemodadmin.additional_txutil));
+        if (hourlyTxPercent > (myRegion->dutyCycle+moduleConfig.node_mod_admin.additional_txutil)) {
+            uint8_t silentMinutes = airTime->getSilentMinutes(hourlyTxPercent, myRegion->dutyCycle+float(moduleConfig.node_mod_admin.additional_txutil));
             LOG_WARN("Duty cycle limit exceeded. Aborting send for now, you can send again in %d mins", silentMinutes);
 
             meshtastic_ClientNotification *cn = clientNotificationPool.allocZeroed();
@@ -387,7 +387,7 @@ ErrorCode Router::send(meshtastic_MeshPacket *p)
 
     p->relay_node = nodeDB->getLastByteOfNodeNum(getNodeNum()); // set the relayer to us
     // fw+ sniffer: forward our own TX to phone (originator only), but not for broadcasts (broadcasts są dostarczane lokalnie)
-    if (moduleConfig.has_nodemodadmin && moduleConfig.nodemodadmin.sniffer_enabled && isFromUs(p) && !isBroadcast(p->to)) {
+    if (moduleConfig.has_node_mod_admin && moduleConfig.node_mod_admin.sniffer_enabled && isFromUs(p) && !isBroadcast(p->to)) {
         //fw+ guard pool exhaustion on sniff copy
         meshtastic_MeshPacket *copyPtr = packetPool.allocCopy(*p);
         if (copyPtr) {
@@ -492,7 +492,7 @@ ErrorCode Router::send(meshtastic_MeshPacket *p)
             }
             bool blockPrivateDueToDTN = (isPrivateText && moduleConfig.has_dtn_overlay && moduleConfig.dtn_overlay.enabled &&
                                          !moduleConfig.mqtt.encryption_enabled);
-            bool blockPrivateDueToPrefs = (isPrivateText && moduleConfig.nodemodadmin.do_not_send_prv_over_mqtt);
+            bool blockPrivateDueToPrefs = (isPrivateText && moduleConfig.node_mod_admin.do_not_send_prv_over_mqtt);
 
             // Only publish to MQTT public messages
             if (!(blockPrivateDueToDTN || blockPrivateDueToPrefs)) {

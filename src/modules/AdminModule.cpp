@@ -961,15 +961,15 @@ bool AdminModule::handleSetModuleConfig(const meshtastic_ModuleConfig &c)
         break;
     case meshtastic_ModuleConfig_node_mod_tag:
         LOG_INFO("Set module config: NodeMod");
-        moduleConfig.has_nodemod = true;
-        moduleConfig.nodemod = c.payload_variant.node_mod;
+        moduleConfig.has_node_mod = true;
+        moduleConfig.node_mod = c.payload_variant.node_mod;
         do_reboot=false;
         nodeModModule->adminChangedStatus();
         break;
     case meshtastic_ModuleConfig_node_mod_admin_tag:
         LOG_INFO("Set module config: NodeModAdmin");
-        moduleConfig.has_nodemodadmin = true;
-        moduleConfig.nodemodadmin = c.payload_variant.node_mod_admin;
+        moduleConfig.has_node_mod_admin = true;
+        moduleConfig.node_mod_admin = c.payload_variant.node_mod_admin;
         do_reboot=false;
         break;
     //fw+ handle DTN overlay config from APK
@@ -1174,7 +1174,7 @@ void AdminModule::handleGetModuleConfig(const meshtastic_MeshPacket &req, const 
         case meshtastic_AdminMessage_ModuleConfigType_NODEMOD_CONFIG:
             LOG_INFO("Get module config: NodeMod");
             res.get_module_config_response.which_payload_variant = meshtastic_ModuleConfig_node_mod_tag;
-            res.get_module_config_response.payload_variant.node_mod = moduleConfig.nodemod;
+            res.get_module_config_response.payload_variant.node_mod = moduleConfig.node_mod;
             break;
         case meshtastic_AdminMessage_ModuleConfigType_DTN_OVERLAY_CONFIG:
             LOG_INFO("Get module config: DTN config module");
@@ -1189,7 +1189,7 @@ void AdminModule::handleGetModuleConfig(const meshtastic_MeshPacket &req, const 
         case meshtastic_AdminMessage_ModuleConfigType_NODEMOD_ADMIN_CONFIG:
             LOG_INFO("Get module config: NodeModAdmin");
             res.get_module_config_response.which_payload_variant = meshtastic_ModuleConfig_node_mod_admin_tag;
-            res.get_module_config_response.payload_variant.node_mod_admin = moduleConfig.nodemodadmin;
+            res.get_module_config_response.payload_variant.node_mod_admin = moduleConfig.node_mod_admin;
             res.get_module_config_response.payload_variant.node_mod_admin.current_tx_util_limit = myRegion->dutyCycle;
             res.get_module_config_response.payload_variant.node_mod_admin.current_max_channel_util_percent = airTime->max_channel_util_percent;
             res.get_module_config_response.payload_variant.node_mod_admin.current_polite_channel_util_percent = airTime->polite_channel_util_percent;

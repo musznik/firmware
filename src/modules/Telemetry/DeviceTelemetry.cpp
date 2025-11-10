@@ -51,7 +51,7 @@ int32_t DeviceTelemetryModule::runOnce()
         config.device.role != meshtastic_Config_DeviceConfig_Role_REPEATER &&
         config.device.role != meshtastic_Config_DeviceConfig_Role_CLIENT_HIDDEN)
     {
-        if(moduleConfig.nodemodadmin.local_stats_over_mesh_enabled){
+        if(moduleConfig.node_mod_admin.local_stats_over_mesh_enabled){
             sendLocalStatsToMesh();
         }
 
@@ -67,7 +67,7 @@ int32_t DeviceTelemetryModule::runOnce()
         config.device.role != meshtastic_Config_DeviceConfig_Role_REPEATER &&
         config.device.role != meshtastic_Config_DeviceConfig_Role_CLIENT_HIDDEN)
     {
-        if(moduleConfig.nodemodadmin.local_stats_extended_over_mesh_enabled){
+        if(moduleConfig.node_mod_admin.local_stats_extended_over_mesh_enabled){
             sendLocalStatsExtendedToMesh();
         }
 

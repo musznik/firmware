@@ -47,11 +47,11 @@ void NodeModModule::adminChangedStatus(){
 
 meshtastic_MeshPacket* NodeModModule::preparePacket(){
     meshtastic_NodeMod nodemod = meshtastic_NodeMod_init_zero;
-    strncpy(nodemod.text_status, moduleConfig.nodemod.text_status, sizeof(nodemod.text_status));
+    strncpy(nodemod.text_status, moduleConfig.node_mod.text_status, sizeof(nodemod.text_status));
 
-    if(strlen(moduleConfig.nodemod.emoji) != 0){
+    if(strlen(moduleConfig.node_mod.emoji) != 0){
         nodemod.has_emoji=true;
-        strncpy(nodemod.emoji, moduleConfig.nodemod.emoji, sizeof(nodemod.emoji));
+        strncpy(nodemod.emoji, moduleConfig.node_mod.emoji, sizeof(nodemod.emoji));
     }
 
     meshtastic_MeshPacket *p = allocDataProtobuf(nodemod);
@@ -82,7 +82,7 @@ void NodeModModule::sendToMesh(bool statusChanged)
 
     if (allowedByDefault || allowedDueToStatusChange)
     {
-        if (strlen(moduleConfig.nodemod.text_status) == 0 && strlen(moduleConfig.nodemod.emoji) == 0) {
+        if (strlen(moduleConfig.node_mod.text_status) == 0 && strlen(moduleConfig.node_mod.emoji) == 0) {
             return;
         }
 

@@ -246,7 +246,7 @@ void initWebServer()
     //fw+ use isServer() (legacy isStoreForwardServerActive removed)
     bool sfServerActive = (storeForwardModule && storeForwardModule->isServer()); //fw+
     //fw+ Respect admin override to force-disable HTTPS
-    bool forceDisableHttps = moduleConfig.nodemodadmin.force_disable_https; // fw+
+    bool forceDisableHttps = moduleConfig.node_mod_admin.force_disable_https; // fw+
     //fw+ Policy:
     //   - With PSRAM: enable HTTPS normally.
     //   - Without PSRAM: enable HTTPS unless S&F server is active; then disable HTTPS.

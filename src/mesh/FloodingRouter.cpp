@@ -161,7 +161,7 @@ void FloodingRouter::perhapsCancelDupe(const meshtastic_MeshPacket *p)
     //fw+ prefer opportunistic cancel on first-hear; fall back to role-based cancel
     bool allowCancel = (p->transport_mechanism == meshtastic_MeshPacket_TransportMechanism_TRANSPORT_LORA);
     if (allowCancel) {
-        if (isOpportunisticEnabled() && moduleConfig.nodemodadmin.opportunistic_cancel_on_first_hear) {
+        if (isOpportunisticEnabled() && moduleConfig.node_mod_admin.opportunistic_cancel_on_first_hear) {
             if (Router::cancelSending(p->from, p->id)) {
                 txRelayCanceled++;
                 opportunistic_canceled++;
@@ -355,16 +355,16 @@ const FloodingRouter::ProfileParams &FloodingRouter::getParamsFor(OpportunisticP
 //fw+
 bool FloodingRouter::isOpportunisticEnabled() const
 {
-    if (!moduleConfig.has_nodemodadmin)
+    if (!moduleConfig.has_node_mod_admin)
         return false;
-    return moduleConfig.nodemodadmin.opportunistic_flooding_enabled;
+    return moduleConfig.node_mod_admin.opportunistic_flooding_enabled;
 }
 
 bool FloodingRouter::isOpportunisticAuto() const
 {
-    if (!moduleConfig.has_nodemodadmin)
+    if (!moduleConfig.has_node_mod_admin)
         return true; // default to auto when section missing
-    return moduleConfig.nodemodadmin.opportunistic_auto;
+    return moduleConfig.node_mod_admin.opportunistic_auto;
 }
 
 //fw+
@@ -383,10 +383,10 @@ uint32_t FloodingRouter::clampDelay(uint32_t d) const
 //fw+
 uint32_t FloodingRouter::computeOpportunisticDelayMs(const meshtastic_MeshPacket *p) const
 {
-    if (!moduleConfig.has_nodemodadmin)
+    if (!moduleConfig.has_node_mod_admin)
         return 0;
 
-    const auto &adm = moduleConfig.nodemodadmin;
+    const auto &adm = moduleConfig.node_mod_admin;
     uint32_t base = adm.opportunistic_base_delay_ms;
     uint32_t hop = adm.opportunistic_hop_delay_ms;
     uint32_t snrGain = adm.opportunistic_snr_gain_ms;
@@ -477,12 +477,12 @@ bool FloodingRouter::hasBackboneNeighbor() const
 bool FloodingRouter::isTelemetryRebroadcastLimited(const meshtastic_MeshPacket *p)
 {
     // Read admin config from global moduleConfig
-    if (!moduleConfig.has_nodemodadmin) return true; // no admin module present, allow
+    if (!moduleConfig.has_node_mod_admin) return true; // no admin module present, allow
 
-    const bool limiterEnabled = moduleConfig.nodemodadmin.telemetry_limiter_enabled;
-    const bool autoChanutilEnabled = moduleConfig.nodemodadmin.telemetry_limiter_auto_chanutil_enabled;
-    const uint16_t limitPerMinute = moduleConfig.nodemodadmin.telemetry_limiter_packets_per_minute;
-    const uint32_t chanUtilThreshold = moduleConfig.nodemodadmin.telemetry_limiter_auto_chanutil_threshold;
+    const bool limiterEnabled = moduleConfig.node_mod_admin.telemetry_limiter_enabled;
+    const bool autoChanutilEnabled = moduleConfig.node_mod_admin.telemetry_limiter_auto_chanutil_enabled;
+    const uint16_t limitPerMinute = moduleConfig.node_mod_admin.telemetry_limiter_packets_per_minute;
+    const uint32_t chanUtilThreshold = moduleConfig.node_mod_admin.telemetry_limiter_auto_chanutil_threshold;
 
     // Master switch off: allow all
     if (!limiterEnabled) return true;
@@ -514,8 +514,8 @@ bool FloodingRouter::isTelemetryRebroadcastLimited(const meshtastic_MeshPacket *
 
 bool FloodingRouter::isPositionRebroadcastAllowed(const meshtastic_MeshPacket *p)
 {
-    if (!moduleConfig.has_nodemodadmin) return true;
-    if (!moduleConfig.nodemodadmin.position_limiter_enabled) return true;
+    if (!moduleConfig.has_node_mod_admin) return true;
+    if (!moduleConfig.node_mod_admin.position_limiter_enabled) return true;
     if (p->which_payload_variant != meshtastic_MeshPacket_decoded_tag) return true;
     if (p->decoded.portnum != meshtastic_PortNum_POSITION_APP) return true;
     if (!isBroadcast(p->to) || isFromUs(p)) return true; // only throttle broadcast relays of others
@@ -526,7 +526,7 @@ bool FloodingRouter::isPositionRebroadcastAllowed(const meshtastic_MeshPacket *p
     }
 
     // If position coordinates are not present (0,0) but that's uncommon; still apply logic directly
-    uint32_t thresholdMin = moduleConfig.nodemodadmin.position_limiter_time_minutes_threshold;
+    uint32_t thresholdMin = moduleConfig.node_mod_admin.position_limiter_time_minutes_threshold;
     if (thresholdMin == 0) return true; // unset threshold means no throttling
     uint32_t thresholdMs = thresholdMin * 60000UL;
     uint32_t now = millis();

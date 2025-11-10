@@ -140,7 +140,7 @@ float AirTime::utilizationTXPercent()
 
 bool AirTime::isTxAllowedChannelUtil(bool polite)
 {
-    uint8_t percentage = (polite ? polite_channel_util_percent+moduleConfig.nodemodadmin.additional_polite_channel_percent : max_channel_util_percent+moduleConfig.nodemodadmin.additional_chutil);
+    uint8_t percentage = (polite ? polite_channel_util_percent+moduleConfig.node_mod_admin.additional_polite_channel_percent : max_channel_util_percent+moduleConfig.node_mod_admin.additional_chutil);
     if (channelUtilizationPercent() < percentage) {
         return true;
     } else {
@@ -152,10 +152,10 @@ bool AirTime::isTxAllowedChannelUtil(bool polite)
 bool AirTime::isTxAllowedAirUtil()
 {
     if (!config.lora.override_duty_cycle && myRegion->dutyCycle < 100) {
-        if (utilizationTXPercent() < (myRegion->dutyCycle+moduleConfig.nodemodadmin.additional_txutil) * (polite_duty_cycle_percent+moduleConfig.nodemodadmin.additional_polite_duty_cycle_percent) / 100) {
+        if (utilizationTXPercent() < (myRegion->dutyCycle+moduleConfig.node_mod_admin.additional_txutil) * (polite_duty_cycle_percent+moduleConfig.node_mod_admin.additional_polite_duty_cycle_percent) / 100) {
             return true;
         } else {
-            LOG_WARN("TX air util. >%f%%. Skip send", (myRegion->dutyCycle+moduleConfig.nodemodadmin.additional_txutil) * (polite_duty_cycle_percent+moduleConfig.nodemodadmin.additional_polite_duty_cycle_percent) / 100);
+            LOG_WARN("TX air util. >%f%%. Skip send", (myRegion->dutyCycle+moduleConfig.node_mod_admin.additional_txutil) * (polite_duty_cycle_percent+moduleConfig.node_mod_admin.additional_polite_duty_cycle_percent) / 100);
             return false;
         }
     }

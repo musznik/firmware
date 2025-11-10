@@ -221,7 +221,7 @@ void MeshModule::sendResponse(const meshtastic_MeshPacket &req)
     auto r = allocReply();
     if (r) {
 
-        if(moduleConfig.nodemodadmin.sniffer_enabled && moduleConfig.has_nodemodadmin){
+        if(moduleConfig.node_mod_admin.sniffer_enabled && moduleConfig.has_node_mod_admin){
             //fw+ guard pool exhaustion on sniffer copy
             meshtastic_MeshPacket *copyPtr = packetPool.allocCopy(*r);
             if (copyPtr) {
