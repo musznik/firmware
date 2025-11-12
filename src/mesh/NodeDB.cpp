@@ -2020,8 +2020,22 @@ bool NodeDB::updateUser(uint32_t nodeId, meshtastic_User &p, uint8_t channelInde
     if (info->user.public_key.size == 32) {
         printBytes("Saved Pubkey: ", info->user.public_key.bytes, 32);
     }
-    if (nodeId != getNodeNum())
-        info->channel = channelIndex; // Set channel we need to use to reach this node (but don't set our own channel)
+    if (nodeId != getNodeNum()) {
+        // Validate channel index before storing; fall back to primary if invalid/disabled
+        ChannelIndex effective = channelIndex;
+        bool invalid = (effective >= channels.getNumChannels());
+        if (!invalid) {
+            meshtastic_Channel &ch = channels.getByIndex(effective);
+            if (ch.role == meshtastic_Channel_Role_DISABLED) invalid = true;
+        }
+        if (invalid) {
+            ChannelIndex primary = channels.getPrimaryIndex();
+            LOG_WARN("NodeDB: Invalid channelIndex=%u for 0x%08x, using primary=%u",
+                     (unsigned)channelIndex, nodeId, (unsigned)primary);
+            effective = primary;
+        }
+        info->channel = effective; // Set channel we need to use to reach this node (but don't set our own channel)
+    }
     LOG_DEBUG("Update changed=%d user %s/%s, id=0x%08x, channel=%d", changed, info->user.long_name, info->user.short_name, nodeId,
               info->channel);
     info->has_user = true;

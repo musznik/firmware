@@ -311,7 +311,14 @@ ErrorCode Router::sendLocal(meshtastic_MeshPacket *p, RxSource src)
         if (!p->channel && !p->pki_encrypted && !isBroadcast(p->to)) {
             meshtastic_NodeInfoLite const *node = nodeDB->getMeshNode(p->to);
             if (node) {
-                p->channel = node->channel;
+                ChannelIndex idx = node->channel;
+                if (idx >= channels.getNumChannels()) {
+                    ChannelIndex primary = channels.getPrimaryIndex();
+                    LOG_WARN("Router: Invalid node channel index=%u for 0x%x, using primary=%u",
+                             (unsigned)idx, p->to, (unsigned)primary);
+                    idx = primary;
+                }
+                p->channel = idx;
                 LOG_DEBUG("localSend to channel %d", p->channel);
             }
         }
@@ -482,7 +489,6 @@ ErrorCode Router::send(meshtastic_MeshPacket *p)
 #if !MESHTASTIC_EXCLUDE_MQTT
         // Only publish to MQTT if we're the original transmitter of the packet
         if (moduleConfig.mqtt.enabled && mqtt) {
-            //fw+ if out of pool memory, skip MQTT publish rather than crash
             //fw+ treat private TEXT as non-public if DTN overlay is enabled and MQTT encryption is OFF
             bool isPrivateText = false;
             if (p_decoded && p_decoded->which_payload_variant == meshtastic_MeshPacket_decoded_tag) {
@@ -623,8 +629,12 @@ DecodeState perhapsDecode(meshtastic_MeshPacket *p)
                     LOG_ERROR("Invalid portnum (bad psk?)!");
 #if !(MESHTASTIC_EXCLUDE_PKI)
                 } else if (!owner.is_licensed && isToUs(p) && decodedtmp.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP) {
-                    LOG_WARN("Rejecting legacy DM");
-                    return DecodeState::DECODE_FAILURE;
+                    // fw+ Allow legacy (PSK) DMs when E2E PKI is not in use
+                    LOG_DEBUG("fw+ Allow legacy DM (no PKI) for local delivery");
+                    p->decoded = decodedtmp;
+                    p->which_payload_variant = meshtastic_MeshPacket_decoded_tag; // change type to decoded
+                    decrypted = true;
+                    break;
 #endif
                 } else {
                     p->decoded = decodedtmp;

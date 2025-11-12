@@ -3451,11 +3451,6 @@ bool DtnOverlayModule::sendProxyFallback(uint32_t id, Pending &p)
     bool destInVersionMap = (fwplusVersionByNode.find(p.data.orig_to) != fwplusVersionByNode.end());
     bool destInSeenMap = (fwplusSeenMs.find(p.data.orig_to) != fwplusSeenMs.end());
     bool destIsFwplus = destInVersionMap || destInSeenMap;
-    bool destHasRelayHistory = (p.progressiveRelayCount > 0 || p.cachedProgressiveRelay != 0);
-    if (!destIsFwplus && destHasRelayHistory) {
-        destIsFwplus = true;
-        LOG_DEBUG("DTN: Treating dest 0x%x as FW+ based on prior relay history", (unsigned)p.data.orig_to);
-    }
     
     if (!destIsFwplus) {
         stockKnownMs[p.data.orig_to] = millis();
@@ -4202,11 +4197,8 @@ bool DtnOverlayModule::tryIntelligentFallback(uint32_t id, Pending &p)
     // SOLUTION: Only source can use intelligent fallback, intermediates forward custody
     bool isFromSource = (p.data.orig_from == nodeDB->getNodeNum());
     
-    // For stock destinations with low route confidence, try native DM early
-    // EXCEPT: for far destinations (>=3 hops), always try DTN overlay first
-    // This is the "im dalej w las" scenario - multi-hop native routing is unreliable
+    // For non-FW+ destinations with low route confidence, prefer native DM early (strict policy)
     uint8_t hopsToDest = getHopsAway(p.data.orig_to);
-    bool isFarDest = (hopsToDest != 255 && hopsToDest >= 3);
 
     //FIX #121: REMOVED early return for unknown destinations (blocked broadcast rescue!)
     // PROBLEM: Early return (line 2927) blocked broadcast rescue logic (lines 2951+)
@@ -4218,16 +4210,11 @@ bool DtnOverlayModule::tryIntelligentFallback(uint32_t id, Pending &p)
     // (Code removed - continue to broadcast rescue logic below)
     
     if (!isFwplus(p.data.orig_to) && !hasSufficientRouteConfidence(p.data.orig_to) && hopsToDest != 255) {
-        if (isFarDest) {
-            LOG_INFO("DTN: Stock dest 0x%x is far (%u hops) - trying DTN overlay first, fallback later", 
-                     (unsigned)p.data.orig_to, (unsigned)hopsToDest);
-            return false; // Don't fallback yet, try DTN overlay
-        }
         // FIX #59: Only source can fallback, intermediates must forward custody
         if (!isFromSource) {
             return false;  // Intermediates: don't break custody chain!
         }
-        LOG_DEBUG("DTN: Source low confidence to stock dest 0x%x, trying native DM", (unsigned)p.data.orig_to);
+        LOG_DEBUG("DTN: Source low confidence to non-FW+ dest 0x%x, using native DM (strict)", (unsigned)p.data.orig_to);
         //FIX #143: sendProxyFallback erases pending - return true even if it fails
         // PROBLEM: sendProxyFallback() calls erase(id) before allocDataPacket()
         //          If allocDataPacket() fails, it returns false BUT pending is already erased!

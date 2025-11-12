@@ -128,6 +128,13 @@ class DtnOverlayModule : private concurrency::OSThread, public ProtobufModule<me
             return false;
         }
         
+        // Strict policy: only intercept when destination is positively certified as FW+
+        // Avoid DTN for unknown receivers until they advertise FW+ capability (beacon/traffic)
+        if (!isFwplus(dest)) {
+            LOG_INFO("DTN intercept SKIP: dest 0x%x not certified FW+ (strict)", (unsigned)dest);
+            return false;
+        }
+        
         // Check if any known DTN node can help reach destination
         bool canHelp = canDtnHelpWithDestination(dest);
         LOG_INFO("DTN intercept: dest 0x%x canHelp=%d known_fwplus=%u", 
