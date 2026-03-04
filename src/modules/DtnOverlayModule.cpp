@@ -4105,7 +4105,7 @@ void DtnOverlayModule::maybeAdvertiseFwplusVersion()
         LOG_INFO("DTN: Periodic beacon sent (phase: %s, next in ~%u min, known FW+ nodes: %u)",
                  phase, (unsigned)(interval / 60000), (unsigned)fwplusVersionByNode.size());
     }
-    LOG_DEBUG("DTN: maybeAdvertiseFwplusVersion wywołane, knowsAnyFwplus=%d, inWarmupPhase=%d", (int)knowsAnyFwplus, (int)inWarmupPhase);
+    LOG_DEBUG("DTN: knowsAnyFwplus=%d, inWarmupPhase=%d", (int)knowsAnyFwplus, (int)inWarmupPhase);
 }
 
 // Purpose: check if a handoff candidate is valid (not self, dest, or lastCarrier)
