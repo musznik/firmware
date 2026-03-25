@@ -296,7 +296,7 @@ uint8_t NextHopRouter::getMinConfidenceToUse() const
     if (moduleConfig.has_node_mod_admin && moduleConfig.node_mod_admin.min_confidence_to_use) {
         minConf = moduleConfig.node_mod_admin.min_confidence_to_use;
     }
-    return 0; //TODO temp. remove this
+    return minConf;
 }
 //fw+ dv-etx
 float NextHopRouter::estimateEtxFromSnr(float snr) const

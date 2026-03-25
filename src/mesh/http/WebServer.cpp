@@ -40,6 +40,9 @@ Preferences prefs;
     - Jm Casler (jm@casler.org) Oct 2020
 */
 #undef str
+#ifdef NO_DATA
+#undef NO_DATA
+#endif
 
 // Includes for the https server
 //   https://github.com/fhessel/esp32_https_server

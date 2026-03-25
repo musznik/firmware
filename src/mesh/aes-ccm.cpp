@@ -21,16 +21,16 @@
 static int constant_time_compare(const void *a_, const void *b_, size_t len)
 {
     /* Cast to volatile to prevent the compiler from optimizing out their comparison. */
-    const volatile uint8_t *volatile a = (const volatile uint8_t *volatile)a_;
-    const volatile uint8_t *volatile b = (const volatile uint8_t *volatile)b_;
+    const uint8_t *aBytes = static_cast<const uint8_t *>(a_);
+    const uint8_t *bBytes = static_cast<const uint8_t *>(b_);
     if (len == 0)
         return 0;
-    if (a == NULL || b == NULL)
+    if (aBytes == NULL || bBytes == NULL)
         return -1;
     size_t i;
     volatile uint8_t d = 0U;
     for (i = 0U; i < len; i++) {
-        d |= (a[i] ^ b[i]);
+        d |= static_cast<uint8_t>(aBytes[i] ^ bBytes[i]);
     }
     /* Constant time bit arithmetic to convert d > 0 to -1 and d = 0 to 0. */
     return (1 & (((unsigned int)d - 1) >> 8)) - 1;

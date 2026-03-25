@@ -38,10 +38,6 @@ class TraceRouteModule : public ProtobufModule<meshtastic_RouteDiscovery>,
 
     void processUpgradedPacket(const meshtastic_MeshPacket &mp);
 
-    // FW+ methods for next-hop learning
-    void updateNextHops(meshtastic_MeshPacket &p, meshtastic_RouteDiscovery *r);
-    void maybeSetNextHop(NodeNum target, uint8_t nextHopByte);
-
   protected:
     bool handleReceivedProtobuf(const meshtastic_MeshPacket &mp, meshtastic_RouteDiscovery *r) override;
 

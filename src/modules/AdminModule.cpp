@@ -1239,6 +1239,7 @@ void AdminModule::handleGetModuleConfig(const meshtastic_MeshPacket &req, const 
             LOG_INFO("Get module config: IdleGame");
             res.get_module_config_response.which_payload_variant = meshtastic_ModuleConfig_idle_game_tag;
             res.get_module_config_response.payload_variant.idle_game = moduleConfig.idlegame;
+            break;
         case meshtastic_AdminMessage_ModuleConfigType_STATUSMESSAGE_CONFIG:
             LOG_INFO("Get module config: StatusMessage");
             res.get_module_config_response.which_payload_variant = meshtastic_ModuleConfig_statusmessage_tag;
