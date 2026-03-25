@@ -1,6 +1,7 @@
 #include "ReliableRouter.h"
 #include "Default.h"
 #include "MeshTypes.h"
+#include "NodeDB.h"
 #include "configuration.h"
 #include "memGet.h"
 #include "mesh-pb-constants.h"
@@ -68,12 +69,6 @@ namespace fwplus_ack
 ErrorCode ReliableRouter::send(meshtastic_MeshPacket *p)
 {
     if (p->want_ack) {
-        // If someone asks for acks on broadcast, we need the hop limit to be at least one, so that first node that receives our
-        // message will rebroadcast.  But asking for hop_limit 0 in that context means the client app has no preference on hop
-        // counts and we want this message to get through the whole mesh, so use the default.
-        if (p->hop_limit == 0) {
-            p->hop_limit = Default::getConfiguredOrDefaultHopLimit(config.lora.hop_limit);
-        }
         DEBUG_HEAP_BEFORE;
         auto copy = retransPacketPool.allocCopy(*p);
         DEBUG_HEAP_AFTER("ReliableRouter::send", copy);
@@ -169,19 +164,16 @@ void ReliableRouter::sniffReceived(const meshtastic_MeshPacket *p, const meshtas
                     if (shouldSuccessAckWithWantAck(p)) {
                         // Upstream behavior: ACK with want_ack for selected cases (e.g. DM text to us)
                         sendAckNak(meshtastic_Routing_Error_NONE, getFrom(p), p->id, p->channel,
-                                   routingModule->getHopLimitForResponse(p->hop_start, p->hop_limit), true);
+                                   routingModule->getHopLimitForResponse(*p), true);
                     } else if (!p->decoded.request_id && !p->decoded.reply_id) {
                         // fw+: Opportunistic ACK: RSSI-based election with duplicate suppression
-                        // Suppress opportunistic ACKs for TEXT DMs unless not addressed to us (outer scope isToUs)
-                        if (!(!isToUs(p) && p->decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP)) {
-                            if (fwplus_ack::shouldSend(getFrom(p), p->id, p->rx_rssi)) {
-                                sendAckNak(meshtastic_Routing_Error_NONE, getFrom(p), p->id, p->channel,
-                                           routingModule->getHopLimitForResponse(p->hop_start, p->hop_limit));
-                                fwplus_ack::mark(getFrom(p), p->id, millis());
-                            }
+                        if (fwplus_ack::shouldSend(getFrom(p), p->id, p->rx_rssi)) {
+                            sendAckNak(meshtastic_Routing_Error_NONE, getFrom(p), p->id, p->channel,
+                                       routingModule->getHopLimitForResponse(*p));
+                            fwplus_ack::mark(getFrom(p), p->id, millis());
                         }
-                    } else if ((p->hop_start > 0 && p->hop_start == p->hop_limit) || p->next_hop != NO_NEXT_HOP_PREFERENCE) {
-                        // fw+: Terminal response or NextHopRouter: collapse to local ACK with hop limit 0 if not seen
+                    } else if ((getHopsAway(*p) == 0) || p->next_hop != NO_NEXT_HOP_PREFERENCE) {
+                        // fw+: Direct sender or NextHopRouter path: collapse to local ACK with hop limit 0 if not seen
                         if (!fwplus_ack::seen(getFrom(p), p->id, millis())) {
                             sendAckNak(meshtastic_Routing_Error_NONE, getFrom(p), p->id, p->channel, 0);
                             fwplus_ack::mark(getFrom(p), p->id, millis());
@@ -191,11 +183,11 @@ void ReliableRouter::sniffReceived(const meshtastic_MeshPacket *p, const meshtas
                            (nodeDB->getMeshNode(p->from) == nullptr || nodeDB->getMeshNode(p->from)->user.public_key.size == 0)) {
                     LOG_INFO("PKI packet from unknown node, send PKI_UNKNOWN_PUBKEY");
                     sendAckNak(meshtastic_Routing_Error_PKI_UNKNOWN_PUBKEY, getFrom(p), p->id, channels.getPrimaryIndex(),
-                               routingModule->getHopLimitForResponse(p->hop_start, p->hop_limit));
+                               routingModule->getHopLimitForResponse(*p));
                 } else {
                     // Send a 'NO_CHANNEL' error on the primary channel if want_ack packet destined for us cannot be decoded
                     sendAckNak(meshtastic_Routing_Error_NO_CHANNEL, getFrom(p), p->id, channels.getPrimaryIndex(),
-                               routingModule->getHopLimitForResponse(p->hop_start, p->hop_limit));
+                               routingModule->getHopLimitForResponse(*p));
                 }
             } else if (p->next_hop == nodeDB->getLastByteOfNodeNum(getNodeNum()) && p->hop_limit > 0) {
                 // No wantAck, but we need to ACK with hop limit of 0 if we were the next hop to stop their retransmissions
@@ -226,7 +218,9 @@ void ReliableRouter::sniffReceived(const meshtastic_MeshPacket *p, const meshtas
         PacketId nakId = (c && c->error_reason != meshtastic_Routing_Error_NONE) ? p->decoded.request_id : 0;
 
         // We intentionally don't check wasSeenRecently, because it is harmless to delete non existent retransmission records
-        if (ackId || nakId) {
+        if ((ackId || nakId) &&
+            // Implicit ACKs from MQTT should not stop retransmissions
+            !(isFromUs(p) && p->transport_mechanism == meshtastic_MeshPacket_TransportMechanism_TRANSPORT_MQTT)) {
             LOG_DEBUG("Received a %s for 0x%x, stopping retransmissions", ackId ? "ACK" : "NAK", ackId);
             if (ackId) {
                 stopRetransmission(p->to, ackId);

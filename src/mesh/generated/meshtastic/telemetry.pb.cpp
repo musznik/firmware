@@ -21,6 +21,9 @@ PB_BIND(meshtastic_AirQualityMetrics, meshtastic_AirQualityMetrics, AUTO)
 PB_BIND(meshtastic_LocalStats, meshtastic_LocalStats, AUTO)
 
 
+PB_BIND(meshtastic_TrafficManagementStats, meshtastic_TrafficManagementStats, AUTO)
+
+
 PB_BIND(meshtastic_LocalStatsExtended, meshtastic_LocalStatsExtended, AUTO)
 
 
@@ -34,6 +37,9 @@ PB_BIND(meshtastic_Telemetry, meshtastic_Telemetry, 2)
 
 
 PB_BIND(meshtastic_Nau7802Config, meshtastic_Nau7802Config, AUTO)
+
+
+PB_BIND(meshtastic_SEN5XState, meshtastic_SEN5XState, AUTO)
 
 
 

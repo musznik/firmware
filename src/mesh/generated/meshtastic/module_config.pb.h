@@ -4,6 +4,7 @@
 #ifndef PB_MESHTASTIC_MESHTASTIC_MODULE_CONFIG_PB_H_INCLUDED
 #define PB_MESHTASTIC_MESHTASTIC_MODULE_CONFIG_PB_H_INCLUDED
 #include <pb.h>
+#include "meshtastic/atak.pb.h"
 
 #if PB_PROTO_HEADER_VERSION != 40
 #error Regenerate this file with the current version of nanopb generator.
@@ -92,8 +93,11 @@ typedef enum _meshtastic_ModuleConfig_SerialConfig_Serial_Mode {
  https://beta.ivc.no/wiki/index.php/Victron_VE_Direct_DIY_Cable */
     meshtastic_ModuleConfig_SerialConfig_Serial_Mode_VE_DIRECT = 7,
     /* Used to configure and view some parameters of MeshSolar.
-https://heltec.org/project/meshsolar/ */
-    meshtastic_ModuleConfig_SerialConfig_Serial_Mode_MS_CONFIG = 8
+ https://heltec.org/project/meshsolar/ */
+    meshtastic_ModuleConfig_SerialConfig_Serial_Mode_MS_CONFIG = 8,
+    /* Logs mesh traffic to the serial pins, ideal for logging via openLog or similar. */
+    meshtastic_ModuleConfig_SerialConfig_Serial_Mode_LOG = 9, /* includes other packets */
+    meshtastic_ModuleConfig_SerialConfig_Serial_Mode_LOGTEXT = 10 /* only text (channel & DM) */
 } meshtastic_ModuleConfig_SerialConfig_Serial_Mode;
 
 /* TODO: REPLACE */
@@ -233,6 +237,39 @@ typedef struct _meshtastic_ModuleConfig_PaxcounterConfig {
     int32_t ble_threshold;
 } meshtastic_ModuleConfig_PaxcounterConfig;
 
+/* Config for the Traffic Management module.
+ Provides packet inspection and traffic shaping to help reduce channel utilization */
+typedef struct _meshtastic_ModuleConfig_TrafficManagementConfig {
+    /* Master enable for traffic management module */
+    bool enabled;
+    /* Enable position deduplication to drop redundant position broadcasts */
+    bool position_dedup_enabled;
+    /* Number of bits of precision for position deduplication (0-32) */
+    uint32_t position_precision_bits;
+    /* Minimum interval in seconds between position updates from the same node */
+    uint32_t position_min_interval_secs;
+    /* Enable direct response to NodeInfo requests from local cache */
+    bool nodeinfo_direct_response;
+    /* Minimum hop distance from requestor before responding to NodeInfo requests */
+    uint32_t nodeinfo_direct_response_max_hops;
+    /* Enable per-node rate limiting to throttle chatty nodes */
+    bool rate_limit_enabled;
+    /* Time window in seconds for rate limiting calculations */
+    uint32_t rate_limit_window_secs;
+    /* Maximum packets allowed per node within the rate limit window */
+    uint32_t rate_limit_max_packets;
+    /* Enable dropping of unknown/undecryptable packets per rate_limit_window_secs */
+    bool drop_unknown_enabled;
+    /* Number of unknown packets before dropping from a node */
+    uint32_t unknown_packet_threshold;
+    /* Set hop_limit to 0 for relayed telemetry broadcasts (own packets unaffected) */
+    bool exhaust_hop_telemetry;
+    /* Set hop_limit to 0 for relayed position broadcasts (own packets unaffected) */
+    bool exhaust_hop_position;
+    /* Preserve hop_limit for router-to-router traffic */
+    bool router_preserve_hops;
+} meshtastic_ModuleConfig_TrafficManagementConfig;
+
 /* Serial Config */
 typedef struct _meshtastic_ModuleConfig_SerialConfig {
     /* Preferences for the SerialModule */
@@ -369,6 +406,8 @@ typedef struct _meshtastic_ModuleConfig_TelemetryConfig {
     /* Enable/Disable the device telemetry module to send metrics to the mesh
  Note: We will still send telemtry to the connected phone / client every minute over the API */
     bool device_telemetry_enabled;
+    /* Enable/Disable the air quality telemetry measurement module on-device display */
+    bool air_quality_screen_enabled;
 } meshtastic_ModuleConfig_TelemetryConfig;
 
 /* Canned Messages Module Config */
@@ -413,6 +452,12 @@ typedef struct _meshtastic_ModuleConfig_AmbientLightingConfig {
     /* Sets the blue LED level. Values are 0-255. */
     uint8_t blue;
 } meshtastic_ModuleConfig_AmbientLightingConfig;
+
+/* StatusMessage config - Allows setting a status message for a node to periodically rebroadcast */
+typedef struct _meshtastic_ModuleConfig_StatusMessageConfig {
+    /* The actual status string */
+    char node_status[80];
+} meshtastic_ModuleConfig_StatusMessageConfig;
 
 typedef struct _meshtastic_ModuleConfig_NodeModConfig {
     /* user text status */
@@ -600,6 +645,16 @@ typedef struct _meshtastic_ModuleConfig_IdleGameConfig {
     } variant;
 } meshtastic_ModuleConfig_IdleGameConfig;
 
+/* TAK team/role configuration */
+typedef struct _meshtastic_ModuleConfig_TAKConfig {
+    /* Team color.
+ Default Unspecifed_Color -> firmware uses Cyan */
+    meshtastic_Team team;
+    /* Member role.
+ Default Unspecifed -> firmware uses TeamMember */
+    meshtastic_MemberRole role;
+} meshtastic_ModuleConfig_TAKConfig;
+
 /* A GPIO pin definition for remote hardware module */
 typedef struct _meshtastic_RemoteHardwarePin {
     /* GPIO Pin number (must match Arduino) */
@@ -651,6 +706,12 @@ typedef struct _meshtastic_ModuleConfig {
         meshtastic_ModuleConfig_DetectionSensorConfig detection_sensor;
         /* TODO: REPLACE */
         meshtastic_ModuleConfig_PaxcounterConfig paxcounter;
+        /* TODO: REPLACE */
+        meshtastic_ModuleConfig_StatusMessageConfig statusmessage;
+        /* Traffic management module config for mesh network optimization */
+        meshtastic_ModuleConfig_TrafficManagementConfig traffic_management;
+        /* TAK team/role configuration for TAK_TRACKER */
+        meshtastic_ModuleConfig_TAKConfig tak;
         meshtastic_ModuleConfig_NodeModConfig node_mod;
         meshtastic_ModuleConfig_NodeModAdminConfig node_mod_admin;
         meshtastic_ModuleConfig_IdleGameConfig idle_game;
@@ -686,8 +747,8 @@ extern "C" {
 #define _meshtastic_ModuleConfig_SerialConfig_Serial_Baud_ARRAYSIZE ((meshtastic_ModuleConfig_SerialConfig_Serial_Baud)(meshtastic_ModuleConfig_SerialConfig_Serial_Baud_BAUD_921600+1))
 
 #define _meshtastic_ModuleConfig_SerialConfig_Serial_Mode_MIN meshtastic_ModuleConfig_SerialConfig_Serial_Mode_DEFAULT
-#define _meshtastic_ModuleConfig_SerialConfig_Serial_Mode_MAX meshtastic_ModuleConfig_SerialConfig_Serial_Mode_MS_CONFIG
-#define _meshtastic_ModuleConfig_SerialConfig_Serial_Mode_ARRAYSIZE ((meshtastic_ModuleConfig_SerialConfig_Serial_Mode)(meshtastic_ModuleConfig_SerialConfig_Serial_Mode_MS_CONFIG+1))
+#define _meshtastic_ModuleConfig_SerialConfig_Serial_Mode_MAX meshtastic_ModuleConfig_SerialConfig_Serial_Mode_LOGTEXT
+#define _meshtastic_ModuleConfig_SerialConfig_Serial_Mode_ARRAYSIZE ((meshtastic_ModuleConfig_SerialConfig_Serial_Mode)(meshtastic_ModuleConfig_SerialConfig_Serial_Mode_LOGTEXT+1))
 
 #define _meshtastic_ModuleConfig_CannedMessageConfig_InputEventChar_MIN meshtastic_ModuleConfig_CannedMessageConfig_InputEventChar_NONE
 #define _meshtastic_ModuleConfig_CannedMessageConfig_InputEventChar_MAX meshtastic_ModuleConfig_CannedMessageConfig_InputEventChar_BACK
@@ -701,6 +762,7 @@ extern "C" {
 #define meshtastic_ModuleConfig_DetectionSensorConfig_detection_trigger_type_ENUMTYPE meshtastic_ModuleConfig_DetectionSensorConfig_TriggerType
 
 #define meshtastic_ModuleConfig_AudioConfig_bitrate_ENUMTYPE meshtastic_ModuleConfig_AudioConfig_Audio_Baud
+
 
 
 #define meshtastic_ModuleConfig_SerialConfig_baud_ENUMTYPE meshtastic_ModuleConfig_SerialConfig_Serial_Baud
@@ -724,8 +786,12 @@ extern "C" {
 
 
 
+
 #define meshtastic_ModuleConfig_IdleGameAction_action_type_ENUMTYPE meshtastic_ModuleConfig_IdleGameActionType
 
+
+#define meshtastic_ModuleConfig_TAKConfig_team_ENUMTYPE meshtastic_Team
+#define meshtastic_ModuleConfig_TAKConfig_role_ENUMTYPE meshtastic_MemberRole
 
 #define meshtastic_RemoteHardwarePin_type_ENUMTYPE meshtastic_RemoteHardwarePinType
 
@@ -739,13 +805,15 @@ extern "C" {
 #define meshtastic_ModuleConfig_DetectionSensorConfig_init_default {0, 0, 0, 0, "", 0, _meshtastic_ModuleConfig_DetectionSensorConfig_TriggerType_MIN, 0}
 #define meshtastic_ModuleConfig_AudioConfig_init_default {0, 0, _meshtastic_ModuleConfig_AudioConfig_Audio_Baud_MIN, 0, 0, 0, 0}
 #define meshtastic_ModuleConfig_PaxcounterConfig_init_default {0, 0, 0, 0}
+#define meshtastic_ModuleConfig_TrafficManagementConfig_init_default {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 #define meshtastic_ModuleConfig_SerialConfig_init_default {0, 0, 0, 0, _meshtastic_ModuleConfig_SerialConfig_Serial_Baud_MIN, 0, _meshtastic_ModuleConfig_SerialConfig_Serial_Mode_MIN, 0}
 #define meshtastic_ModuleConfig_ExternalNotificationConfig_init_default {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 #define meshtastic_ModuleConfig_StoreForwardConfig_init_default {0, 0, 0, 0, 0, 0, 0}
 #define meshtastic_ModuleConfig_RangeTestConfig_init_default {0, 0, 0, 0}
-#define meshtastic_ModuleConfig_TelemetryConfig_init_default {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+#define meshtastic_ModuleConfig_TelemetryConfig_init_default {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 #define meshtastic_ModuleConfig_CannedMessageConfig_init_default {0, 0, 0, 0, _meshtastic_ModuleConfig_CannedMessageConfig_InputEventChar_MIN, _meshtastic_ModuleConfig_CannedMessageConfig_InputEventChar_MIN, _meshtastic_ModuleConfig_CannedMessageConfig_InputEventChar_MIN, 0, 0, "", 0}
 #define meshtastic_ModuleConfig_AmbientLightingConfig_init_default {0, 0, 0, 0, 0}
+#define meshtastic_ModuleConfig_StatusMessageConfig_init_default {""}
 #define meshtastic_ModuleConfig_NodeModConfig_init_default {"", ""}
 #define meshtastic_ModuleConfig_NodeModAdminConfig_init_default {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 #define meshtastic_ModuleConfig_DtnOverlayConfig_init_default {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
@@ -757,6 +825,7 @@ extern "C" {
 #define meshtastic_ModuleConfig_IdleGameState_init_default {"", 0, 0, 0, 0, 0, 0, 0}
 #define meshtastic_ModuleConfig_IdleGameAction_init_default {_meshtastic_ModuleConfig_IdleGameActionType_MIN, 0, 0, 0}
 #define meshtastic_ModuleConfig_IdleGameConfig_init_default {0, {meshtastic_ModuleConfig_IdleGameState_init_default}}
+#define meshtastic_ModuleConfig_TAKConfig_init_default {_meshtastic_Team_MIN, _meshtastic_MemberRole_MIN}
 #define meshtastic_RemoteHardwarePin_init_default {0, "", _meshtastic_RemoteHardwarePinType_MIN}
 #define meshtastic_ModuleConfig_init_zero        {0, {meshtastic_ModuleConfig_MQTTConfig_init_zero}}
 #define meshtastic_ModuleConfig_MQTTConfig_init_zero {0, "", "", "", 0, 0, 0, "", 0, 0, false, meshtastic_ModuleConfig_MapReportSettings_init_zero}
@@ -766,13 +835,15 @@ extern "C" {
 #define meshtastic_ModuleConfig_DetectionSensorConfig_init_zero {0, 0, 0, 0, "", 0, _meshtastic_ModuleConfig_DetectionSensorConfig_TriggerType_MIN, 0}
 #define meshtastic_ModuleConfig_AudioConfig_init_zero {0, 0, _meshtastic_ModuleConfig_AudioConfig_Audio_Baud_MIN, 0, 0, 0, 0}
 #define meshtastic_ModuleConfig_PaxcounterConfig_init_zero {0, 0, 0, 0}
+#define meshtastic_ModuleConfig_TrafficManagementConfig_init_zero {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 #define meshtastic_ModuleConfig_SerialConfig_init_zero {0, 0, 0, 0, _meshtastic_ModuleConfig_SerialConfig_Serial_Baud_MIN, 0, _meshtastic_ModuleConfig_SerialConfig_Serial_Mode_MIN, 0}
 #define meshtastic_ModuleConfig_ExternalNotificationConfig_init_zero {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 #define meshtastic_ModuleConfig_StoreForwardConfig_init_zero {0, 0, 0, 0, 0, 0, 0}
 #define meshtastic_ModuleConfig_RangeTestConfig_init_zero {0, 0, 0, 0}
-#define meshtastic_ModuleConfig_TelemetryConfig_init_zero {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+#define meshtastic_ModuleConfig_TelemetryConfig_init_zero {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 #define meshtastic_ModuleConfig_CannedMessageConfig_init_zero {0, 0, 0, 0, _meshtastic_ModuleConfig_CannedMessageConfig_InputEventChar_MIN, _meshtastic_ModuleConfig_CannedMessageConfig_InputEventChar_MIN, _meshtastic_ModuleConfig_CannedMessageConfig_InputEventChar_MIN, 0, 0, "", 0}
 #define meshtastic_ModuleConfig_AmbientLightingConfig_init_zero {0, 0, 0, 0, 0}
+#define meshtastic_ModuleConfig_StatusMessageConfig_init_zero {""}
 #define meshtastic_ModuleConfig_NodeModConfig_init_zero {"", ""}
 #define meshtastic_ModuleConfig_NodeModAdminConfig_init_zero {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 #define meshtastic_ModuleConfig_DtnOverlayConfig_init_zero {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
@@ -784,6 +855,7 @@ extern "C" {
 #define meshtastic_ModuleConfig_IdleGameState_init_zero {"", 0, 0, 0, 0, 0, 0, 0}
 #define meshtastic_ModuleConfig_IdleGameAction_init_zero {_meshtastic_ModuleConfig_IdleGameActionType_MIN, 0, 0, 0}
 #define meshtastic_ModuleConfig_IdleGameConfig_init_zero {0, {meshtastic_ModuleConfig_IdleGameState_init_zero}}
+#define meshtastic_ModuleConfig_TAKConfig_init_zero {_meshtastic_Team_MIN, _meshtastic_MemberRole_MIN}
 #define meshtastic_RemoteHardwarePin_init_zero   {0, "", _meshtastic_RemoteHardwarePinType_MIN}
 
 /* Field tags (for use in manual encoding/decoding) */
@@ -823,6 +895,20 @@ extern "C" {
 #define meshtastic_ModuleConfig_PaxcounterConfig_paxcounter_update_interval_tag 2
 #define meshtastic_ModuleConfig_PaxcounterConfig_wifi_threshold_tag 3
 #define meshtastic_ModuleConfig_PaxcounterConfig_ble_threshold_tag 4
+#define meshtastic_ModuleConfig_TrafficManagementConfig_enabled_tag 1
+#define meshtastic_ModuleConfig_TrafficManagementConfig_position_dedup_enabled_tag 2
+#define meshtastic_ModuleConfig_TrafficManagementConfig_position_precision_bits_tag 3
+#define meshtastic_ModuleConfig_TrafficManagementConfig_position_min_interval_secs_tag 4
+#define meshtastic_ModuleConfig_TrafficManagementConfig_nodeinfo_direct_response_tag 5
+#define meshtastic_ModuleConfig_TrafficManagementConfig_nodeinfo_direct_response_max_hops_tag 6
+#define meshtastic_ModuleConfig_TrafficManagementConfig_rate_limit_enabled_tag 7
+#define meshtastic_ModuleConfig_TrafficManagementConfig_rate_limit_window_secs_tag 8
+#define meshtastic_ModuleConfig_TrafficManagementConfig_rate_limit_max_packets_tag 9
+#define meshtastic_ModuleConfig_TrafficManagementConfig_drop_unknown_enabled_tag 10
+#define meshtastic_ModuleConfig_TrafficManagementConfig_unknown_packet_threshold_tag 11
+#define meshtastic_ModuleConfig_TrafficManagementConfig_exhaust_hop_telemetry_tag 12
+#define meshtastic_ModuleConfig_TrafficManagementConfig_exhaust_hop_position_tag 13
+#define meshtastic_ModuleConfig_TrafficManagementConfig_router_preserve_hops_tag 14
 #define meshtastic_ModuleConfig_SerialConfig_enabled_tag 1
 #define meshtastic_ModuleConfig_SerialConfig_echo_tag 2
 #define meshtastic_ModuleConfig_SerialConfig_rxd_tag 3
@@ -871,6 +957,7 @@ extern "C" {
 #define meshtastic_ModuleConfig_TelemetryConfig_health_update_interval_tag 12
 #define meshtastic_ModuleConfig_TelemetryConfig_health_screen_enabled_tag 13
 #define meshtastic_ModuleConfig_TelemetryConfig_device_telemetry_enabled_tag 14
+#define meshtastic_ModuleConfig_TelemetryConfig_air_quality_screen_enabled_tag 15
 #define meshtastic_ModuleConfig_CannedMessageConfig_rotary1_enabled_tag 1
 #define meshtastic_ModuleConfig_CannedMessageConfig_inputbroker_pin_a_tag 2
 #define meshtastic_ModuleConfig_CannedMessageConfig_inputbroker_pin_b_tag 3
@@ -887,6 +974,7 @@ extern "C" {
 #define meshtastic_ModuleConfig_AmbientLightingConfig_red_tag 3
 #define meshtastic_ModuleConfig_AmbientLightingConfig_green_tag 4
 #define meshtastic_ModuleConfig_AmbientLightingConfig_blue_tag 5
+#define meshtastic_ModuleConfig_StatusMessageConfig_node_status_tag 1
 #define meshtastic_ModuleConfig_NodeModConfig_text_status_tag 1
 #define meshtastic_ModuleConfig_NodeModConfig_emoji_tag 2
 #define meshtastic_ModuleConfig_NodeModAdminConfig_sniffer_enabled_tag 1
@@ -977,6 +1065,8 @@ extern "C" {
 #define meshtastic_ModuleConfig_IdleGameConfig_action_tag 2
 #define meshtastic_ModuleConfig_IdleGameConfig_known_villages_tag 3
 #define meshtastic_ModuleConfig_IdleGameConfig_relations_tag 4
+#define meshtastic_ModuleConfig_TAKConfig_team_tag 1
+#define meshtastic_ModuleConfig_TAKConfig_role_tag 2
 #define meshtastic_RemoteHardwarePin_gpio_pin_tag 1
 #define meshtastic_RemoteHardwarePin_name_tag    2
 #define meshtastic_RemoteHardwarePin_type_tag    3
@@ -996,6 +1086,9 @@ extern "C" {
 #define meshtastic_ModuleConfig_ambient_lighting_tag 11
 #define meshtastic_ModuleConfig_detection_sensor_tag 12
 #define meshtastic_ModuleConfig_paxcounter_tag   13
+#define meshtastic_ModuleConfig_statusmessage_tag 14
+#define meshtastic_ModuleConfig_traffic_management_tag 15
+#define meshtastic_ModuleConfig_tak_tag          16
 #define meshtastic_ModuleConfig_node_mod_tag     20
 #define meshtastic_ModuleConfig_node_mod_admin_tag 21
 #define meshtastic_ModuleConfig_idle_game_tag    22
@@ -1017,6 +1110,9 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (payload_variant,neighbor_info,payload_varian
 X(a, STATIC,   ONEOF,    MESSAGE,  (payload_variant,ambient_lighting,payload_variant.ambient_lighting),  11) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (payload_variant,detection_sensor,payload_variant.detection_sensor),  12) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (payload_variant,paxcounter,payload_variant.paxcounter),  13) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (payload_variant,statusmessage,payload_variant.statusmessage),  14) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (payload_variant,traffic_management,payload_variant.traffic_management),  15) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (payload_variant,tak,payload_variant.tak),  16) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (payload_variant,node_mod,payload_variant.node_mod),  20) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (payload_variant,node_mod_admin,payload_variant.node_mod_admin),  21) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (payload_variant,idle_game,payload_variant.idle_game),  22) \
@@ -1037,6 +1133,9 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (payload_variant,broadcast_assist,payload_var
 #define meshtastic_ModuleConfig_payload_variant_ambient_lighting_MSGTYPE meshtastic_ModuleConfig_AmbientLightingConfig
 #define meshtastic_ModuleConfig_payload_variant_detection_sensor_MSGTYPE meshtastic_ModuleConfig_DetectionSensorConfig
 #define meshtastic_ModuleConfig_payload_variant_paxcounter_MSGTYPE meshtastic_ModuleConfig_PaxcounterConfig
+#define meshtastic_ModuleConfig_payload_variant_statusmessage_MSGTYPE meshtastic_ModuleConfig_StatusMessageConfig
+#define meshtastic_ModuleConfig_payload_variant_traffic_management_MSGTYPE meshtastic_ModuleConfig_TrafficManagementConfig
+#define meshtastic_ModuleConfig_payload_variant_tak_MSGTYPE meshtastic_ModuleConfig_TAKConfig
 #define meshtastic_ModuleConfig_payload_variant_node_mod_MSGTYPE meshtastic_ModuleConfig_NodeModConfig
 #define meshtastic_ModuleConfig_payload_variant_node_mod_admin_MSGTYPE meshtastic_ModuleConfig_NodeModAdminConfig
 #define meshtastic_ModuleConfig_payload_variant_idle_game_MSGTYPE meshtastic_ModuleConfig_IdleGameConfig
@@ -1112,6 +1211,24 @@ X(a, STATIC,   SINGULAR, INT32,    ble_threshold,     4)
 #define meshtastic_ModuleConfig_PaxcounterConfig_CALLBACK NULL
 #define meshtastic_ModuleConfig_PaxcounterConfig_DEFAULT NULL
 
+#define meshtastic_ModuleConfig_TrafficManagementConfig_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, BOOL,     enabled,           1) \
+X(a, STATIC,   SINGULAR, BOOL,     position_dedup_enabled,   2) \
+X(a, STATIC,   SINGULAR, UINT32,   position_precision_bits,   3) \
+X(a, STATIC,   SINGULAR, UINT32,   position_min_interval_secs,   4) \
+X(a, STATIC,   SINGULAR, BOOL,     nodeinfo_direct_response,   5) \
+X(a, STATIC,   SINGULAR, UINT32,   nodeinfo_direct_response_max_hops,   6) \
+X(a, STATIC,   SINGULAR, BOOL,     rate_limit_enabled,   7) \
+X(a, STATIC,   SINGULAR, UINT32,   rate_limit_window_secs,   8) \
+X(a, STATIC,   SINGULAR, UINT32,   rate_limit_max_packets,   9) \
+X(a, STATIC,   SINGULAR, BOOL,     drop_unknown_enabled,  10) \
+X(a, STATIC,   SINGULAR, UINT32,   unknown_packet_threshold,  11) \
+X(a, STATIC,   SINGULAR, BOOL,     exhaust_hop_telemetry,  12) \
+X(a, STATIC,   SINGULAR, BOOL,     exhaust_hop_position,  13) \
+X(a, STATIC,   SINGULAR, BOOL,     router_preserve_hops,  14)
+#define meshtastic_ModuleConfig_TrafficManagementConfig_CALLBACK NULL
+#define meshtastic_ModuleConfig_TrafficManagementConfig_DEFAULT NULL
+
 #define meshtastic_ModuleConfig_SerialConfig_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, BOOL,     enabled,           1) \
 X(a, STATIC,   SINGULAR, BOOL,     echo,              2) \
@@ -1176,7 +1293,8 @@ X(a, STATIC,   SINGULAR, BOOL,     power_screen_enabled,  10) \
 X(a, STATIC,   SINGULAR, BOOL,     health_measurement_enabled,  11) \
 X(a, STATIC,   SINGULAR, UINT32,   health_update_interval,  12) \
 X(a, STATIC,   SINGULAR, BOOL,     health_screen_enabled,  13) \
-X(a, STATIC,   SINGULAR, BOOL,     device_telemetry_enabled,  14)
+X(a, STATIC,   SINGULAR, BOOL,     device_telemetry_enabled,  14) \
+X(a, STATIC,   SINGULAR, BOOL,     air_quality_screen_enabled,  15)
 #define meshtastic_ModuleConfig_TelemetryConfig_CALLBACK NULL
 #define meshtastic_ModuleConfig_TelemetryConfig_DEFAULT NULL
 
@@ -1203,6 +1321,11 @@ X(a, STATIC,   SINGULAR, UINT32,   green,             4) \
 X(a, STATIC,   SINGULAR, UINT32,   blue,              5)
 #define meshtastic_ModuleConfig_AmbientLightingConfig_CALLBACK NULL
 #define meshtastic_ModuleConfig_AmbientLightingConfig_DEFAULT NULL
+
+#define meshtastic_ModuleConfig_StatusMessageConfig_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, STRING,   node_status,       1)
+#define meshtastic_ModuleConfig_StatusMessageConfig_CALLBACK NULL
+#define meshtastic_ModuleConfig_StatusMessageConfig_DEFAULT NULL
 
 #define meshtastic_ModuleConfig_NodeModConfig_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, STRING,   text_status,       1) \
@@ -1345,6 +1468,12 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (variant,relations,variant.relations),   4)
 #define meshtastic_ModuleConfig_IdleGameConfig_variant_known_villages_MSGTYPE meshtastic_ModuleConfig_IdleGameKnownVillages
 #define meshtastic_ModuleConfig_IdleGameConfig_variant_relations_MSGTYPE meshtastic_ModuleConfig_IdleGameRelations
 
+#define meshtastic_ModuleConfig_TAKConfig_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, UENUM,    team,              1) \
+X(a, STATIC,   SINGULAR, UENUM,    role,              2)
+#define meshtastic_ModuleConfig_TAKConfig_CALLBACK NULL
+#define meshtastic_ModuleConfig_TAKConfig_DEFAULT NULL
+
 #define meshtastic_RemoteHardwarePin_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, UINT32,   gpio_pin,          1) \
 X(a, STATIC,   SINGULAR, STRING,   name,              2) \
@@ -1360,6 +1489,7 @@ extern const pb_msgdesc_t meshtastic_ModuleConfig_NeighborInfoConfig_msg;
 extern const pb_msgdesc_t meshtastic_ModuleConfig_DetectionSensorConfig_msg;
 extern const pb_msgdesc_t meshtastic_ModuleConfig_AudioConfig_msg;
 extern const pb_msgdesc_t meshtastic_ModuleConfig_PaxcounterConfig_msg;
+extern const pb_msgdesc_t meshtastic_ModuleConfig_TrafficManagementConfig_msg;
 extern const pb_msgdesc_t meshtastic_ModuleConfig_SerialConfig_msg;
 extern const pb_msgdesc_t meshtastic_ModuleConfig_ExternalNotificationConfig_msg;
 extern const pb_msgdesc_t meshtastic_ModuleConfig_StoreForwardConfig_msg;
@@ -1367,6 +1497,7 @@ extern const pb_msgdesc_t meshtastic_ModuleConfig_RangeTestConfig_msg;
 extern const pb_msgdesc_t meshtastic_ModuleConfig_TelemetryConfig_msg;
 extern const pb_msgdesc_t meshtastic_ModuleConfig_CannedMessageConfig_msg;
 extern const pb_msgdesc_t meshtastic_ModuleConfig_AmbientLightingConfig_msg;
+extern const pb_msgdesc_t meshtastic_ModuleConfig_StatusMessageConfig_msg;
 extern const pb_msgdesc_t meshtastic_ModuleConfig_NodeModConfig_msg;
 extern const pb_msgdesc_t meshtastic_ModuleConfig_NodeModAdminConfig_msg;
 extern const pb_msgdesc_t meshtastic_ModuleConfig_DtnOverlayConfig_msg;
@@ -1378,6 +1509,7 @@ extern const pb_msgdesc_t meshtastic_ModuleConfig_IdleGameRelations_msg;
 extern const pb_msgdesc_t meshtastic_ModuleConfig_IdleGameState_msg;
 extern const pb_msgdesc_t meshtastic_ModuleConfig_IdleGameAction_msg;
 extern const pb_msgdesc_t meshtastic_ModuleConfig_IdleGameConfig_msg;
+extern const pb_msgdesc_t meshtastic_ModuleConfig_TAKConfig_msg;
 extern const pb_msgdesc_t meshtastic_RemoteHardwarePin_msg;
 
 /* Defines for backwards compatibility with code written before nanopb-0.4.0 */
@@ -1389,6 +1521,7 @@ extern const pb_msgdesc_t meshtastic_RemoteHardwarePin_msg;
 #define meshtastic_ModuleConfig_DetectionSensorConfig_fields &meshtastic_ModuleConfig_DetectionSensorConfig_msg
 #define meshtastic_ModuleConfig_AudioConfig_fields &meshtastic_ModuleConfig_AudioConfig_msg
 #define meshtastic_ModuleConfig_PaxcounterConfig_fields &meshtastic_ModuleConfig_PaxcounterConfig_msg
+#define meshtastic_ModuleConfig_TrafficManagementConfig_fields &meshtastic_ModuleConfig_TrafficManagementConfig_msg
 #define meshtastic_ModuleConfig_SerialConfig_fields &meshtastic_ModuleConfig_SerialConfig_msg
 #define meshtastic_ModuleConfig_ExternalNotificationConfig_fields &meshtastic_ModuleConfig_ExternalNotificationConfig_msg
 #define meshtastic_ModuleConfig_StoreForwardConfig_fields &meshtastic_ModuleConfig_StoreForwardConfig_msg
@@ -1396,6 +1529,7 @@ extern const pb_msgdesc_t meshtastic_RemoteHardwarePin_msg;
 #define meshtastic_ModuleConfig_TelemetryConfig_fields &meshtastic_ModuleConfig_TelemetryConfig_msg
 #define meshtastic_ModuleConfig_CannedMessageConfig_fields &meshtastic_ModuleConfig_CannedMessageConfig_msg
 #define meshtastic_ModuleConfig_AmbientLightingConfig_fields &meshtastic_ModuleConfig_AmbientLightingConfig_msg
+#define meshtastic_ModuleConfig_StatusMessageConfig_fields &meshtastic_ModuleConfig_StatusMessageConfig_msg
 #define meshtastic_ModuleConfig_NodeModConfig_fields &meshtastic_ModuleConfig_NodeModConfig_msg
 #define meshtastic_ModuleConfig_NodeModAdminConfig_fields &meshtastic_ModuleConfig_NodeModAdminConfig_msg
 #define meshtastic_ModuleConfig_DtnOverlayConfig_fields &meshtastic_ModuleConfig_DtnOverlayConfig_msg
@@ -1407,6 +1541,7 @@ extern const pb_msgdesc_t meshtastic_RemoteHardwarePin_msg;
 #define meshtastic_ModuleConfig_IdleGameState_fields &meshtastic_ModuleConfig_IdleGameState_msg
 #define meshtastic_ModuleConfig_IdleGameAction_fields &meshtastic_ModuleConfig_IdleGameAction_msg
 #define meshtastic_ModuleConfig_IdleGameConfig_fields &meshtastic_ModuleConfig_IdleGameConfig_msg
+#define meshtastic_ModuleConfig_TAKConfig_fields &meshtastic_ModuleConfig_TAKConfig_msg
 #define meshtastic_RemoteHardwarePin_fields &meshtastic_RemoteHardwarePin_msg
 
 /* Maximum encoded size of messages (where known) */
@@ -1434,8 +1569,11 @@ extern const pb_msgdesc_t meshtastic_RemoteHardwarePin_msg;
 #define meshtastic_ModuleConfig_RangeTestConfig_size 12
 #define meshtastic_ModuleConfig_RemoteHardwareConfig_size 96
 #define meshtastic_ModuleConfig_SerialConfig_size 28
+#define meshtastic_ModuleConfig_StatusMessageConfig_size 81
 #define meshtastic_ModuleConfig_StoreForwardConfig_size 26
-#define meshtastic_ModuleConfig_TelemetryConfig_size 48
+#define meshtastic_ModuleConfig_TAKConfig_size   4
+#define meshtastic_ModuleConfig_TelemetryConfig_size 50
+#define meshtastic_ModuleConfig_TrafficManagementConfig_size 52
 #define meshtastic_ModuleConfig_size             487
 #define meshtastic_RemoteHardwarePin_size        21
 

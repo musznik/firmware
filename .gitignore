@@ -35,6 +35,7 @@ __pycache__
 
 compiled_firmware/
 venv/
+.venv/
 release/
 .vscode/extensions.json
 /compile_commands.json
@@ -45,3 +46,14 @@ src/mesh/raspihttp/private_key.pem
 data/boot/logo.*
 
 local_dev
+# pioarduino platform
+managed_components/*
+arduino-lib-builder*
+dependencies.lock
+idf_component.yml
+CMakeLists.txt
+/sdkconfig.*
+.dummy/*
+
+# PYTHONPATH used by the Nix shell
+.python3

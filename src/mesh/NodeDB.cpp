@@ -13,6 +13,7 @@
 #include "PacketHistory.h"
 #include "PowerFSM.h"
 #include "RTC.h"
+#include "RadioInterface.h"
 #include "Router.h"
 #include "SPILock.h"
 #include "SafeFile.h"
@@ -27,6 +28,7 @@
 #include <cstdlib>
 #include <pb_decode.h>
 #include <pb_encode.h>
+#include <power/PowerHAL.h>
 #include <vector>
 
 #ifdef ARCH_ESP32
@@ -54,7 +56,7 @@
 #endif
 
 #if defined(ARCH_ESP32) && !MESHTASTIC_EXCLUDE_WIFI
-#include <WiFiOTA.h>
+#include <MeshtasticOTA.h>
 #endif
 
 NodeDB *nodeDB = nullptr;
@@ -146,9 +148,8 @@ uint32_t get_st7789_id(uint8_t cs, uint8_t sck, uint8_t mosi, uint8_t dc, uint8_
     digitalWrite(rst, HIGH);
     delay(10);
 
-    uint32_t ID = 0;
-    ID = readwrite8(0x04, 24, 1, cs, sck, mosi, dc, rst);
-    ID = readwrite8(0x04, 24, 1, cs, sck, mosi, dc, rst); // ST7789 needs twice
+    readwrite8(0x04, 24, 1, cs, sck, mosi, dc, rst);
+    uint32_t ID = readwrite8(0x04, 24, 1, cs, sck, mosi, dc, rst); // ST7789 needs twice
     return ID;
 }
 
@@ -337,9 +338,9 @@ NodeDB::NodeDB()
     // Uncomment below to always enable UDP broadcasts
     // config.network.enabled_protocols = meshtastic_Config_NetworkConfig_ProtocolFlags_UDP_BROADCAST;
 
-    // If we are setup to broadcast on the default channel, ensure that the telemetry intervals are coerced to the minimum value
-    // of 30 minutes or more
-    if (channels.isDefaultChannel(channels.getPrimaryIndex())) {
+    // If we are setup to broadcast on any default channel slot (with default frequency slot semantics),
+    // ensure that the telemetry intervals are coerced to the minimum value of 30 minutes or more.
+    if (channels.hasDefaultChannel()) {
         LOG_DEBUG("Coerce telemetry to min of 30 minutes on defaults");
         moduleConfig.telemetry.device_update_interval = Default::getConfiguredOrMinimumValue(
             moduleConfig.telemetry.device_update_interval, min_default_telemetry_interval_secs);
@@ -351,6 +352,23 @@ NodeDB::NodeDB()
             moduleConfig.telemetry.power_update_interval, min_default_telemetry_interval_secs);
         moduleConfig.telemetry.health_update_interval = Default::getConfiguredOrMinimumValue(
             moduleConfig.telemetry.health_update_interval, min_default_telemetry_interval_secs);
+    }
+    // Enforce position broadcast minimums if we would send positions over a default channel
+    // Check channels the same way PositionModule::sendOurPosition() does - first channel with position_precision set
+    bool positionUsesDefaultChannel = false;
+    for (uint8_t i = 0; i < channels.getNumChannels(); i++) {
+        if (channels.getByIndex(i).settings.has_module_settings &&
+            channels.getByIndex(i).settings.module_settings.position_precision != 0) {
+            positionUsesDefaultChannel = channels.isDefaultChannel(i);
+            break;
+        }
+    }
+    if (positionUsesDefaultChannel) {
+        LOG_DEBUG("Coerce position broadcasts to min of 1 hour and smart broadcast min of 5 minutes on defaults");
+        config.position.position_broadcast_secs =
+            Default::getConfiguredOrMinimumValue(config.position.position_broadcast_secs, min_default_broadcast_interval_secs);
+        config.position.broadcast_smart_minimum_interval_secs = Default::getConfiguredOrMinimumValue(
+            config.position.broadcast_smart_minimum_interval_secs, min_default_broadcast_smart_minimum_interval_secs);
     }
     // FIXME: UINT32_MAX intervals overflows Apple clients until they are fully patched
     if (config.device.node_info_broadcast_secs > MAX_INTERVAL)
@@ -572,6 +590,10 @@ void NodeDB::installDefaultConfig(bool preserveKey = false)
     config.display.displaymode = meshtastic_Config_DisplayConfig_DisplayMode_COLOR;
 #endif
 
+#if defined(TFT_WIDTH) && defined(TFT_HEIGHT) && (TFT_WIDTH >= 200 || TFT_HEIGHT >= 200)
+    config.display.enable_message_bubbles = true;
+#endif
+
 #ifdef USERPREFS_CONFIG_DEVICE_ROLE
     // Restrict ROUTER*, LOST AND FOUND roles for security reasons
     if (IS_ONE_OF(USERPREFS_CONFIG_DEVICE_ROLE, meshtastic_Config_DeviceConfig_Role_ROUTER,
@@ -661,7 +683,7 @@ void NodeDB::installDefaultConfig(bool preserveKey = false)
     config.position.position_broadcast_smart_enabled = true;
 #endif
     config.position.broadcast_smart_minimum_distance = 100;
-    config.position.broadcast_smart_minimum_interval_secs = 30;
+    config.position.broadcast_smart_minimum_interval_secs = default_broadcast_smart_minimum_interval_secs;
     if (config.device.role != meshtastic_Config_DeviceConfig_Role_ROUTER)
         config.device.node_info_broadcast_secs = default_node_info_broadcast_secs;
     config.security.serial_enabled = true;
@@ -681,7 +703,8 @@ void NodeDB::installDefaultConfig(bool preserveKey = false)
     config.bluetooth.fixed_pin = defaultBLEPin;
 
 #if defined(ST7735_CS) || defined(USE_EINK) || defined(ILI9341_DRIVER) || defined(ILI9342_DRIVER) || defined(ST7789_CS) ||       \
-    defined(HX8357_CS) || defined(USE_ST7789) || defined(ILI9488_CS) || defined(ST7796_CS) || defined(USE_SPISSD1306)
+    defined(HX8357_CS) || defined(USE_ST7789) || defined(ILI9488_CS) || defined(ST7796_CS) || defined(USE_SPISSD1306) ||         \
+    defined(USE_ST7796) || defined(HACKADAY_COMMUNICATOR)
     bool hasScreen = true;
 #ifdef HELTEC_MESH_NODE_T114
     uint32_t st7789_id = get_st7789_id(ST7789_NSS, ST7789_SCK, ST7789_SDA, ST7789_RS, ST7789_RESET);
@@ -735,6 +758,12 @@ void NodeDB::installDefaultConfig(bool preserveKey = false)
     strncpy(config.network.wifi_psk, USERPREFS_NETWORK_WIFI_PSK, sizeof(config.network.wifi_psk));
 #endif
 
+#if defined(USERPREFS_NETWORK_IPV6_ENABLED)
+    config.network.ipv6_enabled = USERPREFS_NETWORK_IPV6_ENABLED;
+#else
+    config.network.ipv6_enabled = default_network_ipv6_enabled;
+#endif
+
 #ifdef DISPLAY_FLIP_SCREEN
     config.display.flip_screen = true;
 #endif
@@ -745,9 +774,12 @@ void NodeDB::installDefaultConfig(bool preserveKey = false)
     config.display.screen_on_secs = 30;
     config.display.wake_on_tap_or_motion = true;
 #endif
+#ifdef COMPASS_ORIENTATION
+    config.display.compass_orientation = COMPASS_ORIENTATION;
+#endif
 #if defined(ARCH_ESP32) && !MESHTASTIC_EXCLUDE_WIFI
-    if (WiFiOTA::isUpdated()) {
-        WiFiOTA::recoverConfig(&config.network);
+    if (MeshtasticOTA::isUpdated()) {
+        MeshtasticOTA::recoverConfig(&config.network);
     }
 #endif
 
@@ -800,27 +832,28 @@ void NodeDB::installDefaultModuleConfig()
     moduleConfig.store_forward.enabled = false;
     moduleConfig.has_telemetry = true;
     moduleConfig.has_external_notification = true;
-#if defined(PIN_BUZZER)
+#if defined(PIN_BUZZER) || defined(PIN_VIBRATION) || defined(LED_NOTIFICATION)
     moduleConfig.external_notification.enabled = true;
+#endif
+#if defined(PIN_BUZZER)
     moduleConfig.external_notification.output_buzzer = PIN_BUZZER;
     moduleConfig.external_notification.use_pwm = true;
     moduleConfig.external_notification.alert_message_buzzer = true;
-    moduleConfig.external_notification.nag_timeout = default_ringtone_nag_secs;
 #endif
 #if defined(PIN_VIBRATION)
-    moduleConfig.external_notification.enabled = true;
     moduleConfig.external_notification.output_vibra = PIN_VIBRATION;
     moduleConfig.external_notification.alert_message_vibra = true;
     moduleConfig.external_notification.output_ms = 500;
-    moduleConfig.external_notification.nag_timeout = 2;
 #endif
-#if defined(RAK4630) || defined(RAK11310) || defined(RAK3312)
-    // Default to RAK led pin 2 (blue)
-    moduleConfig.external_notification.enabled = true;
-    moduleConfig.external_notification.output = PIN_LED2;
-    moduleConfig.external_notification.active = true;
+#if defined(LED_NOTIFICATION)
+    moduleConfig.external_notification.output = LED_NOTIFICATION;
+    moduleConfig.external_notification.active = LED_STATE_ON;
     moduleConfig.external_notification.alert_message = true;
     moduleConfig.external_notification.output_ms = 1000;
+#endif
+#if defined(PIN_VIBRATION)
+    moduleConfig.external_notification.nag_timeout = 2;
+#elif defined(PIN_BUZZER) || defined(LED_NOTIFICATION)
     moduleConfig.external_notification.nag_timeout = default_ringtone_nag_secs;
 #endif
 
@@ -841,15 +874,6 @@ void NodeDB::installDefaultModuleConfig()
     moduleConfig.external_notification.alert_message = true;
     moduleConfig.external_notification.output_ms = 100;
     moduleConfig.external_notification.active = true;
-#endif
-#ifdef ELECROW_ThinkNode_M1
-    // Default to Elecrow USER_LED (blue)
-    moduleConfig.external_notification.enabled = true;
-    moduleConfig.external_notification.output = USER_LED;
-    moduleConfig.external_notification.active = true;
-    moduleConfig.external_notification.alert_message = true;
-    moduleConfig.external_notification.output_ms = 1000;
-    moduleConfig.external_notification.nag_timeout = 60;
 #endif
 #ifdef T_LORA_PAGER
     moduleConfig.canned_message.updown1_enabled = true;
@@ -1145,6 +1169,7 @@ void NodeDB::clearLocalPosition()
     node->position.altitude = 0;
     node->position.time = 0;
     setLocalPosition(meshtastic_Position_init_default);
+    localPositionUpdatedSinceBoot = false;
 }
 
 void NodeDB::cleanupMeshDB()
@@ -1347,6 +1372,23 @@ void NodeDB::loadFromDisk()
     if ((state != LoadFileResult::LOAD_SUCCESS) || (devicestate.version < DEVICESTATE_MIN_VER)) {
         LOG_WARN("Devicestate %d is old or invalid, discard", devicestate.version);
         installDefaultDeviceState();
+
+        // Attempt recovery of owner fields from our own NodeDB entry if available.
+        meshtastic_NodeInfoLite *us = getMeshNode(getNodeNum());
+        if (us && us->has_user) {
+            LOG_WARN("Restoring owner fields (long_name/short_name/is_licensed/is_unmessagable) from NodeDB for our node 0x%08x",
+                     us->num);
+            memcpy(owner.long_name, us->user.long_name, sizeof(owner.long_name));
+            owner.long_name[sizeof(owner.long_name) - 1] = '\0';
+            memcpy(owner.short_name, us->user.short_name, sizeof(owner.short_name));
+            owner.short_name[sizeof(owner.short_name) - 1] = '\0';
+            owner.is_licensed = us->user.is_licensed;
+            owner.has_is_unmessagable = us->user.has_is_unmessagable;
+            owner.is_unmessagable = us->user.is_unmessagable;
+
+            // Save the recovered owner to device state on disk
+            saveToDisk(SEGMENT_DEVICESTATE);
+        }
     } else {
         LOG_INFO("Loaded saved devicestate version %d", devicestate.version);
     }
@@ -1363,6 +1405,13 @@ void NodeDB::loadFromDisk()
             LOG_INFO("Loaded saved config version %d", config.version);
         }
     }
+
+    // Coerce LoRa config fields derived from presets while bootstrapping.
+    // Some clients/UI components display bandwidth/spread_factor directly from config even in preset mode.
+    if (config.has_lora && config.lora.use_preset) {
+        RadioInterface::bootstrapLoRaConfigFromPreset(config.lora);
+    }
+
     if (backupSecurity.private_key.size > 0) {
         LOG_DEBUG("Restoring backup of security config");
         config.security = backupSecurity;
@@ -1641,6 +1690,15 @@ void NodeDB::loadFromDisk()
     if (portduino_config.has_configDisplayMode) {
         config.display.displaymode = (_meshtastic_Config_DisplayConfig_DisplayMode)portduino_config.configDisplayMode;
     }
+    if (portduino_config.has_statusMessage) {
+        moduleConfig.has_statusmessage = true;
+        strncpy(moduleConfig.statusmessage.node_status, portduino_config.statusMessage.c_str(),
+                sizeof(moduleConfig.statusmessage.node_status));
+        moduleConfig.statusmessage.node_status[sizeof(moduleConfig.statusmessage.node_status) - 1] = '\0';
+    }
+    if (portduino_config.enable_UDP) {
+        config.network.enabled_protocols = meshtastic_Config_NetworkConfig_ProtocolFlags_UDP_BROADCAST;
+    }
 
 #endif
 }
@@ -1649,6 +1707,14 @@ void NodeDB::loadFromDisk()
 bool NodeDB::saveProto(const char *filename, size_t protoSize, const pb_msgdesc_t *fields, const void *dest_struct,
                        bool fullAtomic)
 {
+
+    // do not try to save anything if power level is not safe. In many cases flash will be lock-protected
+    // and all writes will fail anyway. Device should be sleeping at this point anyway.
+    if (!powerHAL_isPowerLevelSafe()) {
+        LOG_ERROR("Error: trying to saveProto() on unsafe device power level.");
+        return false;
+    }
+
     bool okay = false;
 #ifdef FSCom
     auto f = SafeFile(filename, fullAtomic);
@@ -1675,6 +1741,14 @@ bool NodeDB::saveProto(const char *filename, size_t protoSize, const pb_msgdesc_
 
 bool NodeDB::saveChannelsToDisk()
 {
+
+    // do not try to save anything if power level is not safe. In many cases flash will be lock-protected
+    // and all writes will fail anyway.
+    if (!powerHAL_isPowerLevelSafe()) {
+        LOG_ERROR("Error: trying to saveChannelsToDisk() on unsafe device power level.");
+        return false;
+    }
+
 #ifdef FSCom
     spiLock->lock();
     FSCom.mkdir("/prefs");
@@ -1685,6 +1759,14 @@ bool NodeDB::saveChannelsToDisk()
 
 bool NodeDB::saveDeviceStateToDisk()
 {
+
+    // do not try to save anything if power level is not safe. In many cases flash will be lock-protected
+    // and all writes will fail anyway. Device should be sleeping at this point anyway.
+    if (!powerHAL_isPowerLevelSafe()) {
+        LOG_ERROR("Error: trying to saveDeviceStateToDisk() on unsafe device power level.");
+        return false;
+    }
+
 #ifdef FSCom
     spiLock->lock();
     FSCom.mkdir("/prefs");
@@ -1697,6 +1779,14 @@ bool NodeDB::saveDeviceStateToDisk()
 
 bool NodeDB::saveNodeDatabaseToDisk()
 {
+
+    // do not try to save anything if power level is not safe. In many cases flash will be lock-protected
+    // and all writes will fail anyway. Device should be sleeping at this point anyway.
+    if (!powerHAL_isPowerLevelSafe()) {
+        LOG_ERROR("Error: trying to saveNodeDatabaseToDisk() on unsafe device power level.");
+        return false;
+    }
+
 #ifdef FSCom
     spiLock->lock();
     FSCom.mkdir("/prefs");
@@ -1709,6 +1799,14 @@ bool NodeDB::saveNodeDatabaseToDisk()
 
 bool NodeDB::saveToDiskNoRetry(int saveWhat)
 {
+
+    // do not try to save anything if power level is not safe. In many cases flash will be lock-protected
+    // and all writes will fail anyway. Device should be sleeping at this point anyway.
+    if (!powerHAL_isPowerLevelSafe()) {
+        LOG_ERROR("Error: trying to saveToDiskNoRetry() on unsafe device power level.");
+        return false;
+    }
+
     bool success = true;
 #ifdef FSCom
     spiLock->lock();
@@ -1743,6 +1841,7 @@ bool NodeDB::saveToDiskNoRetry(int saveWhat)
         moduleConfig.has_paxcounter = true;
         moduleConfig.has_node_mod_admin = true;
         moduleConfig.has_node_mod = true;
+        moduleConfig.has_statusmessage = true;
 
         success &=
             saveProto(moduleConfigFileName, meshtastic_LocalModuleConfig_size, &meshtastic_LocalModuleConfig_msg, &moduleConfig);
@@ -1766,6 +1865,14 @@ bool NodeDB::saveToDiskNoRetry(int saveWhat)
 bool NodeDB::saveToDisk(int saveWhat)
 {
     LOG_DEBUG("Save to disk %d", saveWhat);
+
+    // do not try to save anything if power level is not safe. In many cases flash will be lock-protected
+    // and all writes will fail anyway. Device should be sleeping at this point anyway.
+    if (!powerHAL_isPowerLevelSafe()) {
+        LOG_ERROR("Error: trying to saveToDisk() on unsafe device power level.");
+        return false;
+    }
+
     bool success = saveToDiskNoRetry(saveWhat);
 
     if (!success) {
@@ -1814,6 +1921,23 @@ uint32_t sinceReceived(const meshtastic_MeshPacket *p)
         delta = 0;
 
     return delta;
+}
+
+int8_t getHopsAway(const meshtastic_MeshPacket &p, int8_t defaultIfUnknown)
+{
+    // Firmware prior to 2.3.0 (585805c) lacked a hop_start field. Firmware version 2.5.0 (bf34329) introduced a
+    // bitfield that is always present. Use the presence of the bitfield to determine if the origin's firmware
+    // version is guaranteed to have hop_start populated. Note that this can only be done for decoded packets as
+    // the bitfield is encrypted under the channel encryption key. For encrypted packets, this returns
+    // defaultIfUnknown when hop_start is 0.
+    if (p.hop_start == 0 && !(p.which_payload_variant == meshtastic_MeshPacket_decoded_tag && p.decoded.has_bitfield))
+        return defaultIfUnknown; // Cannot reliably determine the number of hops.
+
+    // Guard against invalid values.
+    if (p.hop_start < p.hop_limit)
+        return defaultIfUnknown;
+
+    return p.hop_start - p.hop_limit;
 }
 
 #define NUM_ONLINE_SECS (60 * 60 * 2) // 2 hrs to consider someone offline
@@ -1932,7 +2056,7 @@ void NodeDB::addFromContact(meshtastic_SharedContact contact)
         info->has_device_metrics = false;
         info->has_position = false;
         info->user.public_key.size = 0;
-        info->user.public_key.bytes[0] = 0;
+        memset(info->user.public_key.bytes, 0, sizeof(info->user.public_key.bytes));
     } else {
         /* Clients are sending add_contact before every text message DM (because clients may hold a larger node database with
          * public keys than the radio holds). However, we don't want to update last_heard just because we sent someone a DM!
@@ -2124,9 +2248,10 @@ void NodeDB::updateFrom(const meshtastic_MeshPacket &mp)
         info->via_mqtt = mp.via_mqtt; // Store if we received this packet via MQTT
         
         // If hopStart was set and there wasn't someone messing with the limit in the middle, add hopsAway
-        if (mp.hop_start != 0 && mp.hop_limit <= mp.hop_start) {
+        const int8_t hopsAway = getHopsAway(mp);
+        if (hopsAway >= 0) {
             info->has_hops_away = true;
-            info->hops_away = mp.hop_start - mp.hop_limit;
+            info->hops_away = hopsAway;
         }
         sortMeshDB();
         LOG_DEBUG("NodeDB::updateFrom() EXIT (normal path, NodeDB updated)");
@@ -2344,6 +2469,7 @@ UserLicenseStatus NodeDB::getLicenseStatus(uint32_t nodeNum)
     return info->user.is_licensed ? UserLicenseStatus::Licensed : UserLicenseStatus::NotLicensed;
 }
 
+#if !defined(MESHTASTIC_EXCLUDE_PKI)
 bool NodeDB::checkLowEntropyPublicKey(const meshtastic_Config_SecurityConfig_public_key_t &keyToTest)
 {
     if (keyToTest.size == 32) {
@@ -2358,6 +2484,7 @@ bool NodeDB::checkLowEntropyPublicKey(const meshtastic_Config_SecurityConfig_pub
     }
     return false;
 }
+#endif
 
 bool NodeDB::backupPreferences(meshtastic_AdminMessage_BackupLocation location)
 {
@@ -2443,8 +2570,8 @@ bool NodeDB::restorePreferences(meshtastic_AdminMessage_BackupLocation location,
     } else if (location == meshtastic_AdminMessage_BackupLocation_SD) {
         // TODO: After more mainline SD card support
     }
-    return success;
 #endif
+    return success;
 }
 
 /// Record an error that should be reported via analytics
@@ -2462,7 +2589,10 @@ void recordCriticalError(meshtastic_CriticalErrorCode code, uint32_t address, co
 
     // Currently portuino is mostly used for simulation.  Make sure the user notices something really bad happened
 #ifdef ARCH_PORTDUINO
-    LOG_ERROR("A critical failure occurred, portduino is exiting");
-    exit(2);
+    LOG_ERROR("A critical failure occurred");
+    // TODO: Determine if other critical errors should also cause an immediate exit
+    if (code == meshtastic_CriticalErrorCode_FLASH_CORRUPTION_RECOVERABLE ||
+        code == meshtastic_CriticalErrorCode_FLASH_CORRUPTION_UNRECOVERABLE)
+        exit(2);
 #endif
 }

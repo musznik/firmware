@@ -86,6 +86,16 @@ typedef enum _meshtastic_PortNum {
     /* Paxcounter lib included in the firmware
  ENCODING: protobuf */
     meshtastic_PortNum_PAXCOUNTER_APP = 34,
+    /* Store and Forward++ module included in the firmware
+ ENCODING: protobuf
+ This module is specifically for Native Linux nodes, and provides a Git-style
+ chain of messages. */
+    meshtastic_PortNum_STORE_FORWARD_PLUSPLUS_APP = 35,
+    /* Node Status module
+ ENCODING: protobuf
+ This module allows setting an extra string of status for a node.
+ Broadcasts on change and on a timer, possibly once a day. */
+    meshtastic_PortNum_NODE_STATUS_APP = 36,
     /* Provides a hardware serial interface to send and receive from the Meshtastic network.
  Connect to the RX/TX pins of a device with 38400 8N1. Packets received from the Meshtastic
  network is forwarded to the RX pin while sending a packet to TX will go out to the Mesh network.
@@ -130,6 +140,9 @@ typedef enum _meshtastic_PortNum {
     meshtastic_PortNum_MAP_REPORT_APP = 73,
     /* PowerStress based monitoring support (for automated power consumption testing) */
     meshtastic_PortNum_POWERSTRESS_APP = 74,
+    /* LoraWAN Payload Transport
+ ENCODING: compact binary LoRaWAN uplink (10-byte RF metadata + PHY payload) - see LoRaWANBridgeModule */
+    meshtastic_PortNum_LORAWAN_BRIDGE = 75,
     /* Reticulum Network Stack Tunnel App
  ENCODING: Fragmented RNS Packet. Handled by Meshtastic RNS interface */
     meshtastic_PortNum_RETICULUM_TUNNEL_APP = 76,

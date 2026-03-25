@@ -83,7 +83,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           submodules: recursive
           ref: ${{github.event.pull_request.head.ref}}
@@ -139,7 +139,7 @@ jobs:
         id: tags
 
       - name: Docker login
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           username: meshtastic
           password: ${{ secrets.DOCKER_FIRMWARE_TOKEN }}
