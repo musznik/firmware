@@ -41,9 +41,11 @@ class FloodingRouter : public Router
       uint32_t lastRebroadcastMs = 0;
     };
     static constexpr size_t kMaxPositionEntries = 64;
+    static constexpr float kPositionRebroadcastToleranceMeters = 20.0f; //fw+
     ForwardedPositionEntry recentForwardedPositions[kMaxPositionEntries] = {};
     size_t recentForwardedPositionsCount = 0;
     bool isPositionRebroadcastAllowed(const meshtastic_MeshPacket *p);
+    bool isSamePositionWithinTolerance(const ForwardedPositionEntry &entry, const meshtastic_Position &pos) const; //fw+
     void upsertPositionEntryLRU(uint32_t nodeId, int32_t lat_i, int32_t lon_i, uint32_t nowMs);
 
     //fw+ Opportunistic/selective flooding helpers

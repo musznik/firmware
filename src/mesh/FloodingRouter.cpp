@@ -543,10 +543,14 @@ bool FloodingRouter::isPositionRebroadcastAllowed(const meshtastic_MeshPacket *p
     // Find existing entry
     for (size_t i = 0; i < recentForwardedPositionsCount; ++i) {
         if (recentForwardedPositions[i].nodeId == p->from) {
-            bool sameCoords = (recentForwardedPositions[i].lastLat_i == pos.latitude_i) &&
-                              (recentForwardedPositions[i].lastLon_i == pos.longitude_i);
+            bool sameCoords = isSamePositionWithinTolerance(recentForwardedPositions[i], pos);
             if (sameCoords && (now - recentForwardedPositions[i].lastRebroadcastMs) < thresholdMs) {
-                // Still within threshold with unchanged position → block
+                LOG_DEBUG("Position limiter: block node=%x delta<=%.1fm age=%ums threshold=%ums",
+                          p->from,
+                          kPositionRebroadcastToleranceMeters,
+                          now - recentForwardedPositions[i].lastRebroadcastMs,
+                          thresholdMs);
+                // Still within threshold with unchanged or near-unchanged position -> block
                 return false;
             }
             // Update LRU / values and allow
@@ -558,6 +562,16 @@ bool FloodingRouter::isPositionRebroadcastAllowed(const meshtastic_MeshPacket *p
     // No existing entry → add and allow
     upsertPositionEntryLRU(p->from, pos.latitude_i, pos.longitude_i, now);
     return true;
+}
+
+bool FloodingRouter::isSamePositionWithinTolerance(const ForwardedPositionEntry &entry, const meshtastic_Position &pos) const
+{
+    // Fast path for byte-identical coordinates before falling back to a meter-based tolerance.
+    if (entry.lastLat_i == pos.latitude_i && entry.lastLon_i == pos.longitude_i) return true;
+
+    float distMeters =
+        GeoCoord::latLongToMeter(entry.lastLat_i * 1e-7, entry.lastLon_i * 1e-7, pos.latitude_i * 1e-7, pos.longitude_i * 1e-7);
+    return distMeters <= kPositionRebroadcastToleranceMeters;
 }
 
 void FloodingRouter::upsertPositionEntryLRU(uint32_t nodeId, int32_t lat_i, int32_t lon_i, uint32_t nowMs)
