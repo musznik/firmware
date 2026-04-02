@@ -380,7 +380,6 @@ bool DtnOverlayModule::deliverLocal(const meshtastic_FwplusDtnData &d)
         
         //FIX #158: Detect DTN receipt binary payload leaked to deliverLocal()
         if (d.payload.size >= 2 && d.payload.bytes[0] == 0xAC && d.payload.bytes[1] == 0xDC) {
-            LOG_ERROR("DTN FIX #158: deliverLocal() received receipt binary payload (magic 0xAC 0xDC) - aborting!");
             LOG_ERROR("This should NOT happen! Receipt detection failed. Payload size=%u, channel=%u, encrypted=%d",
                      d.payload.size, d.channel, d.is_encrypted);
         return false;
@@ -631,7 +630,6 @@ int32_t DtnOverlayModule::runOnce()
     invalidateStaleRoutes();
     //detailed logging and monitoring
     logDetailedStats();
-    
     //Random delayed hello-backs (prevents RF collision storm)
     processScheduledHellobacks();
     
@@ -1326,21 +1324,10 @@ bool DtnOverlayModule::enqueueFromCaptured(uint32_t origId, uint32_t origFrom, u
     if (plainSize > 0) memcpy(plainBuf, bytes, plainSize);
     bool originalIsEncrypted = isEncrypted;
 
-    //FIX #126 + FIX #131: Guard against malformed packets (invalid fields cause crashes/duplicates!)
-    // PROBLEM: Router occasionally receives malformed packets with to=0x0 or id=0x0
-    //          DTN intercepts, calls enqueueFromCaptured(origTo=0x0 or origId=0x0)
-    //          sendProxyFallback(0x0) → packetPool.allocCopy() → NULL pointer access → CRASH!
-    // ROOT CAUSE: Malformed packet from RF corruption or bug in another node (e.g., FIX #130 before fix)
-    // EXAMPLE: ESP32 crash log:
-    //          "ERROR | Packet received with to: of 0!"
-    //          "DTN capture id=0x0 src=0x1f9ffb04 dst=0x0"
-    //          "Guru Meditation Error: Core 1 panic'ed (LoadProhibited)"
-    //          EXCVADDR: 0x1f9ffb08 (invalid memory access)
-    // FIX #131: Also reject origId=0x0 (causes duplicate delivery after 5min retry)
     // SOLUTION: Reject packets with origId=0, origTo=0, or origFrom=0 (all invalid)
     // BENEFIT: Prevents ESP32 crash AND duplicate delivery from malformed packets
     if (origId == 0 || origTo == 0 || origFrom == 0) {
-        LOG_ERROR("DTN FIX #126/#131: Rejecting malformed packet id=0x%x from=0x%x to=0x%x (invalid fields, prevents crash/duplicates!)",
+        LOG_ERROR("DTN: Rejecting malformed packet id=0x%x from=0x%x to=0x%x (invalid fields, prevents crash/duplicates!)",
                  origId, origFrom, origTo);
         return false; // Reject invalid packet
     }
@@ -1448,16 +1435,8 @@ bool DtnOverlayModule::enqueueFromCaptured(uint32_t origId, uint32_t origFrom, u
     d.payload.size = size;
         d.use_pki_encryption = false;
     }
-    
-    // FIX #80 + #90: Initialize custody_path with source node for global loop detection
-    // PROBLEM: Local recentCarriers[3] buffer can't detect loops in long custody chains (A→B→C→D→B)
-    // SOLUTION: Track full custody chain in protobuf custody_path field (max 16 hops)
-    // BENEFIT: Prevents custody loops, enables RECEIPT reverse routing, provides debugging trace
-    // PAYLOAD: Adds ~1 byte per hop (compact encoding using NodeNum & 0xFF)
-    // FIX #90: Explicit zeroing of custody_path array to prevent corruption
-    // PROBLEM: meshtastic_FwplusDtnData_init_zero may not clear custody_path array (garbage from previous messages)
-    //          Result: "Loop detected in NEW entry" for fresh PhoneAPI messages (Test 4b, Repeat 2)
-    // SOLUTION: Explicitly zero custody_path before adding source node
+
+    // Explicitly zero custody_path before adding source node
     memset(d.custody_path, 0, sizeof(d.custody_path));
     d.custody_path_count = 0;
     if (d.custody_path_count < 16) {
@@ -1559,16 +1538,6 @@ void DtnOverlayModule::handleData(const meshtastic_MeshPacket &mp, const meshtas
         
         return;
     }
-    //FIX #163: Loop detection via custody_path check (prevent custody loops)
-    // PROBLEM: Node3 receives custody packet, forwards it, then receives SAME packet again
-    //          (via broadcast fallback or RF overhearing) and re-schedules as NEW pending
-    // EXAMPLE: chain=[0x1d->0x1b->0x13->0x1c] received by Node3 (0x13 already in path!)
-    //          Node3 doesn't check custody_path → creates NEW pending → LOOP!
-    // ROOT CAUSE: 11 pending custody packets on Node3 = same packets looping back!
-    //             Result: channel util climbs to 42%, deadlock, messages never delivered
-    // SOLUTION: Check if OUR NodeNum already exists in custody_path BEFORE accepting custody
-    //           If we're already in the chain, REJECT custody (packet looping back!)
-    // BENEFIT: Prevents custody loops, stops pending accumulation, keeps channel clean
     // NOTE: This is CRITICAL for hub nodes which see many custody transfers!
     NodeNum ourNodeNum = nodeDB->getNodeNum();
     //
@@ -1620,23 +1589,6 @@ void DtnOverlayModule::handleData(const meshtastic_MeshPacket &mp, const meshtas
     // Otherwise, coordinate with others: if we heard someone else carrying this id, suppress our attempt for a while 
     auto it = pendingById.find(d.orig_id);
     if (it == pendingById.end()) {
-        //FIX #170 + #171: Enforce maxActive limit BEFORE accepting custody transfer
-        // PROBLEM: Intermediate nodes accept unlimited custody transfers → pending accumulation → packet storm
-        //          Example: Node3 has 8 pending (maxActive=3!), channel util >25%, node1 CRASH!
-        //          Test: node3.log line 6342-6350 shows 8 pending + Ch. util >25% warnings
-        // ROOT CAUSE: handleData() calls scheduleOrUpdate() without checking pendingById.size()
-        //             Result: Intermediate nodes become bottlenecks, accumulate packets, crash network
-        //
-        // FIX #171: Detect receipt custody and use separate limit (or skip custody entirely)
-        // PROBLEM: Receipts compete with DATA for custody slots → legitimate messages REJECTED!
-        //          Example: User sends 5 messages → 3 accepted, 2 REJECTED (maxActive=3)
-        //          But 5/8 pendings are RECEIPTS, not user data! User suffers for receipt overhead!
-        // ROOT CAUSE: Receipt custody uses same pending pool as DATA → unfair competition
-        // SOLUTION: Detect receipt custody (magic bytes 0xAC 0xDC) and either:
-        //           A) Use separate limit (e.g., maxActive for DATA, unlimited for receipts with broadcast fallback)
-        //           B) Skip custody for receipts entirely (broadcast via routing table)
-        // BENEFIT: User messages prioritized, receipts don't block legitimate traffic
-        //
         // Count DATA pendings only to prevent receipts from exhausting the limit
         uint32_t activeDataCount = 0;
         if (!pendingById.empty()) {
@@ -1681,8 +1633,6 @@ void DtnOverlayModule::handleData(const meshtastic_MeshPacket &mp, const meshtas
             LOG_INFO("DTN: Intermediate cold start - using native DM fallback for id=0x%x dest=0x%x", 
                      d.orig_id, (unsigned)d.orig_to);
             
-            // NOTE: Aggressive discovery removed - rely on broadcast beacons only
-            
             // Create a temporary pending entry just for fallback
             Pending tempPending;
             tempPending.data = d;
@@ -1700,15 +1650,6 @@ void DtnOverlayModule::handleData(const meshtastic_MeshPacket &mp, const meshtas
         auto &p = pendingById[d.orig_id];
         trackCarrier(p, getFrom(&mp));
         
-        //FIX #124: Add intermediate node to custody_path to prevent loops
-        // PROBLEM: Intermediate nodes don't add themselves to custody_path
-        //          Result: custody loop (Node 3 ↔ Node 7 ↔ Node 11 ↔ Node 6) because no loop detection!
-        //          Example: chain=[0x11] stays [0x11] forever, no matter how many intermediates relay it
-        // ROOT CAUSE: Only source node adds itself in enqueueFromCaptured()
-        //             Intermediate nodes receive DATA, create pending, but never extend custody_path
-        // SOLUTION: When intermediate node takes custody, add self to custody_path
-        //           Progressive relay loop detection checks custody_path (line 3575-3582)
-        //           Without this, same nodes are selected repeatedly → ping-pong loop
         // Fixes custody ping-pong loop
         if (p.data.custody_path_count < 16) {
             uint8_t selfByte = nodeDB->getNodeNum() & 0xFF;
@@ -1717,15 +1658,11 @@ void DtnOverlayModule::handleData(const meshtastic_MeshPacket &mp, const meshtas
             for (pb_size_t i = 0; i < p.data.custody_path_count; ++i) {
                 if (p.data.custody_path[i] == selfByte) {
                     alreadyInPath = true;
-                    //
-                    LOG_DEBUG("DTN FIX #124: custody_path already contains self (0x%x) for id=0x%x", (unsigned)nodeDB->getNodeNum(), d.orig_id);
                     break;
                 }
             }
             if (!alreadyInPath) {
                 p.data.custody_path[p.data.custody_path_count++] = selfByte;
-                LOG_DEBUG("DTN FIX #124: Added self (0x%x) to custody_path for id=0x%x (count=%u)",
-                         (unsigned)nodeDB->getNodeNum(), d.orig_id, (unsigned)p.data.custody_path_count);
             }
         } else {
             LOG_WARN("DTN FIX #124: custody_path full (16 hops) for id=0x%x - cannot add self", d.orig_id);
@@ -1958,9 +1895,6 @@ void DtnOverlayModule::handleReceipt(const meshtastic_MeshPacket &mp, const mesh
     //          Result: APK shows "Message expired" AFTER showing "Delivered" (confusing UX!)
     // ROOT CAUSE: Intermediate nodes didn't hear DELIVERED receipt (went via reverse custody path)
     //             They continue retry attempts → max_tries → emit EXPIRED → forwarded to source
-    // EXAMPLE: Node 1→15 via Node 6→15 (delivery successful, 19:23:36)
-    //          Node 11 had pending, didn't hear DELIVERED, retried 3x, sent EXPIRED (19:32:35)
-    //          Source got: DELIVERED (3x, 19:24:11) then EXPIRED (4x from nodes 3,6,7,11)
     // SOLUTION: Track final receipt status per message ID (tombstone-like)
     //           Ignore late receipts with lower priority (EXPIRED after DELIVERED)
     // PRIORITY: DELIVERED (1) > FAILED (2) > EXPIRED (3) > PROGRESSED (4, milestone only)

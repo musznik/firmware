@@ -564,6 +564,7 @@ bool FloodingRouter::isPositionRebroadcastAllowed(const meshtastic_MeshPacket *p
     return true;
 }
 
+//fw+
 bool FloodingRouter::isSamePositionWithinTolerance(const ForwardedPositionEntry &entry, const meshtastic_Position &pos) const
 {
     // Fast path for byte-identical coordinates before falling back to a meter-based tolerance.

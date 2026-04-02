@@ -692,7 +692,7 @@ extern "C" {
 #define meshtastic_Telemetry_health_metrics_tag  7
 #define meshtastic_Telemetry_host_metrics_tag    8
 #define meshtastic_Telemetry_traffic_management_stats_tag 9
-#define meshtastic_Telemetry_local_stats_extended_tag 10
+#define meshtastic_Telemetry_local_stats_extended_tag 20
 #define meshtastic_Nau7802Config_zeroOffset_tag  1
 #define meshtastic_Nau7802Config_calibrationFactor_tag 2
 #define meshtastic_SEN5XState_last_cleaning_time_tag 1
@@ -861,7 +861,7 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (variant,local_stats,variant.local_stats),   
 X(a, STATIC,   ONEOF,    MESSAGE,  (variant,health_metrics,variant.health_metrics),   7) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (variant,host_metrics,variant.host_metrics),   8) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (variant,traffic_management_stats,variant.traffic_management_stats),   9) \
-X(a, STATIC,   ONEOF,    MESSAGE,  (variant,local_stats_extended,variant.local_stats_extended),  10)
+X(a, STATIC,   ONEOF,    MESSAGE,  (variant,local_stats_extended,variant.local_stats_extended),  20)
 #define meshtastic_Telemetry_CALLBACK NULL
 #define meshtastic_Telemetry_DEFAULT NULL
 #define meshtastic_Telemetry_variant_device_metrics_MSGTYPE meshtastic_DeviceMetrics

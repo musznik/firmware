@@ -119,7 +119,7 @@ int MeshService::handleFromRadio(const meshtastic_MeshPacket *mp)
                 router->blocked_by_hoplimit++;
                 LOG_DEBUG("Skip send NodeInfo: %d hops away is too far away", hopsUsed);
             } else {
-                LOG_INFO("Heard new node on ch. %d, send NodeInfo and ask for response", mp->channel);
+                LOG_INFO("Heard new node on ch. %d, send NodeInfo", mp->channel);
                 nodeInfoModule->sendOurNodeInfo(mp->from, true, mp->channel);
             }
         } else {
@@ -131,7 +131,7 @@ int MeshService::handleFromRadio(const meshtastic_MeshPacket *mp)
     //fw+ guard pool exhaustion on copy to phone
     meshtastic_MeshPacket *copyToPhone = packetPool.allocCopy(*mp);
     if (!copyToPhone) {
-        LOG_WARN("Skip Forwarding to phone: packetPool exhausted");
+        LOG_WARN("Skip phone: packetPool exhausted");
         return 0;
     }
     sendToPhone(copyToPhone);
