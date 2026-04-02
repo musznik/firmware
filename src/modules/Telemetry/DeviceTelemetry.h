@@ -46,7 +46,7 @@ class DeviceTelemetryModule : private concurrency::OSThread,
 
   private:
     meshtastic_Telemetry getDeviceTelemetry();
-    meshtastic_Telemetry getLocalStatsTelemetry(bool includeDuplicates);
+    meshtastic_Telemetry getLocalStatsTelemetry();
     meshtastic_Telemetry getLocalStatsExtendedTelemetry();
 
 
