@@ -151,10 +151,67 @@ Key Behaviors in Mixed Networks:
 #include "mqtt/MQTT.h"
 #include <pb_encode.h>
 #include <cstring>
-#include <sstream>
+#include <cstdio>
 #include <set>
 #include <algorithm>
 #include <cmath>
+
+namespace {
+// Format like: "0x12->0x34->0xab"
+// Returns number of chars written (excluding NUL).
+static size_t formatLowByteChain(const uint8_t *bytes, size_t count, char *out, size_t outSize)
+{
+    if (!out || outSize == 0) {
+        return 0;
+    }
+    if (!bytes || count == 0) {
+        out[0] = '\0';
+        return 0;
+    }
+
+    size_t pos = 0;
+    for (size_t i = 0; i < count; ++i) {
+        const char *sep = (i == 0) ? "" : "->";
+        int n = snprintf(out + pos, outSize - pos, "%s0x%02x", sep, (unsigned)bytes[i]);
+        if (n <= 0) {
+            break;
+        }
+        if ((size_t)n >= (outSize - pos)) {
+            pos = outSize - 1; // keep NUL term
+            break;
+        }
+        pos += (size_t)n;
+    }
+    return pos;
+}
+
+// Format like: "0x1234, 0x5678" (NodeNum may be 32-bit; print as hex without leading zeros)
+static size_t formatNodeNumList(const std::vector<NodeNum> &hops, char *out, size_t outSize)
+{
+    if (!out || outSize == 0) {
+        return 0;
+    }
+    if (hops.empty()) {
+        (void)snprintf(out, outSize, "none");
+        return 4;
+    }
+
+    size_t pos = 0;
+    for (size_t i = 0; i < hops.size(); ++i) {
+        const char *sep = (i == 0) ? "" : ", ";
+        int n = snprintf(out + pos, outSize - pos, "%s0x%x", sep, (unsigned)hops[i]);
+        if (n <= 0) {
+            break;
+        }
+        if ((size_t)n >= (outSize - pos)) {
+            pos = outSize - 1;
+            break;
+        }
+        pos += (size_t)n;
+    }
+    return pos;
+}
+} // namespace
 
 DtnOverlayModule *dtnOverlayModule; 
 // Purpose: hot-reload DTN overlay settings from ModuleConfig at runtime.
@@ -1094,15 +1151,14 @@ bool DtnOverlayModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, m
         certifyFwplus(getFrom(&mp), "rx-data");
         
         // FIX #80: Log custody chain for route debugging
-        std::ostringstream pathOss;
-        for (pb_size_t i = 0; i < msg->variant.data.custody_path_count; ++i) {
-            if (i > 0) pathOss << "->";
-            pathOss << "0x" << std::hex << (unsigned)msg->variant.data.custody_path[i];
-        }
+        char chainBuf[6 * 8 + 2 * 7 + 1]; // "0xNN" * 8 + "->" * 7 + NUL
+        chainBuf[0] = '\0';
+        (void)formatLowByteChain(msg->variant.data.custody_path, msg->variant.data.custody_path_count, chainBuf,
+                                 sizeof(chainBuf));
         
         LOG_INFO("DTN rx DATA id=0x%x from=0x%x to=0x%x (mp.to=0x%x) enc=%d ttl_ms=%u chain=[%s]", msg->variant.data.orig_id,
                  (unsigned)getFrom(&mp), (unsigned)msg->variant.data.orig_to, (unsigned)mp.to,
-                 (int)msg->variant.data.is_encrypted, (unsigned)msg->variant.data.ttl_remaining_ms, pathOss.str().c_str());
+                 (int)msg->variant.data.is_encrypted, (unsigned)msg->variant.data.ttl_remaining_ms, chainBuf);
         
         
         // FIX #174: Feed DTN custody chains to DV-ETX routing table (passive learning)
@@ -2036,8 +2092,11 @@ void DtnOverlayModule::handleReceipt(const meshtastic_MeshPacket &mp, const mesh
                 }
 
                 if (success) {
+                    char hopsBuf[128];
+                    hopsBuf[0] = '\0';
+                    (void)formatNodeNumList(history.attemptedHops, hopsBuf, sizeof(hopsBuf));
                     LOG_INFO("DTN PathLearn: Packet id=0x%x SUCCESS via path(s): %s",
-                             r.orig_id, formatHopList(history.attemptedHops).c_str());
+                             r.orig_id, hopsBuf);
 
                     // ADAPTIVE ROUTING: cache successful first-hop for this destination
                     if (!history.attemptedHops.empty() && history.destination != 0) {
@@ -2052,8 +2111,11 @@ void DtnOverlayModule::handleReceipt(const meshtastic_MeshPacket &mp, const mesh
                                  (unsigned)firstHop, (unsigned)history.destination, (unsigned)chain.chainLength);
                     }
                 } else {
+                    char hopsBuf[128];
+                    hopsBuf[0] = '\0';
+                    (void)formatNodeNumList(history.attemptedHops, hopsBuf, sizeof(hopsBuf));
                     LOG_WARN("DTN PathLearn: Packet id=0x%x FAILED via path(s): %s (status=%u)",
-                             r.orig_id, formatHopList(history.attemptedHops).c_str(), r.status);
+                             r.orig_id, hopsBuf, r.status);
                 }
 
                 packetPathHistoryMap.erase(r.orig_id);
@@ -3213,14 +3275,12 @@ void DtnOverlayModule::tryForward(uint32_t id, Pending &p)
 
     // FIX #50: Add custody ACK tracking for debugging
     // FIX #80: Log custody chain for debugging and route visualization
-    std::ostringstream pathOss;
-    for (pb_size_t i = 0; i < p.data.custody_path_count; ++i) {
-        if (i > 0) pathOss << "->";
-        pathOss << "0x" << std::hex << (unsigned)p.data.custody_path[i];
-    }
+    char chainBuf[6 * 8 + 2 * 7 + 1]; // "0xNN" * 8 + "->" * 7 + NUL
+    chainBuf[0] = '\0';
+    (void)formatLowByteChain(p.data.custody_path, p.data.custody_path_count, chainBuf, sizeof(chainBuf));
     LOG_INFO("DTN: custody send id=0x%x to=0x%x edge=0x%x try=%u ttl_ms=%u chain=[%s]", 
              (unsigned)id, (unsigned)target, (unsigned)mp->to, (unsigned)p.tries, 
-             (unsigned)p.data.ttl_remaining_ms, pathOss.str().c_str());
+             (unsigned)p.data.ttl_remaining_ms, chainBuf);
     
     //FIX #150: Treat receipts like DATA packets (same progressive relay mechanism)
     // PROBLEM: FIX #149c added complex broadcast fallback for receipts (dead-end detection, TTL tail)
@@ -6663,21 +6723,7 @@ void DtnOverlayModule::logAdaptiveRoutingStatistics()
     LOG_INFO("=======================================");
 }
 
-// Purpose: Format hop list for logging
-// Inputs: hops - vector of node numbers
-// Returns: Formatted string like "0x11, 0x12, 0x13"
-// Used by: Logging functions to display path history
-std::string DtnOverlayModule::formatHopList(const std::vector<NodeNum>& hops) const
-{
-    if (hops.empty()) return "none";
-    
-    std::ostringstream oss;
-    for (size_t i = 0; i < hops.size(); ++i) {
-        oss << "0x" << std::hex << hops[i];
-        if (i < hops.size() - 1) oss << ", ";
-    }
-    return oss.str();
-}
+// formatHopList() removed: it used iostreams and pulled in large libstdc++ locale machinery.
 
 #endif // __has_include("mesh/generated/meshtastic/fwplus_dtn.pb.h")
 
