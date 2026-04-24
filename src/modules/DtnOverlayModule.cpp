@@ -129,6 +129,9 @@ Key Behaviors in Mixed Networks:
 - Receipts provide end-to-end confirmation and passive FW+ discovery
 - Broadcast as last resort: public, cooldown-gated, allows 7-hop propagation
 */
+#include "configuration.h"
+
+#if !MESHTASTIC_EXCLUDE_DTN
 #include "DtnOverlayModule.h"
 #if __has_include("mesh/generated/meshtastic/fwplus_dtn.pb.h")
 #include "MeshService.h"
@@ -137,7 +140,6 @@ Key Behaviors in Mixed Networks:
 #include "RTC.h"
 #include "Default.h"
 #include "airtime.h"
-#include "configuration.h"
 #include "MobilityOracle.h"
 #include "modules/RoutingModule.h"
 #include "mesh/NextHopRouter.h"
@@ -6678,3 +6680,5 @@ std::string DtnOverlayModule::formatHopList(const std::vector<NodeNum>& hops) co
 }
 
 #endif // __has_include("mesh/generated/meshtastic/fwplus_dtn.pb.h")
+
+#endif // !MESHTASTIC_EXCLUDE_DTN

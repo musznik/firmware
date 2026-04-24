@@ -51,7 +51,7 @@
 
 
 #include "modules/NodeMod.h"
-#if __has_include("mesh/generated/meshtastic/fwplus_dtn.pb.h")
+#if !MESHTASTIC_EXCLUDE_DTN && __has_include("mesh/generated/meshtastic/fwplus_dtn.pb.h")
 //fw+ DTN overlay
 #include "modules/DtnOverlayModule.h"
 #endif
@@ -1013,7 +1013,7 @@ bool AdminModule::handleSetModuleConfig(const meshtastic_ModuleConfig &c)
         moduleConfig.dtn_overlay = c.payload_variant.dtn_overlay;
         shouldReboot = false;
         //fw+ apply changes immediately if module is present
-#if __has_include("mesh/generated/meshtastic/fwplus_dtn.pb.h")
+#if !MESHTASTIC_EXCLUDE_DTN && __has_include("mesh/generated/meshtastic/fwplus_dtn.pb.h")
         if (dtnOverlayModule)
             dtnOverlayModule->reloadFromModuleConfig();
 #endif

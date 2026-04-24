@@ -19,7 +19,7 @@
 #include "main.h"
 #include "xmodem.h"
 
-#if __has_include("modules/DtnOverlayModule.h")
+#if !MESHTASTIC_EXCLUDE_DTN && __has_include("modules/DtnOverlayModule.h")
 #include "modules/DtnOverlayModule.h"
 extern DtnOverlayModule *dtnOverlayModule;
 #endif
@@ -59,7 +59,7 @@ PhoneAPI::~PhoneAPI()
 // Result: APK shows "DTN processing" status
 void PhoneAPI::sendDtnAcceptedReceipt(PacketId origId, ChannelIndex channel)
 {
-#if __has_include("modules/DtnOverlayModule.h")
+#if !MESHTASTIC_EXCLUDE_DTN && __has_include("modules/DtnOverlayModule.h")
     if (!dtnOverlayModule) {
         return; // DTN not available
     }
@@ -862,7 +862,7 @@ bool PhoneAPI::handleToRadioPacket(meshtastic_MeshPacket &p)
     lastPortNumToRadio[p.decoded.portnum] = millis();
     
     //fw+ DTN intercept for TEXT messages from phone API (before encryption)
-#if __has_include("modules/DtnOverlayModule.h")
+#if !MESHTASTIC_EXCLUDE_DTN && __has_include("modules/DtnOverlayModule.h")
     if (dtnOverlayModule && p.decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP) {
         bool isUnicast = (p.to != NODENUM_BROADCAST && p.to != NODENUM_BROADCAST_NO_LORA);
         //fw+ Pass channel (should be 0 here, before encryption)

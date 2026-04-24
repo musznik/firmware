@@ -111,7 +111,9 @@
 /* #include "modules/IdleGameModule.h"*/
 #include "modules/OnDemandModule.h"
 #include "modules/SignalReplyModule.h"
+#if !MESHTASTIC_EXCLUDE_DTN && __has_include("modules/DtnOverlayModule.h")
 #include "modules/DtnOverlayModule.h" //fw+
+#endif
 #include "modules/BroadcastAssistModule.h" //fw+
 #if defined(HAS_HARDWARE_WATCHDOG)
 #include "watchdog/watchdogThread.h"
@@ -268,7 +270,9 @@ void setupModules()
     //idleGameModule = new IdleGameModule();
     onDemandModule = new OnDemandModule();
     signalReplyModule = new SignalReplyModule();
+#if !MESHTASTIC_EXCLUDE_DTN && __has_include("modules/DtnOverlayModule.h")
     dtnOverlayModule = new DtnOverlayModule();
+#endif
     if (moduleConfig.has_broadcast_assist && moduleConfig.broadcast_assist.enabled) {
         new BroadcastAssistModule();
     }

@@ -19,7 +19,7 @@
 #include "modules/NodeInfoModule.h"
 #include "modules/PositionModule.h"
 #include "modules/RoutingModule.h"
-#if __has_include("modules/DtnOverlayModule.h")
+#if !MESHTASTIC_EXCLUDE_DTN && __has_include("modules/DtnOverlayModule.h")
 #include "modules/DtnOverlayModule.h" //fw+
 #endif
 #include "power.h"
@@ -265,7 +265,7 @@ void MeshService::handleToRadio(meshtastic_MeshPacket &p)
               })
 
     //fw+ DTN wrap at source when enabled: for unicast TEXT, enqueue overlay instead of sending native DM
-#if __has_include("modules/DtnOverlayModule.h")
+#if !MESHTASTIC_EXCLUDE_DTN && __has_include("modules/DtnOverlayModule.h")
     // Check DTN module directly if moduleConfig not set (e.g., simulator with default-enabled DTN)
     bool dtnEnabled = (moduleConfig.has_dtn_overlay && moduleConfig.dtn_overlay.enabled) ||
                      (dtnOverlayModule && dtnOverlayModule->isEnabled());

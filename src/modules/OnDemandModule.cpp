@@ -15,7 +15,9 @@
 #include "SPILock.h"
 #include "FSCommon.h"
 #include "StoreForwardModule.h"
+#if !MESHTASTIC_EXCLUDE_DTN && __has_include("DtnOverlayModule.h")
 #include "DtnOverlayModule.h"
+#endif
 #include "BroadcastAssistModule.h"
 #include "FwPlusVersion.h"
 
@@ -362,6 +364,8 @@ meshtastic_OnDemand OnDemandModule::prepareDtnOverlayStats()
 
     auto &dst = onDemand.variant.response.response_data.dtn_overlay_stats;
     dst.has_enabled = true;
+    
+#if !MESHTASTIC_EXCLUDE_DTN && __has_include("DtnOverlayModule.h")
     dst.enabled = (moduleConfig.has_dtn_overlay && moduleConfig.dtn_overlay.enabled);
     if (dtnOverlayModule) {
         DtnOverlayModule::DtnStatsSnapshot s{};
@@ -397,6 +401,10 @@ meshtastic_OnDemand OnDemandModule::prepareDtnOverlayStats()
         // Fallback stats
         if (s.fwplusUnresponsiveFallbacks > 0) { dst.has_fwplus_unresponsive_fallbacks = true; dst.fwplus_unresponsive_fallbacks = s.fwplusUnresponsiveFallbacks; }
     }
+#else
+    // DTN compiled out
+    dst.enabled = false;
+#endif
 
     //guard against radio MTU: trim least critical fields by priority
     // Priority 1: Drop detailed routing stats (lowest priority)

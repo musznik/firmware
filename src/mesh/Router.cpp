@@ -12,7 +12,7 @@
 #include "meshUtils.h"
 #include "MeshService.h"
 #include "modules/RoutingModule.h"
-#if __has_include("modules/DtnOverlayModule.h")
+#if !MESHTASTIC_EXCLUDE_DTN && __has_include("modules/DtnOverlayModule.h")
 #include "modules/DtnOverlayModule.h" //fw+
 #endif
 #if !MESHTASTIC_EXCLUDE_MQTT
@@ -423,7 +423,7 @@ ErrorCode Router::send(meshtastic_MeshPacket *p)
     // If the packet is not yet encrypted, do so now
     if (p->which_payload_variant == meshtastic_MeshPacket_decoded_tag) {
         //fw+ DTN-first: intercept private TEXT unicasts when DTN overlay is enabled and can help
-#if __has_include("mesh/generated/meshtastic/fwplus_dtn.pb.h")
+#if !MESHTASTIC_EXCLUDE_DTN && __has_include("mesh/generated/meshtastic/fwplus_dtn.pb.h")
         // Don't re-intercept DTN fallback packets (spoofed sender = from != our node)
         // DTN fallback uses sender spoofing for proper decryption, but this would create infinite loop
         // if we intercept again: DTN fallback → Router intercept → DTN → fallback → ...
