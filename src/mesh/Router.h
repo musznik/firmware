@@ -116,9 +116,6 @@ class Router : protected concurrency::OSThread, protected PacketHistory
     //fw+
     uint32_t packetErrorCounters[38] = {}; // fw+
 
-    // pointer to the encrypted packet
-    meshtastic_MeshPacket *p_encrypted = nullptr;
-
   protected:
     friend class RoutingModule;
 
