@@ -25,7 +25,11 @@
 
 /// max number of QueueStatus packets which can be waiting for delivery to phone
 #ifndef MAX_RX_QUEUESTATUS_TOPHONE
+#if defined(ARCH_ESP32)
+#define MAX_RX_QUEUESTATUS_TOPHONE 16
+#else
 #define MAX_RX_QUEUESTATUS_TOPHONE 4
+#endif
 #endif
 
 /// max number of MqttClientProxyMessage packets which can be waiting for delivery to phone

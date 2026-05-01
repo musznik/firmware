@@ -60,12 +60,15 @@ MeshService *service;
 
 EXT_RAM_BSS_ATTR static MemoryPool<meshtastic_MqttClientProxyMessage, MAX_MQTT_PROXY_MESSAGES> staticMqttClientProxyMessagePool;
 
+// ESP32: match Router packetPool — use heap so QueueStatus copies are not capped at 4 static slots (burst MQTT + mesh triggers warnings).
+#if defined(ARCH_ESP32)
+static MemoryDynamic<meshtastic_QueueStatus> dynamicQueueStatusPool;
+Allocator<meshtastic_QueueStatus> &queueStatusPool = dynamicQueueStatusPool;
+#else
 #define MAX_QUEUE_STATUS 4
-#if defined(ARCH_ESP32) && defined(BOARD_HAS_PSRAM)
-#undef  MAX_QUEUE_STATUS
-#define MAX_QUEUE_STATUS 8
-#endif
 EXT_RAM_BSS_ATTR static MemoryPool<meshtastic_QueueStatus, MAX_QUEUE_STATUS> staticQueueStatusPool;
+Allocator<meshtastic_QueueStatus> &queueStatusPool = staticQueueStatusPool;
+#endif
 
 #define MAX_CLIENT_NOTIFICATIONS 4
 #if defined(ARCH_ESP32) && defined(BOARD_HAS_PSRAM)
@@ -77,8 +80,6 @@ EXT_RAM_BSS_ATTR static MemoryPool<meshtastic_ClientNotification, MAX_CLIENT_NOT
 Allocator<meshtastic_MqttClientProxyMessage> &mqttClientProxyMessagePool = staticMqttClientProxyMessagePool;
 
 Allocator<meshtastic_ClientNotification> &clientNotificationPool = staticClientNotificationPool;
-
-Allocator<meshtastic_QueueStatus> &queueStatusPool = staticQueueStatusPool;
 
 #include "Router.h"
 
