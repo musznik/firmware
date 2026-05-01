@@ -106,6 +106,9 @@ class MeshService
     /// Called when radio config has changed (radios should observe this and set their hardware as required)
     Observable<void *> configChanged;
 
+    ///fw+ Fired when the phone/TCP API finishes the config burst (after FromRadio.config_complete_id).
+    Observable<void *> phoneApiConfigComplete;
+
     MeshService();
 
     void init();

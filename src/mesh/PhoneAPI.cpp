@@ -660,6 +660,9 @@ void PhoneAPI::sendConfigComplete()
     // Allow subclasses to know we've entered steady-state so they can lower power consumption
     onConfigComplete();
 
+    //fw+ Let modules push time-sensitive data (e.g. telemetry) now that the client can read FromRadio again.
+    service->phoneApiConfigComplete.notifyObservers(nullptr);
+
     pauseBluetoothLogging = false;
 }
 

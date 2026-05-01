@@ -89,8 +89,10 @@ class AirTime : private concurrency::OSThread
     ActivityTime activityWindow[ACTIVITY_WINDOW_COUNT] = {}; // fw+
     void updateActivityWindow(const ActivityTime &newData); // fw+
 
-    RxTxAllCounter rxTxAllActivities[RXTXALL_ACTIVITY_COUNT] = {}; // fw+ 
-    uint32_t rxTxAllActivitiesCount = 0; // fw+ 
+    RxTxAllCounter rxTxAllActivities[RXTXALL_ACTIVITY_COUNT] = {}; // fw+
+    uint32_t rxTxAllActivitiesCount = 0; // fw+
+    /// Packets counted in the current (incomplete) 10-minute bucket; see PacketCounter.
+    uint32_t rxPacketBucketPartial = 0; // fw+
     float rx_avg_60_min = 0; // fw+ 
 
 

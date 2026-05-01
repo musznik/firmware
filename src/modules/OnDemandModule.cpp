@@ -704,10 +704,13 @@ meshtastic_OnDemand OnDemandModule::prepareRxPacketHistory()
     onDemand.variant.response.which_response_data = meshtastic_OnDemandResponse_rx_packet_history_tag;
     auto &rxh = onDemand.variant.response.response_data.rx_packet_history;
     const size_t cap = sizeof(rxh.rx_packet_history) / sizeof(rxh.rx_packet_history[0]);
-    size_t count = RXTXALL_ACTIVITY_COUNT;
-    if (count > cap) count = cap;
-    rxh.rx_packet_history_count = (pb_size_t)count;
-    memcpy(rxh.rx_packet_history, airTime->rxTxAllActivities, count * sizeof(rxh.rx_packet_history[0]));
+    // Align with LocalStatsExtended: index 0 = in-progress 10-min bucket, then completed buckets.
+    rxh.rx_packet_history[0] = airTime->rxPacketBucketPartial;
+    size_t n = 1;
+    for (; n < cap && (n - 1) < (size_t)RXTXALL_ACTIVITY_COUNT; n++) {
+        rxh.rx_packet_history[n] = airTime->rxTxAllActivities[n - 1].rxTxAll_counter;
+    }
+    rxh.rx_packet_history_count = (pb_size_t)n;
 
     return onDemand;
 }

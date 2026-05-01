@@ -12,17 +12,11 @@ class DeviceTelemetryModule : private concurrency::OSThread,
 {
     CallbackObserver<DeviceTelemetryModule, const meshtastic::Status *> nodeStatusObserver =
         CallbackObserver<DeviceTelemetryModule, const meshtastic::Status *>(this, &DeviceTelemetryModule::handleStatusUpdate);
+    CallbackObserver<DeviceTelemetryModule, void *> apiConfigObserver =
+        CallbackObserver<DeviceTelemetryModule, void *>(this, &DeviceTelemetryModule::handlePhoneApiConfigComplete);
 
   public:
-    DeviceTelemetryModule()
-        : concurrency::OSThread("DeviceTelemetry"),
-          ProtobufModule("DeviceTelemetry", meshtastic_PortNum_TELEMETRY_APP, &meshtastic_Telemetry_msg)
-    {
-        uptimeWrapCount = 0;
-        uptimeLastMs = millis();
-        nodeStatusObserver.observe(&nodeStatus->onNewStatus);
-        setIntervalFromNow(setStartDelay()); // Wait until NodeInfo is sent
-    }
+    DeviceTelemetryModule();
     virtual bool wantUIFrame() { return false; }
 
 
@@ -53,6 +47,7 @@ class DeviceTelemetryModule : private concurrency::OSThread,
     void sendLocalStatsToPhone();
     void sendLocalStatsToMesh();
     void sendLocalStatsExtendedToMesh();
+    int handlePhoneApiConfigComplete(void *arg);
     uint32_t sendToPhoneIntervalMs = SECONDS_IN_MINUTE * 1000;           // Send to phone every minute
     uint32_t sendStatsToPhoneIntervalMs = 1 * SECONDS_IN_MINUTE * 5000; // Send stats to phone every 5 minutes
     uint32_t lastSentStatsToPhone = 0;

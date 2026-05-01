@@ -1,11 +1,11 @@
 #include "PacketCounter.h"
 #include "NodeDB.h"
 #include "airtime.h"
-uint64_t max_entries = 39;
 
+// Called for overheard RX (Router::sniffReceived) and for our TX (Router::send); bucket totals are RX+TX mesh packets.
 void PacketCounter::onPacketReceived(const meshtastic_MeshPacket *p)
 {
-    //log packet history
+    // log packet history
     if(p->pki_encrypted){
         meshtastic_PortNum portnum = meshtastic_PortNum_UNKNOWN_APP;
         nodeDB->packetHistoryLog.addEntry({p->from, p->to, portnum});
@@ -15,22 +15,23 @@ void PacketCounter::onPacketReceived(const meshtastic_MeshPacket *p)
  
     currentBucketCount++;
     uint64_t nowMs = getMonotonicUptimeMs();
-    if (nowMs - bucketStartMs >= 600000ULL) // 600000 ms = 10 min
-    { 
-        for (int i = max_entries; i > 0; i--) {
-            airTime->rxTxAllActivities[i]=airTime->rxTxAllActivities[i - 1];
+    if (nowMs - bucketStartMs >= 600000ULL) { // 10 min bucket rollover
+        const int lastIdx = RXTXALL_ACTIVITY_COUNT - 1;
+        for (int i = lastIdx; i > 0; i--) {
+            airTime->rxTxAllActivities[i] = airTime->rxTxAllActivities[i - 1];
         }
 
-        airTime->rxTxAllActivities[0].rxTxAll_counter=currentBucketCount;
-        
+        airTime->rxTxAllActivities[0].rxTxAll_counter = currentBucketCount;
+
         if (airTime->rxTxAllActivitiesCount < RXTXALL_ACTIVITY_COUNT) {
             airTime->rxTxAllActivitiesCount++;
         }
- 
+
         currentBucketCount = 0;
         bucketStartMs = nowMs;
     }
 
+    airTime->rxPacketBucketPartial = currentBucketCount;
     airTime->rx_avg_60_min = getAvgLast60Min();
 }
 

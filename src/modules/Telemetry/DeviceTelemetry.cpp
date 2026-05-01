@@ -20,6 +20,27 @@
 #define MAGIC_USB_BATTERY_LEVEL 101
 static constexpr uint16_t TX_HISTORY_KEY_DEVICE_TELEMETRY = 0x8001;
 
+DeviceTelemetryModule::DeviceTelemetryModule()
+    : concurrency::OSThread("DeviceTelemetry"), ProtobufModule("DeviceTelemetry", meshtastic_PortNum_TELEMETRY_APP, &meshtastic_Telemetry_msg)
+{
+    uptimeWrapCount = 0;
+    uptimeLastMs = millis();
+    nodeStatusObserver.observe(&nodeStatus->onNewStatus);
+    apiConfigObserver.observe(&service->phoneApiConfigComplete);
+    setIntervalFromNow(setStartDelay()); // Wait until NodeInfo is sent
+}
+
+int DeviceTelemetryModule::handlePhoneApiConfigComplete(void *arg)
+{
+    (void)arg;
+    // Queue device + local stats for the client right after config_complete (no wait for periodic runOnce).
+    refreshUptime();
+    sendTelemetry(NODENUM_BROADCAST, true);
+    sendLocalStatsToPhone();
+    lastSentStatsToPhone = uptimeLastMs;
+    return 0;
+}
+
 int32_t DeviceTelemetryModule::runOnce()
 {
     refreshUptime();
@@ -32,9 +53,16 @@ int32_t DeviceTelemetryModule::runOnce()
         airTime->isTxAllowedChannelUtil(!isImpoliteRole) && airTime->isTxAllowedAirUtil() &&
         config.device.role != meshtastic_Config_DeviceConfig_Role_CLIENT_HIDDEN &&
         moduleConfig.telemetry.device_telemetry_enabled) {
-        sendTelemetry();
-        if (transmitHistory)
-            transmitHistory->setLastSentToMesh(TX_HISTORY_KEY_DEVICE_TELEMETRY);
+        // Step 1: device_metrics to mesh. Same runOnce tick cannot send local/extended: lastSentToMesh is just set and
+        // the 5-minute gates below require a non-zero elapsed time.
+        if (sendTelemetry()) {
+            if (transmitHistory)
+                transmitHistory->setLastSentToMesh(TX_HISTORY_KEY_DEVICE_TELEMETRY);
+            // Repeaters never run the local/extended mesh blocks; clear the chain flag so state stays consistent.
+            if (config.device.role == meshtastic_Config_DeviceConfig_Role_REPEATER) {
+                statsHaveBeenSent = false;
+            }
+        }
     } else if (service->isToPhoneQueueEmpty()) {
         // Just send to phone when it's not our time to send to mesh yet
         // Only send while queue is empty (phone assumed connected)
@@ -45,7 +73,8 @@ int32_t DeviceTelemetryModule::runOnce()
         }
     }
 
-    // send local telemetry some time after normal telemetry (lightly scaled by network size)
+    // Step 2: local_stats to mesh (after ~5 min from device_metrics). Same tick as step 2 cannot run step 3:
+    // lastSentLocalStatsToMesh was just set, so the extended gate is 0 ms < window.
     if (statsHaveBeenSent == true &&
         localStatsHaveBeenSent == false &&
         (uptimeLastMs - lastSentToMesh) >= Default::getLightlyScaledWindowMs(5 * 60, numOnlineNodes) &&
@@ -62,7 +91,7 @@ int32_t DeviceTelemetryModule::runOnce()
         lastSentLocalStatsToMesh=uptimeLastMs;
     }
 
-    // send local telemetry extended some time after local telemetry over mesh (lightly scaled by network size)
+    // Step 3: local_stats_extended to mesh (after ~5 min from local_stats). Then reset for the next device_metrics cycle.
     if (statsHaveBeenSent == true &&
         localStatsHaveBeenSent == true &&
         (uptimeLastMs - lastSentLocalStatsToMesh) >= Default::getLightlyScaledWindowMs(5 * 60, numOnlineNodes) &&
@@ -223,10 +252,12 @@ meshtastic_Telemetry DeviceTelemetryModule::getLocalStatsExtendedTelemetry()
     #endif
 
     telemetry.variant.local_stats_extended.cpu_usage_percent = CpuHwUsagePercent;
-    // packet history stats
-    telemetry.variant.local_stats_extended.rx_packet_history_count=6;
-    for (int i = 0; i < 6; i++) {
-        telemetry.variant.local_stats_extended.rx_packet_history[i] = airTime->rxTxAllActivities[i].rxTxAll_counter;
+    // Six 10-minute buckets: [0] = current partial window, [1..5] = last five completed windows (newest first).
+    // Protobuf name rx_packet_history is legacy; values aggregate mesh RX (Router::sniffReceived) and our TX (Router::send).
+    telemetry.variant.local_stats_extended.rx_packet_history_count = 6;
+    telemetry.variant.local_stats_extended.rx_packet_history[0] = airTime->rxPacketBucketPartial;
+    for (int i = 1; i < 6; i++) {
+        telemetry.variant.local_stats_extended.rx_packet_history[i] = airTime->rxTxAllActivities[i - 1].rxTxAll_counter;
     }
 
     telemetry.variant.local_stats_extended.rx_avg_60_min = airTime->rx_avg_60_min;
@@ -316,6 +347,8 @@ bool DeviceTelemetryModule::sendTelemetry(NodeNum dest, bool phoneOnly)
     } else {
         service->sendToMesh(p, RX_SRC_LOCAL, true);
         statsHaveBeenSent = true;
+        refreshUptime();
+        lastSentToMesh = uptimeLastMs;
     }
 
     return true;
