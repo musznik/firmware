@@ -77,6 +77,10 @@ class StreamAPI : public PhoneAPI
 
     virtual void onConnectionChanged(bool connected) override;
 
+    /// fw+ Call Stream::flush() after framed writes. Serial benefits from draining TX FIFO; TCP should not flush every packet
+    /// (extra syscall / stack pressure and can worsen EAGAIN under backpressure).
+    virtual bool shouldFlushStreamWrites() const { return true; }
+
     /**
      * Send the current txBuffer over our stream
      */

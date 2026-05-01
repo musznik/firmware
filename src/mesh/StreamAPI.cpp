@@ -182,7 +182,8 @@ void StreamAPI::emitTxBuffer(size_t len)
         // mid-packet-emission can't interleave bytes on the wire.
         concurrency::LockGuard guard(&streamLock);
         stream->write(txBuf, totalLen);
-        stream->flush();
+        if (shouldFlushStreamWrites()) //fw+
+            stream->flush();
     }
 }
 
@@ -233,7 +234,8 @@ void StreamAPI::emitLogRecord(meshtastic_LogRecord_Level level, const char *src,
         // with this log record.
         concurrency::LockGuard guard(&streamLock);
         stream->write(txBufLog, totalLen);
-        stream->flush();
+        if (shouldFlushStreamWrites())
+            stream->flush();
     }
 }
 

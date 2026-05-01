@@ -16,6 +16,9 @@ class WiFiServerAPI : public ServerAPI<WiFiClient>
 {
   public:
     explicit WiFiServerAPI(WiFiClient &_client);
+
+  protected: 
+    bool shouldFlushStreamWrites() const override { return false; } //fw+
 };
 
 /**

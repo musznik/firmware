@@ -12,6 +12,9 @@ class ethServerAPI : public ServerAPI<EthernetClient>
 {
   public:
     explicit ethServerAPI(EthernetClient &_client);
+
+  protected:
+    bool shouldFlushStreamWrites() const override { return false; } //fw+
 };
 
 /**
