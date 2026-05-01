@@ -768,7 +768,12 @@ void AdminModule::handleSetConfig(const meshtastic_Config &c)
 #endif
         config.display = c.payload_variant.display;
         break;
-    case meshtastic_Config_lora_tag:
+ 
+    case meshtastic_Config_lora_tag: {
+        // Wrap the entire case in a block to scope variables and avoid crossing initialization
+        auto oldLoraConfig = config.lora;
+        auto validatedLora = c.payload_variant.lora;
+
         LOG_INFO("Set config: LoRa");
         config.has_lora = true;
 
@@ -869,6 +874,7 @@ void AdminModule::handleSetConfig(const meshtastic_Config &c)
             changes = SEGMENT_CONFIG | SEGMENT_MODULECONFIG;
         }
         break;
+    }
     case meshtastic_Config_bluetooth_tag:
         LOG_INFO("Set config: Bluetooth");
         config.has_bluetooth = true;
