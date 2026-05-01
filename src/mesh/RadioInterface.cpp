@@ -16,6 +16,7 @@
 #include "configuration.h"
 #include "detect/LoRaRadioType.h"
 #include "main.h"
+#include "meshUtils.h" // for pow_of_2
 #include "sleep.h"
 #include <assert.h>
 #include <pb_decode.h>
@@ -30,12 +31,6 @@
 #ifdef ARCH_STM32WL
 #include "STM32WLE5JCInterface.h"
 #endif
-
-// Calculate 2^n without calling pow()
-uint32_t pow_of_2(uint32_t n)
-{
-    return 1 << n;
-}
 
 #define RDEF(name, freq_start, freq_end, duty_cycle, spacing, power_limit, audio_permitted, frequency_switching, wide_lora)      \
     {                                                                                                                            \
@@ -135,8 +130,10 @@ const RegionInfo regions[] = {
 
     /*
        https://lora-alliance.org/wp-content/uploads/2020/11/lorawan_regional_parameters_v1.0.3reva_0.pdf
+       https://standard.nbtc.go.th/getattachment/Standards/%E0%B8%A1%E0%B8%B2%E0%B8%95%E0%B8%A3%E0%B8%90%E0%B8%B2%E0%B8%99%E0%B8%97%E0%B8%B2%E0%B8%87%E0%B9%80%E0%B8%97%E0%B8%84%E0%B8%99%E0%B8%B4%E0%B8%84%E0%B8%82%E0%B8%AD%E0%B8%87%E0%B9%80%E0%B8%84%E0%B8%A3%E0%B8%B7%E0%B9%88%E0%B8%AD%E0%B8%87%E0%B9%82%E0%B8%97%E0%B8%A3%E0%B8%84%E0%B8%A1%E0%B8%99%E0%B8%B2%E0%B8%84%E0%B8%A1/1033-2565.pdf.aspx?lang=th-TH
+       Thailand 920–925 MHz set max TX power to 27 dBm and enforce 10% duty cycle, aligned with NBTC regulations.
     */
-    RDEF(TH, 920.0f, 925.0f, 100, 0, 16, true, false, false),
+    RDEF(TH, 920.0f, 925.0f, 10, 0, 27, true, false, false),
 
     /*
         433,05-434,7 Mhz 10 mW
@@ -924,6 +921,12 @@ void RadioInterface::limitPower(int8_t loraMaxPower)
         power = maxPower;
     }
 
+#if HAS_LORA_FEM
+    if (!devicestate.owner.is_licensed) {
+        power = loraFEMInterface.powerConversion(power);
+    }
+#else
+// todo:All entries containing "lora fem" are grouped together above.
 #ifdef ARCH_PORTDUINO
     size_t num_pa_points = portduino_config.num_pa_points;
     const uint16_t *tx_gain = portduino_config.tx_gain_lora;
@@ -949,7 +952,7 @@ void RadioInterface::limitPower(int8_t loraMaxPower)
             }
         }
     }
-
+#endif
     if (power > loraMaxPower) // Clamp power to maximum defined level
         power = loraMaxPower;
 

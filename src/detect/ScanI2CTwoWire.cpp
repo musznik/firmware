@@ -341,7 +341,9 @@ void ScanI2CTwoWire::scanPort(I2CPort port, uint8_t *address, uint8_t asize)
                         type = DPS310;
                         break;
                     }
-                    break;
+                    if (type == DPS310) {
+                        break;
+                    }
                 default:
                     registerValue = getRegisterValue(ScanI2CTwoWire::RegisterLocation(addr, 0x00), 1); // GET_ID
                     switch (registerValue) {
@@ -583,7 +585,31 @@ void ScanI2CTwoWire::scanPort(I2CPort port, uint8_t *address, uint8_t asize)
                 SCAN_SIMPLE_CASE(PCT2075_ADDR, PCT2075, "PCT2075", (uint8_t)addr.address);
                 SCAN_SIMPLE_CASE(SCD30_ADDR, SCD30, "SCD30", (uint8_t)addr.address);
             case CST328_ADDR:
-                // Do we have the CST328 or the CST226SE
+                // Do we have the CST328 or the CST226SE,CST3530
+                {
+                    // T-Deck pro V1.1 new touch panel use CST3530
+                    int retry = 5;
+                    while (retry--) {
+                        uint8_t buffer[7];
+                        uint8_t r_cmd[] = {0x0d0, 0x03, 0x00, 0x00};
+                        i2cBus->beginTransmission(addr.address);
+                        i2cBus->write(r_cmd, sizeof(r_cmd));
+                        if (i2cBus->endTransmission() == 0) {
+                            i2cBus->requestFrom((int)addr.address, 7);
+                            i2cBus->readBytes(buffer, 7);
+                            if (buffer[2] == 0xCA && buffer[3] == 0xCA) {
+                                logFoundDevice("CST3530", (uint8_t)addr.address);
+                                type = CST3530;
+                                break;
+                            }
+                        }
+                        uint8_t cmd1[] = {0xD0, 0x00, 0x04, 0x00};
+                        i2cBus->beginTransmission(addr.address);
+                        i2cBus->write(cmd1, sizeof(cmd1));
+                        i2cBus->endTransmission();
+                        delay(50);
+                    }
+                }
                 registerValue = getRegisterValue(ScanI2CTwoWire::RegisterLocation(addr, 0xAB), 1);
                 if (registerValue == 0xA9) {
                     type = CST226SE;
@@ -652,9 +678,8 @@ void ScanI2CTwoWire::scanPort(I2CPort port, uint8_t *address, uint8_t asize)
                 }
                 break;
 
-            case ICM20948_ADDR:     // same as BMX160_ADDR and SEN5X_ADDR
-            case ICM20948_ADDR_ALT: // same as MPU6050_ADDR
-                // ICM20948 Register check
+            case ICM20948_ADDR:     // same as BMX160_ADDR, BMI270_ADDR_ALT, and SEN5X_ADDR
+            case ICM20948_ADDR_ALT: // same as MPU6050_ADDR, BMI270_ADDR
                 registerValue = getRegisterValue(ScanI2CTwoWire::RegisterLocation(addr, 0x00), 1);
 #ifdef HAS_ICM20948
                 type = ICM20948;
@@ -664,6 +689,14 @@ void ScanI2CTwoWire::scanPort(I2CPort port, uint8_t *address, uint8_t asize)
                 if (registerValue == 0xEA) {
                     type = ICM20948;
                     logFoundDevice("ICM20948", (uint8_t)addr.address);
+                    break;
+                } else if (registerValue == 0x24) {
+                    type = BMI270;
+                    logFoundDevice("BMI270", (uint8_t)addr.address);
+                    break;
+                } else if (registerValue == 0xD8) { // BMX160 chip ID at register 0x00
+                    type = BMX160;
+                    logFoundDevice("BMX160", (uint8_t)addr.address);
                     break;
                 } else {
                     String prod = "";
@@ -718,11 +751,18 @@ void ScanI2CTwoWire::scanPort(I2CPort port, uint8_t *address, uint8_t asize)
                 if (len == 5 && memcmp(expectedInfo, info, len) == 0) {
                     LOG_INFO("NXP SE050 crypto chip found");
                     type = NXP_SE050;
-
-                } else {
-                    LOG_INFO("FT6336U touchscreen found");
-                    type = FT6336U;
+                    break;
                 }
+
+                registerValue = getRegisterValue(ScanI2CTwoWire::RegisterLocation(addr, 0x01), 2);
+                if (registerValue == 0x8583 || registerValue == 0x8580) {
+                    type = ADS1115;
+                    logFoundDevice("ADS1115 ADC", (uint8_t)addr.address);
+                    break;
+                }
+
+                LOG_INFO("FT6336U touchscreen found");
+                type = FT6336U;
                 break;
             }
 

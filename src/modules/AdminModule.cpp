@@ -23,6 +23,7 @@
 #endif
 
 #include "Default.h"
+#include "MeshRadio.h"
 #include "TypeConversions.h"
 
 #if !MESHTASTIC_EXCLUDE_MQTT
@@ -37,7 +38,7 @@
 #include "modules/PositionModule.h"
 #endif
 
-#if !defined(ARCH_STM32WL) && !MESHTASTIC_EXCLUDE_I2C
+#if !defined(ARCH_STM32WL) && !MESHTASTIC_EXCLUDE_I2C && !MESHTASTIC_EXCLUDE_ACCELEROMETER
 #include "motion/AccelerometerThread.h"
 #endif
 #if (defined(ARCH_ESP32) || defined(ARCH_NRF52) || defined(ARCH_RP2040)) && !defined(CONFIG_IDF_TARGET_ESP32S2) &&               \
@@ -611,10 +612,14 @@ void AdminModule::handleSetOwner(const meshtastic_User &o)
     if (*o.long_name) {
         changed |= strcmp(owner.long_name, o.long_name);
         strncpy(owner.long_name, o.long_name, sizeof(owner.long_name));
+        owner.long_name[sizeof(owner.long_name) - 1] = '\0';
+        sanitizeUtf8(owner.long_name, sizeof(owner.long_name));
     }
     if (*o.short_name) {
         changed |= strcmp(owner.short_name, o.short_name);
         strncpy(owner.short_name, o.short_name, sizeof(owner.short_name));
+        owner.short_name[sizeof(owner.short_name) - 1] = '\0';
+        sanitizeUtf8(owner.short_name, sizeof(owner.short_name));
     }
     snprintf(owner.id, sizeof(owner.id), "!%08x", nodeDB->getNodeNum());
 
@@ -649,7 +654,8 @@ void AdminModule::handleSetConfig(const meshtastic_Config &c)
     case meshtastic_Config_device_tag:
         LOG_INFO("Set config: Device");
         config.has_device = true;
-#if !defined(ARCH_PORTDUINO) && !defined(ARCH_STM32WL) && !MESHTASTIC_EXCLUDE_ENVIRONMENTAL_SENSOR
+#if !defined(ARCH_PORTDUINO) && !defined(ARCH_STM32WL) && !MESHTASTIC_EXCLUDE_ENVIRONMENTAL_SENSOR &&                            \
+    !MESHTASTIC_EXCLUDE_ACCELEROMETER
         if (config.device.double_tap_as_button_press == false && c.payload_variant.device.double_tap_as_button_press == true &&
             accelerometerThread->enabled == false) {
             config.device.double_tap_as_button_press = c.payload_variant.device.double_tap_as_button_press;
@@ -665,10 +671,10 @@ void AdminModule::handleSetConfig(const meshtastic_Config &c)
         }
         config.device = c.payload_variant.device;
         if (config.device.rebroadcast_mode == meshtastic_Config_DeviceConfig_RebroadcastMode_NONE &&
-            IS_ONE_OF(config.device.role, meshtastic_Config_DeviceConfig_Role_ROUTER,
-                      meshtastic_Config_DeviceConfig_Role_REPEATER)) {
+            (config.device.role == meshtastic_Config_DeviceConfig_Role_ROUTER ||
+             config.device.role == meshtastic_Config_DeviceConfig_Role_ROUTER_LATE)) {
             config.device.rebroadcast_mode = meshtastic_Config_DeviceConfig_RebroadcastMode_ALL;
-            const char *warning = "Rebroadcast mode can't be set to NONE for a router or repeater";
+            const char *warning = "Rebroadcast mode can't be set to NONE for a router role";
             LOG_WARN(warning);
             sendWarning(warning);
         }
@@ -751,7 +757,8 @@ void AdminModule::handleSetConfig(const meshtastic_Config &c)
                    c.payload_variant.display.displaymode == meshtastic_Config_DisplayConfig_DisplayMode_COLOR) {
             config.bluetooth.enabled = false;
         }
-#if !defined(ARCH_PORTDUINO) && !defined(ARCH_STM32WL) && !MESHTASTIC_EXCLUDE_ENVIRONMENTAL_SENSOR
+#if !defined(ARCH_PORTDUINO) && !defined(ARCH_STM32WL) && !MESHTASTIC_EXCLUDE_ENVIRONMENTAL_SENSOR &&                            \
+    !MESHTASTIC_EXCLUDE_ACCELEROMETER
         if (config.display.wake_on_tap_or_motion == false && c.payload_variant.display.wake_on_tap_or_motion == true &&
             accelerometerThread->enabled == false) {
             config.display.wake_on_tap_or_motion = c.payload_variant.display.wake_on_tap_or_motion;
@@ -764,6 +771,17 @@ void AdminModule::handleSetConfig(const meshtastic_Config &c)
     case meshtastic_Config_lora_tag:
         LOG_INFO("Set config: LoRa");
         config.has_lora = true;
+
+        if (validatedLora.coding_rate != clampCodingRate(validatedLora.coding_rate)) {
+            LOG_WARN("Invalid coding_rate %d, setting to %d", validatedLora.coding_rate, LORA_CR_DEFAULT);
+            validatedLora.coding_rate = LORA_CR_DEFAULT;
+        }
+
+        if (validatedLora.spread_factor != clampSpreadFactor(validatedLora.spread_factor)) {
+            LOG_WARN("Invalid spread_factor %d, setting to %d", validatedLora.spread_factor, LORA_SF_DEFAULT);
+            validatedLora.spread_factor = LORA_SF_DEFAULT;
+        }
+
         // If no lora radio parameters change, don't need to reboot
         if (config.lora.use_preset == c.payload_variant.lora.use_preset && config.lora.region == c.payload_variant.lora.region &&
             config.lora.modem_preset == c.payload_variant.lora.modem_preset &&
@@ -793,7 +811,18 @@ void AdminModule::handleSetConfig(const meshtastic_Config &c)
             digitalWrite(RF95_FAN_EN, HIGH ^ 0);
         }
 #endif
-        config.lora = c.payload_variant.lora;
+        config.lora = validatedLora;
+
+#if HAS_LORA_FEM
+        // Apply FEM LNA mode from config (only meaningful on hardware that supports it)
+        if (loraFEMInterface.isLnaCanControl()) {
+            loraFEMInterface.setLNAEnable(config.lora.fem_lna_mode != meshtastic_Config_LoRaConfig_FEM_LNA_Mode_DISABLED);
+        } else if (config.lora.fem_lna_mode != meshtastic_Config_LoRaConfig_FEM_LNA_Mode_NOT_PRESENT) {
+            // Hardware FEM does not support LNA control; normalize stored config to match actual capability
+            LOG_WARN("FEM LNA mode configured but current FEM does not support LNA control; normalizing to NOT_PRESENT");
+            config.lora.fem_lna_mode = meshtastic_Config_LoRaConfig_FEM_LNA_Mode_NOT_PRESENT;
+        }
+#endif
         // If we're setting region for the first time, init the region and regenerate the keys
         if (isRegionUnset && config.lora.region > meshtastic_Config_LoRaConfig_RegionCode_UNSET) {
 #if !(MESHTASTIC_EXCLUDE_PKI_KEYGEN || MESHTASTIC_EXCLUDE_PKI)
@@ -1450,7 +1479,11 @@ void AdminModule::handleSetHamMode(const meshtastic_HamParameters &p)
 
     // Set call sign and override lora limitations for licensed use
     strncpy(owner.long_name, p.call_sign, sizeof(owner.long_name));
+    owner.long_name[sizeof(owner.long_name) - 1] = '\0';
+    sanitizeUtf8(owner.long_name, sizeof(owner.long_name));
     strncpy(owner.short_name, p.short_name, sizeof(owner.short_name));
+    owner.short_name[sizeof(owner.short_name) - 1] = '\0';
+    sanitizeUtf8(owner.short_name, sizeof(owner.short_name));
     owner.is_licensed = true;
     config.lora.override_duty_cycle = true;
     config.lora.tx_power = p.tx_power;
@@ -1539,8 +1572,15 @@ void AdminModule::handleSendInputEvent(const meshtastic_AdminMessage_InputEvent 
     LOG_DEBUG("Processing input event: event_code=%u, kb_char=%u, touch_x=%u, touch_y=%u", inputEvent.event_code,
               inputEvent.kb_char, inputEvent.touch_x, inputEvent.touch_y);
 
-    // Create InputEvent for injection
-    InputEvent event = {.inputEvent = (input_broker_event)inputEvent.event_code,
+    // Create InputEvent for injection.
+    //
+    // `.source` MUST be a non-null C string: the LOG_INFO below formats it
+    // with %s, and passing NULL to the esp-log formatter crashes with
+    // Guru Meditation LoadProhibited at strlen(NULL). Other InputBroker
+    // sources (buttons, rotary) always set this; the admin path was the
+    // only one leaving it default-null.
+    InputEvent event = {.source = "admin",
+                        .inputEvent = (input_broker_event)inputEvent.event_code,
                         .kbchar = (unsigned char)inputEvent.kb_char,
                         .touchX = inputEvent.touch_x,
                         .touchY = inputEvent.touch_y};

@@ -4,6 +4,7 @@
 #include "MeshTypes.h"
 #include "PointerQueue.h"
 #include "configuration.h"
+#include "detect/LoRaRadioType.h"
 
 // Map from old region names to new region enums
 struct RegionInfo {
@@ -23,6 +24,49 @@ extern const RegionInfo regions[];
 extern const RegionInfo *myRegion;
 
 extern void initRegion();
+
+// Valid LoRa spread factor range and defaults
+constexpr uint8_t LORA_SF_MIN = 5;
+constexpr uint8_t LORA_SF_MAX = 12;
+constexpr uint8_t LORA_SF_DEFAULT = 11; // LONG_FAST default
+
+// Valid LoRa coding rate range and default
+constexpr uint8_t LORA_CR_MIN = 4;
+constexpr uint8_t LORA_CR_MAX = 8;
+constexpr uint8_t LORA_CR_DEFAULT = 5; // LONG_FAST default
+
+// Default bandwidth in kHz (LONG_FAST)
+constexpr float LORA_BW_DEFAULT_KHZ = 250.0f;
+
+/// Clamp spread factor to the valid LoRa range [5, 12].
+/// Out-of-range values (including 0 from unset preset mode) return LORA_SF_DEFAULT.
+static inline uint8_t clampSpreadFactor(uint8_t sf)
+{
+    // We check for RF95 radios that are incompatible with Spreading Factors 5 and 6.
+    if (radioType == RF95_RADIO && (sf == 5 || sf == 6))
+        return LORA_SF_DEFAULT;
+
+    if (sf < LORA_SF_MIN || sf > LORA_SF_MAX)
+        return LORA_SF_DEFAULT;
+    return sf;
+}
+
+/// Clamp coding rate to the valid LoRa range [4, 8].
+/// Out-of-range values return LORA_CR_DEFAULT.
+static inline uint8_t clampCodingRate(uint8_t cr)
+{
+    if (cr < LORA_CR_MIN || cr > LORA_CR_MAX)
+        return LORA_CR_DEFAULT;
+    return cr;
+}
+
+/// Ensure bandwidth is positive. Non-positive values return LORA_BW_DEFAULT_KHZ.
+static inline float clampBandwidthKHz(float bwKHz)
+{
+    if (bwKHz <= 0.0f)
+        return LORA_BW_DEFAULT_KHZ;
+    return bwKHz;
+}
 
 static inline float bwCodeToKHz(uint16_t bwCode)
 {
