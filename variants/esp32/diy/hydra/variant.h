@@ -22,7 +22,12 @@
 #define USE_SX1268 // E22-400M30S uses SX1268
 #define SX126X_MAX_POWER                                                                                                         \
     22 // Outputting 22dBm from SX1262 results in ~30dBm E22-900M30S output (module only uses last stage of the YP2233W PA)
-#define SX126X_DIO3_TCXO_VOLTAGE 1.8 // E22 series TCXO reference voltage is 1.8V
+
+#ifdef EBYTE_E22
+// EBYTE E22: TCXO on DIO3 at 1.8 V (same convention as variants/esp32/diy/v1).
+#define SX126X_DIO3_TCXO_VOLTAGE 1.8
+#define TCXO_OPTIONAL
+#endif
 
 #define SX126X_CS 18    // EBYTE module's NSS pin
 #define SX126X_SCK 5    // EBYTE module's SCK pin
