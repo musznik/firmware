@@ -13,7 +13,10 @@
 #include "MeshService.h"
 #include "modules/RoutingModule.h"
 #if !MESHTASTIC_EXCLUDE_DTN && __has_include("modules/DtnOverlayModule.h")
-#include "modules/DtnOverlayModule.h" //fw+
+#include "modules/DtnOverlayModule.h" // fw+
+#endif
+#if HAS_TRAFFIC_MANAGEMENT
+#include "modules/TrafficManagementModule.h"
 #endif
 #if !MESHTASTIC_EXCLUDE_MQTT
 #include "mqtt/MQTT.h"
@@ -140,6 +143,20 @@ bool Router::shouldDecrementHopLimit(const meshtastic_MeshPacket *p)
     if (!localIsRouter) {
         return true;
     }
+
+#if HAS_TRAFFIC_MANAGEMENT
+    // When router_preserve_hops is enabled, preserve hops for decoded packets that are not
+    // position or telemetry (those have their own exhaust_hop controls).
+    if (moduleConfig.has_traffic_management && moduleConfig.traffic_management.enabled &&
+        moduleConfig.traffic_management.router_preserve_hops && p->which_payload_variant == meshtastic_MeshPacket_decoded_tag &&
+        p->decoded.portnum != meshtastic_PortNum_POSITION_APP && p->decoded.portnum != meshtastic_PortNum_TELEMETRY_APP) {
+        LOG_DEBUG("Router hop preserved: port=%d from=0x%08x (traffic_management)", p->decoded.portnum, getFrom(p));
+        if (trafficManagementModule) {
+            trafficManagementModule->recordRouterHopPreserved();
+        }
+        return false;
+    }
+#endif
 
     // For subsequent hops, check if previous relay is a favorite router
     // Optimized search for favorite routers with matching last byte
@@ -630,9 +647,9 @@ DecodeState perhapsDecode(meshtastic_MeshPacket *p)
                 meshtastic_Data decodedtmp;
                 memset(&decodedtmp, 0, sizeof(decodedtmp));
                 if (!pb_decode_from_bytes(bytes, rawSize, &meshtastic_Data_msg, &decodedtmp)) {
-                    LOG_ERROR("Invalid protobufs in received mesh packet id=0x%08x (bad psk?)!", p->id);
+                    LOG_DEBUG("Invalid protobufs in received mesh packet id=0x%08x (bad psk?)", p->id);
                 } else if (decodedtmp.portnum == meshtastic_PortNum_UNKNOWN_APP) {
-                    LOG_ERROR("Invalid portnum (bad psk?)!");
+                    LOG_DEBUG("Invalid portnum (bad psk?)");
 #if !(MESHTASTIC_EXCLUDE_PKI)
                 } else if (!owner.is_licensed && isToUs(p) && decodedtmp.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP) {
                     // fw+ Allow legacy (PSK) DMs when E2E PKI is not in use
@@ -1027,6 +1044,12 @@ void Router::perhapsHandleReceived(meshtastic_MeshPacket *p)
         LOG_DEBUG("Router: About to call NodeDB::updateFrom() for id=0x%x from=0x%x", p->id, p->from);
         nodeDB->updateFrom(*p);
         LOG_DEBUG("Router: NodeDB::updateFrom() completed for id=0x%x from=0x%x", p->id, p->from);
+    }
+
+    if (shouldDropPacketForPreHop(*p)) {
+        logHopStartDrop(*p, "pre-hop drop");
+        packetPool.release(p);
+        return;
     }
 
     if (shouldFilterReceived(p)) {

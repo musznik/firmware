@@ -7,6 +7,9 @@
 #if !MESHTASTIC_EXCLUDE_TRACEROUTE
 #include "modules/TraceRouteModule.h"
 #endif
+#if HAS_TRAFFIC_MANAGEMENT
+#include "modules/TrafficManagementModule.h"
+#endif
 #include "NodeDB.h"
 #include "MobilityOracle.h" //fw+
 
@@ -474,9 +477,12 @@ void NextHopRouter::sniffReceived(const meshtastic_MeshPacket *p, const meshtast
             if (origTx) {
                 // Either relayer of ACK was also a relayer of the packet, or we were the *only* relayer and the ACK came
                 // directly from the destination
-                bool wasAlreadyRelayer = wasRelayer(p->relay_node, p->decoded.request_id, p->to);
+                // Single lookup for both relayer checks on the same (request_id, to) pair
+                bool wasAlreadyRelayer = false;
                 bool weWereSoleRelayer = false;
-                bool weWereRelayer = wasRelayer(ourRelayID, p->decoded.request_id, p->to, &weWereSoleRelayer);
+                bool weWereRelayer = false;
+                checkRelayers(p->relay_node, ourRelayID, p->decoded.request_id, p->to, &wasAlreadyRelayer, &weWereRelayer,
+                              &weWereSoleRelayer);
                 if ((weWereRelayer && wasAlreadyRelayer) || (getHopsAway(*p) == 0 && weWereSoleRelayer)) {
                     if (origTx->next_hop != p->relay_node) { // Not already set
                         LOG_INFO("Update next hop of 0x%x to 0x%x based on ACK/reply (was relayer %d we were sole %d)", p->from,
@@ -642,25 +648,35 @@ bool NextHopRouter::sendTracerouteTo(uint32_t dest)
     return true;
 }
 
-//fw+ Check if we should be rebroadcasting this packet (with HeardAssist throttle and retrans pool)
+// fw+ Check if we should be rebroadcasting this packet (with HeardAssist throttle and retrans pool)
 bool NextHopRouter::perhapsRebroadcast(const meshtastic_MeshPacket *p)
 {
-    //fw+
-    if (!isToUs(p) && (p->hop_limit <= 0) && !isFromUs(p)) {
+    bool exhaustHops = false;
+#if HAS_TRAFFIC_MANAGEMENT
+    if (trafficManagementModule && trafficManagementModule->shouldExhaustHops(*p)) {
+        exhaustHops = true;
+    }
+#endif
+
+    // fw+
+    if (!isToUs(p) && (p->hop_limit <= 0) && !isFromUs(p) && !exhaustHops) {
         blocked_by_hoplimit++;
     }
 
-    if (!isToUs(p) && !isFromUs(p) && p->hop_limit > 0) {
-        //fw+ Optional throttle for text broadcasts based on HeardAssist
-        if (p->which_payload_variant == meshtastic_MeshPacket_decoded_tag && p->decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP) {
+    // Allow rebroadcast if hop_limit > 0 OR if we're exhausting hops (one relay with hop_limit = 0)
+    if (!isToUs(p) && !isFromUs(p) && (p->hop_limit > 0 || exhaustHops)) {
+        // fw+ Optional throttle for text broadcasts based on HeardAssist (only when hops remain)
+        if (p->hop_limit > 0 && p->which_payload_variant == meshtastic_MeshPacket_decoded_tag &&
+            p->decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP) {
             uint32_t jitter = 0;
             if (shouldRelayTextWithThrottle(p, jitter)) {
-                // delay relay by jitter
                 meshtastic_MeshPacket *tosend = retransPacketPool.allocCopy(*p);
-                if (!tosend) tosend = packetPool.allocCopy(*p);
+                if (!tosend)
+                    tosend = packetPool.allocCopy(*p);
                 if (tosend) {
                     tosend->hop_limit--;
-                    if (jitter) tosend->tx_after = millis() + jitter;
+                    if (jitter)
+                        tosend->tx_after = millis() + jitter;
                     NextHopRouter::send(tosend);
                 } else {
                     LOG_WARN("Pool exhausted; skipping throttled relay");
@@ -670,18 +686,20 @@ bool NextHopRouter::perhapsRebroadcast(const meshtastic_MeshPacket *p)
                 return false; // suppressed by throttle
             }
         }
-        // Check if packet has next_hop not set OR addressed to us
         if (p->id != 0) {
             if (isRebroadcaster()) {
                 if (p->next_hop == NO_NEXT_HOP_PREFERENCE || p->next_hop == nodeDB->getLastByteOfNodeNum(getNodeNum())) {
-                    //fw+ use retrans pool first; preserve hop_limit when policy dictates
+                    // fw+ use retrans pool first; preserve hop_limit when policy dictates
                     meshtastic_MeshPacket *tosend = retransPacketPool.allocCopy(*p);
-                    if (!tosend) tosend = packetPool.allocCopy(*p);
+                    if (!tosend)
+                        tosend = packetPool.allocCopy(*p);
                     if (tosend) {
                         LOG_INFO("Rebroadcast received message coming from %x", p->relay_node);
-                        
-                        // Use shared logic to determine if hop_limit should be decremented
-                        if (shouldDecrementHopLimit(p)) {
+
+                        if (exhaustHops) {
+                            tosend->hop_limit = 0;
+                            LOG_INFO("Traffic management: exhausting hops for 0x%08x, setting hop_limit=0", getFrom(p));
+                        } else if (shouldDecrementHopLimit(p)) {
                             tosend->hop_limit--; // bump down the hop count
                         } else {
                             LOG_INFO("favorite-ROUTER/CLIENT_BASE-to-ROUTER/CLIENT_BASE rebroadcast: preserving hop_limit");
