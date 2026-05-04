@@ -1136,7 +1136,7 @@ void scannerToSensorsMap(const std::unique_ptr<ScanI2CTwoWire> &i2cScanner, Scan
 void startBusy()
 {
     if (++g_busyCounter == 1) {
-        g_lastBusyStartUs = micros();
+        g_lastBusyStartUs = (uint32_t)micros();
         g_isBusy = true;
     }
 }
@@ -1149,8 +1149,8 @@ void endBusy()
     }
 
     if (--g_busyCounter == 0) {
-        uint64_t now = micros();
-        g_totalBusyTimeUs += (now - g_lastBusyStartUs);
+        const uint32_t now = (uint32_t)micros();
+        g_totalBusyTimeUs += (uint64_t)(now - g_lastBusyStartUs);
         g_isBusy = false;
     }
 }
@@ -1158,8 +1158,8 @@ void endBusy()
 uint64_t getTotalBusyTimeUs()
 {
     if (g_isBusy) {
-        uint64_t now = micros();
-        return g_totalBusyTimeUs + (now - g_lastBusyStartUs);
+        const uint32_t now = (uint32_t)micros();
+        return g_totalBusyTimeUs + (uint64_t)(now - g_lastBusyStartUs);
     } else {
         return g_totalBusyTimeUs;
     }
@@ -1168,8 +1168,14 @@ uint64_t getTotalBusyTimeUs()
 void updateCpuUsageStats()
 {
     uint64_t currentBusy = getTotalBusyTimeUs();
-    uint64_t deltaUs     = currentBusy - lastBusyUs;
-    lastBusyUs           = currentBusy;
+    uint64_t deltaUs = currentBusy - lastBusyUs;
+    lastBusyUs = currentBusy;
+
+    // One sample should represent ~1s of wall time; clamp pathological values (e.g. stalled tick).
+    const uint64_t maxReasonableBusyUsPerSample = 5ULL * 1000000ULL;
+    if (deltaUs > maxReasonableBusyUsPerSample) {
+        deltaUs = maxReasonableBusyUsPerSample;
+    }
 
     busyHistory[currentIndex] = deltaUs;
     currentIndex = (currentIndex + 1) % 60;
@@ -1179,7 +1185,11 @@ void updateCpuUsageStats()
         sumBusyUs += busyHistory[i];
     }
 
-    CpuHwUsagePercent = ( (float)sumBusyUs / (60.0f * 1000000.0f) ) * 100.0f;
+    float pct = ((float)sumBusyUs / (60.0f * 1000000.0f)) * 100.0f;
+    if (pct > 100.0f) {
+        pct = 100.0f;
+    }
+    CpuHwUsagePercent = (uint32_t)pct;
 }
 
 #ifndef PIO_UNIT_TESTING
