@@ -889,14 +889,19 @@ void Router::handleReceived(meshtastic_MeshPacket *p, RxSource src)
     // Also, we should set the time from the ISR and it should have msec level resolution
     p->rx_time = getValidTime(RTCQualityFromNet); // store the arrival timestamp for the phone
 
-    // Store a copy of the encrypted packet for MQTT.
-    // Local, not a class member: handleReceived re-enters itself when a module
-    // reply broadcast goes through MeshService::sendToMesh -> Router::sendLocal,
-    // and a member would be silently overwritten without release on the inner
-    // call. Each invocation now owns its own copy (issue #9632, #10101, #8729).
-    DEBUG_HEAP_BEFORE;
-    meshtastic_MeshPacket *p_encrypted = packetPool.allocCopy(*p);
-    DEBUG_HEAP_AFTER("Router::handleReceived", p_encrypted);
+    // Snapshot of the encrypted packet for MQTT only. Skip alloc when MQTT is off — every RX was
+    // malloc/free'ing a full MeshPacket (~hundreds of bytes) and fragmenting heap on busy RF (issue #9632, #10101, #8729).
+    meshtastic_MeshPacket *p_encrypted = nullptr;
+#if !MESHTASTIC_EXCLUDE_MQTT
+    if (moduleConfig.mqtt.enabled && mqtt) {
+        DEBUG_HEAP_BEFORE;
+        p_encrypted = packetPool.allocCopy(*p);
+        DEBUG_HEAP_AFTER("Router::handleReceived", p_encrypted);
+        if (!p_encrypted) {
+            LOG_WARN("Failed to allocate encrypted packet copy for MQTT, skipping publish path");
+        }
+    }
+#endif
 
     // Take those raw bytes and convert them back into a well structured protobuf we can understand
     auto decodedState = perhapsDecode(p);
@@ -953,9 +958,7 @@ void Router::handleReceived(meshtastic_MeshPacket *p, RxSource src)
         MeshModule::callModules(*p, src);
 
 #if !MESHTASTIC_EXCLUDE_MQTT
-        if (p_encrypted == nullptr) {
-            LOG_WARN("p_encrypted is null, skipping MQTT publish");
-        } else {
+        if (p_encrypted) {
             // Mark as pki_encrypted if it is not yet decoded and MQTT encryption is also enabled, hash matches and it's a DM not
             // to us (because we would be able to decrypt it)
             if (decodedState == DecodeState::DECODE_FAILURE && moduleConfig.mqtt.encryption_enabled && p->channel == 0x00 &&
@@ -969,7 +972,7 @@ void Router::handleReceived(meshtastic_MeshPacket *p, RxSource src)
             bool suppressLocalDecodedText = (!isFromUs(p) && isPrivateText && fromLocalOrUdp);
             // After potentially altering it, publish received message to MQTT if we're not the original transmitter of the packet
             if (!suppressLocalDecodedText && (decodedState == DecodeState::DECODE_SUCCESS || p_encrypted->pki_encrypted) &&
-                moduleConfig.mqtt.enabled && !isFromUs(p) && mqtt) {
+                !isFromUs(p) && mqtt) {
                 // Upstream fix: TRACEROUTE_APP packets can be altered after decode; re-encrypt for MQTT when MQTT encryption is on
                 if (decodedState == DecodeState::DECODE_SUCCESS && p->decoded.portnum == meshtastic_PortNum_TRACEROUTE_APP &&
                     moduleConfig.mqtt.encryption_enabled) {
