@@ -31,8 +31,19 @@ int32_t StreamAPI::runOncePart(char *buf, uint16_t bufLen)
 int32_t StreamAPI::readStream(const char *buf, uint16_t bufLen)
 {
     if (bufLen < 1) {
-        // Nothing available this time, if the computer has talked to us recently, poll often, otherwise let CPU sleep a long time
-        bool recentRx = Throttle::isWithinTimespanMs(lastRxMsec, 2000);
+        // Nothing available this time.
+        //
+        // If the computer has talked to us recently, poll often; otherwise let CPU sleep longer.
+        //
+        // Special case: TCP clients (notably Python CLI) can pause TX while waiting for
+        // "connection completion". During the config handshake we may still have a large
+        // amount of outgoing data (nodeinfos). Poll frequently so we can drain TX even
+        // without continuous RX traffic (Android tends to keep RX active via heartbeats).
+        const bool tcp = (api_type == TYPE_WIFI || api_type == TYPE_ETH);
+        if (tcp && isConnected() && !isSendingPackets() && available())
+            return 5;
+
+        const bool recentRx = Throttle::isWithinTimespanMs(lastRxMsec, 2000);
         return recentRx ? 5 : 250;
     } else {
         handleRecStream(buf, bufLen);
@@ -48,12 +59,26 @@ int32_t StreamAPI::readStream(const char *buf, uint16_t bufLen)
 void StreamAPI::writeStream()
 {
     if (canWrite) {
-        uint32_t len;
-        do {
-            // Send every packet we can
-            len = getFromRadio(txBuf + HEADER_LEN);
-            emitTxBuffer(len);
-        } while (len);
+        const uint32_t now = millis();
+        if (writeBackoffUntilMs != 0 && now < writeBackoffUntilMs) {
+            // Still backing off from a previous short/failed write.
+            return;
+        }
+
+        // For TCP transports, keep burst size small to avoid lwIP buffer bloat if
+        // the host is slow to read (Python CLI can stall reads during handshake).
+        const uint32_t maxPacketsPerRun = (api_type == TYPE_WIFI || api_type == TYPE_ETH) ? 1 : UINT32_MAX;
+
+        for (uint32_t sent = 0; sent < maxPacketsPerRun; sent++) {
+            const uint32_t len = getFromRadio(txBuf + HEADER_LEN);
+            const bool ok = emitTxBuffer(len);
+            if (!ok) {
+                // If we hit backpressure, stop generating more packets this cycle.
+                break;
+            }
+            if (len == 0)
+                break;
+        }
     }
 }
 
@@ -112,8 +137,14 @@ int32_t StreamAPI::handleRecStream(const char *buf, uint16_t bufLen)
 int32_t StreamAPI::readStream()
 {
     if (!stream->available()) {
-        // Nothing available this time, if the computer has talked to us recently, poll often, otherwise let CPU sleep a long time
-        bool recentRx = Throttle::isWithinTimespanMs(lastRxMsec, 2000);
+        // Nothing available this time.
+        //
+        // See `readStream(buf, len)` for why we poll more often for TCP during config.
+        const bool tcp = (api_type == TYPE_WIFI || api_type == TYPE_ETH);
+        if (tcp && isConnected() && !isSendingPackets() && available())
+            return 5;
+
+        const bool recentRx = Throttle::isWithinTimespanMs(lastRxMsec, 2000);
         return recentRx ? 5 : 250;
     } else {
         while (stream->available()) { // Currently we never want to block
@@ -169,22 +200,45 @@ int32_t StreamAPI::readStream()
 /**
  * Send the current txBuffer over our stream
  */
-void StreamAPI::emitTxBuffer(size_t len)
+bool StreamAPI::emitTxBuffer(size_t len)
 {
-    if (len != 0) {
-        txBuf[0] = START1;
-        txBuf[1] = START2;
-        txBuf[2] = (len >> 8) & 0xff;
-        txBuf[3] = len & 0xff;
+    if (len == 0)
+        return true;
 
-        auto totalLen = len + HEADER_LEN;
-        // Serialize stream writes against `emitLogRecord` so a LOG_ firing
-        // mid-packet-emission can't interleave bytes on the wire.
-        concurrency::LockGuard guard(&streamLock);
-        stream->write(txBuf, totalLen);
-        if (shouldFlushStreamWrites()) //fw+
-            stream->flush();
+    txBuf[0] = START1;
+    txBuf[1] = START2;
+    txBuf[2] = (len >> 8) & 0xff;
+    txBuf[3] = len & 0xff;
+
+    const size_t totalLen = len + HEADER_LEN;
+    // Serialize stream writes against `emitLogRecord` so a LOG_ firing
+    // mid-packet-emission can't interleave bytes on the wire.
+    concurrency::LockGuard guard(&streamLock);
+    const size_t written = stream->write(txBuf, totalLen);
+
+    if (written != totalLen) {
+        consecutiveWriteFails++;
+        // Back off to let TCP buffers drain; on ESP32 WiFiClient.write()
+        // can return 0 with errno=EAGAIN under load.
+        writeBackoffUntilMs = millis() + 50;
+
+        if (consecutiveWriteFails >= 10) {
+            LOG_WARN("API stream write stalled (%u/%u), closing connection", (unsigned)written, (unsigned)totalLen);
+            close(); // virtual: for TCP this also drops the socket
+        }
+        return false;
     }
+
+    consecutiveWriteFails = 0;
+    // For TCP, add a small pacing delay even on success to reduce the chance
+    // of buffering a large initial sync (nodeinfos) into lwIP.
+    if (api_type == TYPE_WIFI || api_type == TYPE_ETH)
+        writeBackoffUntilMs = millis() + 5;
+    else
+        writeBackoffUntilMs = 0;
+    if (shouldFlushStreamWrites()) //fw+
+        stream->flush();
+    return true;
 }
 
 void StreamAPI::emitRebooted()
@@ -195,7 +249,8 @@ void StreamAPI::emitRebooted()
     fromRadioScratch.rebooted = true;
 
     // LOG_DEBUG("Emitting reboot packet for serial shell");
-    emitTxBuffer(pb_encode_to_bytes(txBuf + HEADER_LEN, meshtastic_FromRadio_size, &meshtastic_FromRadio_msg, &fromRadioScratch));
+    (void)emitTxBuffer(
+        pb_encode_to_bytes(txBuf + HEADER_LEN, meshtastic_FromRadio_size, &meshtastic_FromRadio_msg, &fromRadioScratch));
 }
 
 void StreamAPI::emitLogRecord(meshtastic_LogRecord_Level level, const char *src, const char *format, va_list arg)

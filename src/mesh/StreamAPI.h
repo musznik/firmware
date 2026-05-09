@@ -82,12 +82,18 @@ class StreamAPI : public PhoneAPI
     virtual bool shouldFlushStreamWrites() const { return true; }
 
     /**
-     * Send the current txBuffer over our stream
+     * Send the current txBuffer over our stream.
+     * @return true if all bytes were written.
      */
-    void emitTxBuffer(size_t len);
+    bool emitTxBuffer(size_t len);
 
     /// Are we allowed to write packets to our output stream (subclasses can turn this off - i.e. SerialConsole)
     bool canWrite = true;
+
+    /// Backoff window after a short/failed write (TCP backpressure).
+    uint32_t writeBackoffUntilMs = 0;
+    /// Consecutive framed write failures (short write or zero).
+    uint8_t consecutiveWriteFails = 0;
 
     /// Subclasses can use this scratch buffer if they wish
     uint8_t txBuf[MAX_STREAM_BUF_SIZE] = {0};
